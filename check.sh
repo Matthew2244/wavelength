@@ -46,9 +46,9 @@ PY
 then FAIL=1; fi
 
 echo
-echo "AppleScript compiles"
+echo "The classic dialog app (legacy/) still compiles"
 TMPAPP="$(mktemp -d)/t.app"
-if osacompile -o "$TMPAPP" "$HERE/MediaDownload.applescript" 2>/tmp/osa.err; then
+if osacompile -o "$TMPAPP" "$HERE/legacy/MediaDownload.applescript" 2>/tmp/osa.err; then
   ok "MediaDownload.applescript"
   rm -rf "$TMPAPP"
 else
@@ -57,10 +57,10 @@ else
 fi
 
 echo
-echo "Dialog accessibility"
+echo "Classic app dialog accessibility"
 if ! python3 - "$HERE" <<'PY'
 import re, sys, os
-src = open(os.path.join(sys.argv[1], "MediaDownload.applescript")).read()
+src = open(os.path.join(sys.argv[1], "legacy", "MediaDownload.applescript")).read()
 body = "\n".join(l for l in src.split("\n") if not l.strip().startswith("--"))
 
 # A button that is both default and cancel makes Escape do nothing — measured,
@@ -83,6 +83,45 @@ print("  %s every list offers a Back item%s"
       % ("ok   " if not noback else "FAIL ", "" if not noback else " — missing in %d" % len(noback)))
 sys.exit(1 if (dead or noback) else 0)
 PY
+then FAIL=1; fi
+
+echo
+echo "The Media Download app"
+PY="$HERE/.venv/bin/python"
+[ -x "$PY" ] || PY=python3
+if "$PY" -m pytest -q "$HERE/tests" >/tmp/md-pytest.txt 2>&1; then
+  ok "tests: $(tail -1 /tmp/md-pytest.txt)"
+else
+  bad "tests failed"
+  tail -15 /tmp/md-pytest.txt
+fi
+if (cd "$HERE" && "$PY" -m media_download --self-test) >/tmp/md-self.txt 2>&1 && grep -q " OK" /tmp/md-self.txt; then
+  ok "self-test: $(tail -1 /tmp/md-self.txt)"
+else
+  bad "self-test: $(tail -1 /tmp/md-self.txt)"
+fi
+if ! "$PY" - "$HERE" <<'PYEOF'
+import os, re, sys
+here = sys.argv[1]
+src = "".join(open(os.path.join(here, "media_download", f)).read() for f in ("gui.py", "dialogs.py"))
+problems = []
+# macOS gives Escape only to a button titled exactly "Cancel" in a message dialog.
+for m in re.finditer(r'SetOKCancelLabels\(([^)]*)\)', src):
+    if not m.group(1).rstrip().endswith('"Cancel"'):
+        problems.append("message dialog whose cancel button isn't titled Cancel: " + m.group(1))
+# Every custom dialog must close with Escape.
+for m in re.finditer(r"class (\w+)\(wx\.Dialog\):(.*?)(?=\nclass |\ndef |\Z)", src, re.S):
+    if "SetEscapeId(wx.ID_CANCEL)" not in m.group(2) and "buttons(self" not in m.group(2):
+        problems.append("dialog %s has no Escape button" % m.group(1))
+# Every control the window shows must have a spoken name or be a labelled button.
+for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details"):
+    if "mac_accessibility_label(%s," % ctrl not in src:
+        problems.append("%s has no spoken name" % ctrl)
+for p in problems:
+    print("  FAIL  " + p)
+print("  ok    dialogs close with Escape, controls are named" if not problems else "")
+sys.exit(1 if problems else 0)
+PYEOF
 then FAIL=1; fi
 
 echo
