@@ -13,6 +13,12 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
+**Where it stands (2026-10-13):** 2.4.4 is the latest release, signed and
+notarized on the Mac, with both appcasts serving it. The Studio was on 2.4.2
+and the MacBook on 2.4.1 at release; Sparkle offers each the update, so check
+`CFBundleShortVersionString` before assuming. No person has tried the Windows
+build yet: NVDA first, then the installer, WinSparkle and the sounds.
+
 Downloads go to **Downloads > Media Downloads on the computer itself** by default,
 Mac and Windows (`engine.default_folder`; Windows asks for the real Downloads
 folder with SHGetKnownFolderPath). Never a cloud folder by default (Matthew,
