@@ -280,6 +280,10 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **2.4.6** (2026-10-13): Stop now retires the run (`job.run += 1`): a quick
+  Retry during a lookup used to let the killed lookup call the retry Failed
+  (CI caught it once; `test_a_killed_lookup_never_fails_its_retry` catches it
+  every time). 2.4.5 was tagged but never signed or offered; 2.4.6 carries it.
 - **2.4.5** (2026-10-13): the stuck-window fix above. A real off-screen window
   with Search open and the player playing quits on Command-Q in 3 s with no
   window left; Command-W in Search closes only Search; Quit from the player's

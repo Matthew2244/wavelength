@@ -235,7 +235,7 @@ def test_stop_and_retry_hammered_never_strands_a_download(fake):
             wait(lambda: j.state in ("downloading", "converting", "done"), 5)
             m.stop(j)
             m.retry(j)
-    assert wait(lambda: all(j.state == "done" for j in jobs), 40), [j.state for j in jobs]
+    assert wait(lambda: all(j.state == "done" for j in jobs), 40), [(j.state, j.reason) for j in jobs]
     assert not m.procs
 
 
@@ -467,3 +467,20 @@ def test_playlist_folders_are_found_where_they_are_really_made(monkeypatch):
     short = options.name_budget({"dest": "C:\\Users\\a\\Downloads", "tmp": "job-1"})
     deep = options.name_budget({"dest": "D:\\" + "x" * 150, "tmp": "job-1"})
     assert 60 <= deep < short <= 150
+
+
+def test_a_killed_lookup_never_fails_its_retry(fake, monkeypatch):
+    """Stop then Retry during a lookup puts the row back to "looking" before the killed lookup's
+    thread finishes; that thread must see it's stale, not call the retry a failure."""
+    m, _ = fake
+    j = m.add(Job(url="https://k.com/slowprobe", dest="/tmp"))
+    assert wait(lambda: j.id in m.procs and m.procs[j.id][1] is not None, 5)
+    pump = m.pump
+    monkeypatch.setattr(m, "pump", lambda: None)  # hold the retry at "looking", as a busy queue does
+    m.stop(j)
+    m.retry(j)
+    time.sleep(1.5)  # the killed lookup reports back
+    assert j.state == "looking", (j.state, j.reason)
+    monkeypatch.setattr(m, "pump", pump)
+    m.pump()
+    assert wait(lambda: j.state == "done", 20), (j.state, j.reason)

@@ -14,6 +14,8 @@ def emit(ev, **d):
 
 url = task.get("spec", {}).get("url", "")
 if task["task"] == "probe":
+    if "slowprobe" in url:
+        time.sleep(3)
     if "playlist" in url:
         emit("playlist", title="Set", entries=[{"url": "https://ex.com/%d" % i, "title": "Item %d" % i}
                                                 for i in range(1, 4)])

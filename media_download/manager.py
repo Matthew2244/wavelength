@@ -186,6 +186,10 @@ class Manager:
                 job.state = "stopped"
                 job.stage = ""
                 job.reason = "Stopped by you."
+                # Whatever this run's thread says from now on is stale. Without this, a quick
+                # Retry put a lookup back to "looking" under the same run number, and the
+                # killed lookup's thread, finishing late, called the retry a failure.
+                job.run += 1
                 self.dirty = True
         if proc:
             _kill(proc)
