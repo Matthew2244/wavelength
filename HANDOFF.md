@@ -156,6 +156,10 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 - Get Helper Tools for real (sandbox, 6 s, ~95 MB): ffmpeg 9.0.2, ffprobe,
   deno 2.9.7, each signature-checked; then a YouTube video downloaded with
   only those, Homebrew hidden.
+- **First real Sparkle update** (2026-10-13): the Studio's 2.1.0 found 2.1.1 on
+  GitHub, Install Update, Install and Relaunch, running 2.1.1 seconds later,
+  Gatekeeper-accepted, signature intact. The MacBook (2.1.0) was left for
+  Sparkle's own daily check to offer it; whether it did is worth a look.
 - Sparkle rehearsal (2026-10-13), signed test copies 2.1.0 to 2.1.1 from a
   local feed: VoiceOver reads the window ("A new version of Media Download is
   available", the version sentence, the release notes as a list), Tab reaches
@@ -179,8 +183,6 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Not done
 
-- The MacBook is still on 2.0.0. Its daily check will offer 2.0.1; Help,
-  Check for App Updates, Install takes it.
 - **Windows has not been tried by a person.** Speech there goes through Prism
   (`prismatoid`, MPL-2.0, bundles NVDA's controller client, LGPL): the first
   running reader of NVDA, JAWS, ZDSR, System Access, ZoomText, Sense Reader,
