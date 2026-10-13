@@ -80,11 +80,13 @@ MP3, M4A, Opus, FLAC, MP4, a direct M4A stream URL, YouTube's HLS master
 playlist with picture and sound, an Icecast radio stream), WMP10 on Windows.
 Links go through the worker's `stream` task first: video on the Mac takes the
 HLS master playlist (YouTube no longer offers combined MP4), audio takes M4A/
-MP3; it returns English caption cues too. No duration from the site means live:
+MP3; it returns English caption cues too. Links the stream task finds to be lists (album, playlist, feed) are listed with
+the probe task and queued item by item, each with the list's own title. No
+duration from the site means live:
 the Mac's player invents a length for live radio (18 hours). Positions per item
 in `positions.json` (not the first or last 30 s); speed, volume, captions,
 skip length in settings (`app_*`). Plain keys come through `EVT_CHAR_HOOK` and
-are written into the Playback menu's names. The video picture is drawn by the
+are written into the Playback menu's names; Tab is handled there too. The video picture is drawn by the
 GPU, so `tools/snap.py` draws it black; test playback by state, not pictures.
 Test the player muted (`app_volume` 0) at night.
 
@@ -175,6 +177,18 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **Player, with VoiceOver** (2026-10-13, 2.3.2): Command-Shift-Return from the
+  link opens it ("Loading: Player window, Play button"); T, Right, ], C, Space
+  and Escape all work and speak. It found a **keyboard trap**: wx's Tab stuck
+  on Speed because the volume slider refuses focus; the player now keeps its
+  own Tab order (`PlayerFrame._tab`) and skips controls that won't take focus.
+  And **AVFoundation reports YouTube streams at twice their length** (38 s for
+  19 s): the site's duration wins (`item["duration"]`).
+- Player off-screen and muted: files (Opus with captions, MP4), YouTube video
+  with captions, SoundCloud, live radio (no site length = live), a whole
+  archive.org album and a 355-episode podcast (feed or Apple show link) played
+  as a queue, a dead link explained. A podcast feed used to take 3 minutes to
+  fail as one item; the stream task now asks "is this a list?" first (0.9 s).
 - `tools/train.py`, 23 of 23 (2026-10-13, 2.2.0): the 19 below plus a
   transcript, an NPR podcast feed, an Apple Podcasts show link and Spotify's
   DRM refusal.
@@ -224,10 +238,10 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Not done
 
-- **The player hasn't been driven with VoiceOver yet**, only tested off-screen
-  muted (files, YouTube video with captions, SoundCloud, live radio, skip,
-  speed, pause, queue, sleep timer). Next session with the Mac free: tab
-  through it, and check Space and the arrows when focus is on each control.
+- **The two player sliders can't take keyboard focus on the Mac** (wx won't
+  give an NSSlider first responder; `_tab` skips them). Position has the arrows,
+  Shift-arrows, T and Back/Forward; volume has Command-Up/Down; VoiceOver's own
+  cursor reaches both. A focusable custom control would be the real fix.
 - Windows can't play HLS, so YouTube video on Windows plays after downloading.
 
 - **Windows has not been tried by a person.** Speech there goes through Prism

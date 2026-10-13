@@ -302,6 +302,7 @@ class PlayerFrame(wx.Frame):
         self.index = k
         self.item = self.queue[k]
         self.loaded = False
+        self.load_started = 0.0  # the "didn't start" clock belongs to this item, not the last one
         self.length = 0.0
         self.cues = []
         self.caption.SetLabel("")
@@ -337,6 +338,13 @@ class PlayerFrame(wx.Frame):
     def _resolved(self, item, found):
         if not self or item is not self.item:
             return  # moved on meanwhile
+        if not found.get("url") and not item.get("tried_list"):
+            # Perhaps a playlist, an album or a podcast feed: list it and play its items in turn.
+            item["tried_list"] = True
+            item["first_log"] = found.get("log", [])  # the real reason, if it isn't a list either
+            self.status("Looking for a list of items in that link.")
+            threading.Thread(target=self._list, args=(item,), daemon=True).start()
+            return
         if not found.get("url"):
             reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]))
             if any("NOPLAYABLE" in x for x in found.get("log", [])):
@@ -345,7 +353,9 @@ class PlayerFrame(wx.Frame):
             return
         # No length from the site means a live stream (radio, a broadcast): the Mac's player
         # makes up a length for those (18 hours for an internet radio station).
-        item.update(play_url=found["url"], title=found.get("title") or item.get("title"),
+        # A list's own title for an item ("Turning") beats the item page's ("gd1977-05-08d01t01").
+        item.update(play_url=found["url"], title=item.get("title") or found.get("title"),
+                    duration=found.get("duration") or item.get("duration") or 0,
                     uploader=found.get("uploader") or item.get("uploader"),
                     live=bool(found.get("is_live") or not found.get("duration")), got=found.get("want"))
         self.cues = [tuple(c) for c in found.get("cues") or []]
@@ -354,6 +364,29 @@ class PlayerFrame(wx.Frame):
         self.SetTitle("%s: Player" % item["title"])
         self._fill_queue()
         self._load(found["url"], local=False)
+
+    def _list(self, item):
+        got = {}
+
+        def on(ev):
+            if ev.get("ev") == "playlist":
+                got.update(ev)
+        run_task({"task": "probe", "spec": {"url": item["url"], "dest": engine.TEMP, "kind": "best"}}, on,
+                 timeout=180)
+        wx.CallAfter(self._listed, item, got)
+
+    def _listed(self, item, got):
+        if not self or item is not self.item:
+            return
+        entries = got.get("entries") or []
+        if not entries:
+            self._resolved(item, {"log": item.get("first_log") or ["NOPLAYABLE"]})
+            return
+        new = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
+                "want": item.get("want", "audio"), "tried_list": True} for e in entries]
+        self.queue[self.index:self.index + 1] = new
+        self.say("%s: %s. Playing them in turn." % (got.get("title") or "A list", words.n(len(new), "item")))
+        self.play_index(self.index)
 
     def _load(self, target: str, local: bool):
         self.load_started = time.time()
@@ -375,7 +408,9 @@ class PlayerFrame(wx.Frame):
         if self.loaded or not self.item:
             return
         self.loaded = True
-        self.length = max(0.0, self.media.Length() / 1000.0)
+        # The site's own length when there is one: AVFoundation reported YouTube streams at
+        # twice their length (38 seconds for 19).
+        self.length = float(self.item.get("duration") or 0) or max(0.0, self.media.Length() / 1000.0)
         live = self.item.get("live") or self.length <= 0
         self.slider.Enable(not live)
         self.slider.SetRange(0, max(1, int(self.length)))
@@ -606,6 +641,11 @@ class PlayerFrame(wx.Frame):
         """Plain keys for playing: Space, arrows, T, C, [ and ]. Not while typing or in the queue."""
         focus = self.FindFocus()
         key = event.GetKeyCode()
+        if key == wx.WXK_TAB and not event.ControlDown():
+            # wx's own Tab stopped dead at the Speed menu on the Mac (it couldn't move onto the
+            # volume slider), trapping the keyboard. So the player keeps its own order.
+            self._tab(-1 if event.ShiftDown() else 1, focus)
+            return
         if isinstance(focus, wx.TextCtrl) or (focus is self.qlist and key in (wx.WXK_UP, wx.WXK_DOWN,
                                                                                 wx.WXK_RETURN, wx.WXK_SPACE)):
             event.Skip()
@@ -635,6 +675,19 @@ class PlayerFrame(wx.Frame):
             self.Close()
         else:
             event.Skip()
+
+    def _tab(self, step: int, focus):
+        order = [c for c in (self.slider, self.prev_btn, self.back_btn, self.play_btn, self.fwd_btn,
+                             self.next_btn, self.speed_choice, self.volume, self.download_btn, self.show_btn,
+                             self.qlist) if c.IsShown() and c.IsEnabled()]
+        if not order:
+            return
+        k = order.index(focus) if focus in order else (-1 if step > 0 else 0)
+        for n in range(1, len(order) + 1):
+            target = order[(k + step * n) % len(order)]
+            target.SetFocus()
+            if self.FindFocus() is target:
+                return  # some controls won't take focus on the Mac (the volume slider): skip them
 
     def say(self, text: str):
         self.status(text)

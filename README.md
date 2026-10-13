@@ -51,6 +51,7 @@ While anything is downloading, the Dock icon shows how many (on Windows, the tas
 Media Download plays things too: what you've downloaded, and links you haven't.
 
 - **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
+- **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
 - **Play what you've downloaded:** select a row and press Play (Command-P), or Play All Finished (Command-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
 - **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from half to double, without changing pitch. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. Escape closes the player. All of it is also in the Playback menu.
 - **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.

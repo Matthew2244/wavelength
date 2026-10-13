@@ -429,7 +429,7 @@ class PlaylistQuestion(wx.Dialog):
 class Search(wx.Dialog):
     """Search a site by words and tick what to download, without visiting the site."""
 
-    def __init__(self, parent, query: str, site: str, run_search, play=None):
+    def __init__(self, parent, query: str, site: str, run_search, play=None, player=None):
         super().__init__(parent, title="Search", size=(760, 600), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.run_search = run_search
         self.results = []
@@ -457,10 +457,14 @@ class Search(wx.Dialog):
         brow, self.ok, _ = buttons(self, "Download Ticked", "Close")
         self.ok.Disable()
         self.play = play
+        self.get_player = player or (lambda: None)
         if play:
             self.play_btn = wx.Button(self, label="Play Selected")
             self.play_btn.SetToolTip("Listen to the selected result without downloading it, to check it's the "
-                                     "right one. The search stays open.")
+                                     "right one; press again to pause (%s-P). The search stays open."
+                                     % ("Command" if sys.platform == "darwin" else "Control"))
+            self.SetAcceleratorTable(wx.AcceleratorTable([(wx.ACCEL_CTRL, ord("P"), self.play_btn.GetId())]))
+            self.list.Bind(wx.EVT_LISTBOX, lambda e: self._preview_label())
             brow.Insert(1, self.play_btn, 0, wx.ALL, 6)
             self.play_btn.Bind(wx.EVT_BUTTON, self.on_play)
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
@@ -526,9 +530,30 @@ class Search(wx.Dialog):
     def chosen(self):
         return [self.results[i] for i in self.list.GetCheckedItems()]
 
+    def _previewing(self):
+        """The player, if it's on the selected result."""
+        i = self.list.GetSelection()
+        pl = self.get_player()
+        if pl and pl.item and 0 <= i < len(self.results) and pl.item.get("url") == self.results[i]["url"]:
+            return pl
+        return None
+
+    def _preview_label(self):
+        pl = self._previewing()
+        self.play_btn.SetLabel("Pause Preview" if pl and pl.loaded and pl.playing() else "Play Selected")
+        self.Layout()
+
     def on_play(self, _):
+        """Play the selected result; press again to pause. The Search window keeps the keyboard
+        while it's open, so the player's own keys can't reach it: this button stands in."""
         i = self.list.GetSelection()
         if i == wx.NOT_FOUND or i >= len(self.results):
             self.status.SetLabel("Select a result first, then Play Selected.")
             return
-        self.play([self.results[i]])
+        pl = self._previewing()
+        if pl:
+            pl.toggle()
+        else:
+            self.play([self.results[i]])
+            self.status.SetLabel("Getting %s ready to play." % (self.results[i].get("title") or "it"))
+        wx.CallLater(400, self._preview_label)

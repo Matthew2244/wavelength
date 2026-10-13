@@ -355,7 +355,14 @@ def do_stream(yt_dlp, task):
     try:
         ydl = _make_ydl(yt_dlp, args, logger)
         with ydl:
-            info = ydl.extract_info(task["url"], download=False)
+            # First, cheaply: is this a list? Resolving a podcast feed as one item walked every
+            # episode first (three minutes, then nothing). A list goes to the player's list path.
+            info = ydl.extract_info(task["url"], download=False, process=False)
+            if info and info.get("_type") in ("playlist", "multi_video"):
+                emit("log", text="ISLIST")
+                emit("end", ok=False)
+                return
+            info = ydl.process_ie_result(info, download=False) if info else None
     except Exception as exc:  # noqa: BLE001
         logger.error(str(exc))
         info = None

@@ -512,7 +512,7 @@ class MainFrame(wx.Frame):
         q = query if query is not None else (self.link.GetValue().strip()
                                               if not words.links_in(self.link.GetValue()) else "")
         dlg = dialogs.Search(self, q, self.cfg.get("app_search_site", "youtube"), self.run_search,
-                             play=lambda entries: self.play_links(entries))
+                             play=lambda entries: self.play_links(entries), player=lambda: self.player)
         go = dlg.ShowModal() == wx.ID_OK
         chosen = dlg.chosen() if go else []
         self.cfg["app_search_site"] = dlg.site_key()
@@ -963,7 +963,7 @@ class MainFrame(wx.Frame):
         if not path:
             return None
         return {"path": path, "title": job.title or os.path.basename(path), "uploader": job.uploader,
-                "url": job.url}
+                "url": job.url, "duration": job.length if not (job.start or job.end) else 0}
 
     def on_play(self):
         job = self.selected()
