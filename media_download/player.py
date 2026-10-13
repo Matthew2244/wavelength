@@ -25,11 +25,15 @@ import time
 import wx
 import wx.media
 
-from . import engine, words
+from . import describe, engine, words
+from .speech import Reader
 from .manager import run_task
-from .system import announce, mac_accessibility_label, mac_value_description, open_path, reveal
+from .system import (announce, mac_accessibility_label, mac_focus, mac_has_focus, mac_value_description, open_path,
+                     reveal)
 
 SPEEDS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
+AD_MODES = [("pause", "pauses the video to read"), ("over", "reads over the video, with the sound lowered"),
+            ("off", "off")]
 SLEEP_CHOICES = [(0, "Off"), (15, "15 minutes"), (30, "30 minutes"), (45, "45 minutes"), (60, "1 hour"),
                  (-1, "At the end of this item")]
 POSITIONS = os.path.join(engine.SUPPORT, "positions.json")
@@ -52,7 +56,8 @@ def captions_for(path: str) -> list:
     stem = os.path.splitext(base)[0]
     try:
         for name in sorted(os.listdir(folder)):
-            if name.startswith(stem) and name.lower().endswith((".srt", ".vtt")):
+            if (name.startswith(stem) and name.lower().endswith((".srt", ".vtt"))
+                    and describe.SUFFIX.strip(" -") not in name):  # captions, not the description
                 with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as fh:
                     return words.caption_cues(fh.read())
     except OSError:
@@ -121,6 +126,13 @@ class PlayerFrame(wx.Frame):
         self.base_volume = float(self.cfg.get("app_volume", 1.0))
         self.speed = float(self.cfg.get("app_speed", 1.0))
         self.captions_on = bool(self.cfg.get("app_captions", True))
+        self.reader = Reader(voice=self.cfg.get("app_ad_voice", "system"))
+        self.ad_mode = self.cfg.get("app_ad_mode", "pause")
+        self.ad_cues: list = []
+        self.ad_next = 0
+        self.ad_active = False
+        self.ad_paused = False
+        self.ad_text = ""
 
         p = self.panel = wx.Panel(self)
         s = wx.BoxSizer(wx.VERTICAL)
@@ -209,6 +221,7 @@ class PlayerFrame(wx.Frame):
         self.next_btn.Bind(wx.EVT_BUTTON, lambda e: self.go(+1))
         self.speed_choice.Bind(wx.EVT_CHOICE, lambda e: self.set_speed(SPEEDS[self.speed_choice.GetSelection()]))
         self.volume.Bind(wx.EVT_SLIDER, lambda e: self.set_volume(self.volume.GetValue() / 100.0, say=False))
+        self.slider.Bind(wx.EVT_SLIDER, self.on_slider_moved)
         self.slider.Bind(wx.EVT_SCROLL_THUMBTRACK, lambda e: setattr(self, "dragging", True))
         self.slider.Bind(wx.EVT_SCROLL_THUMBRELEASE, self.on_slider_release)
         self.slider.Bind(wx.EVT_SCROLL_LINEUP, lambda e: self.skip(-self.skip_len()))
@@ -255,6 +268,8 @@ class PlayerFrame(wx.Frame):
         m.AppendSeparator()
         add("Say the Time (T)", self.say_time)
         add("Captions On or Off (C)", self.toggle_captions)
+        add("Audio Description: Pause, Read Over, or Off (D)", self.cycle_ad)
+        add("Find or Make Audio Description...\tCtrl+Shift+A", self.find_description)
         sleep = wx.Menu()
         for minutes, label in SLEEP_CHOICES:
             item = sleep.Append(wx.ID_ANY, label)
@@ -299,6 +314,8 @@ class PlayerFrame(wx.Frame):
             return
         self.save_position()
         self.media.Stop()
+        self._end_ad(resume=False)
+        self.ad_cues, self.ad_next = [], 0
         self.index = k
         self.item = self.queue[k]
         self.loaded = False
@@ -310,7 +327,7 @@ class PlayerFrame(wx.Frame):
         self.time.SetLabel("Loading")
         self.slider.SetValue(0)
         self.title.SetLabel(self.item.get("title") or "Loading")
-        self.byline.SetLabel(self.item.get("uploader") and "By " + self.item["uploader"] or "")
+        self._byline()
         self.SetTitle("%s: Player" % (self.item.get("title") or "Loading"))
         self._fill_queue()
         self._update_buttons()
@@ -331,7 +348,8 @@ class PlayerFrame(wx.Frame):
             elif ev.get("ev") == "log":
                 found.setdefault("log", []).append(ev.get("text", ""))
         want = item.get("want") or "audio"
-        run_task({"task": "stream", "url": item["url"], "want": want, "cookies": item.get("cookies", "")}, on,
+        run_task({"task": "stream", "url": item["url"], "want": want, "cookies": item.get("cookies", ""),
+                  "format": item.get("format", "")}, on,
                  timeout=120)
         wx.CallAfter(self._resolved, item, found)
 
@@ -360,7 +378,7 @@ class PlayerFrame(wx.Frame):
                     live=bool(found.get("is_live") or not found.get("duration")), got=found.get("want"))
         self.cues = [tuple(c) for c in found.get("cues") or []]
         self.title.SetLabel(item["title"] or "Playing")
-        self.byline.SetLabel("By " + item["uploader"] if item.get("uploader") else "")
+        self._byline()
         self.SetTitle("%s: Player" % item["title"])
         self._fill_queue()
         self._load(found["url"], local=False)
@@ -408,6 +426,7 @@ class PlayerFrame(wx.Frame):
         if self.loaded or not self.item:
             return
         self.loaded = True
+        self.load_started = 0.0  # started: the "didn't start" clock is done
         # The site's own length when there is one: AVFoundation reported YouTube streams at
         # twice their length (38 seconds for 19).
         self.length = float(self.item.get("duration") or 0) or max(0.0, self.media.Length() / 1000.0)
@@ -421,6 +440,7 @@ class PlayerFrame(wx.Frame):
         self.media.SetVolume(self.base_volume)
         self.media.Play()
         self.media.SetPlaybackRate(self.speed)
+        self._load_description()
         key = self._key()
         resume = self.positions.get(key) if self.cfg.get("app_resume", True) and not live else 0
         if resume:
@@ -431,6 +451,91 @@ class PlayerFrame(wx.Frame):
         self.status("Playing%s." % (" live" if live else ""))
         self._show_time(resume or 0, force=True)
         self._update_buttons()
+
+    # ------------------------------------------------------------------ audio description
+
+    def _load_description(self):
+        srt = describe.for_item(self.item.get("path"), self.item.get("url") or self.item.get("page"))
+        self.ad_cues = []
+        if srt:
+            try:
+                with open(srt, encoding="utf-8", errors="replace") as fh:
+                    self.ad_cues = [c for c in words.caption_cues(fh.read()) if not c[2].startswith("[")]
+            except OSError:
+                pass
+        self.ad_next = 0
+        self._byline()
+
+    def _byline(self):
+        bits = ["By " + self.item["uploader"]] if self.item and self.item.get("uploader") else []
+        if self.ad_cues:
+            bits.append("Audio description: " + dict(AD_MODES)[self.ad_mode])
+        self.byline.SetLabel(". ".join(bits))
+
+    def _ad_reseek(self, now: float):
+        self._end_ad(resume=False)
+        self.ad_next = next((i for i, c in enumerate(self.ad_cues) if c[0] >= now - 0.2), len(self.ad_cues))
+
+    def _ad_tick(self, now: float):
+        if self.ad_active:
+            if not self.reader.speaking():
+                self._end_ad(resume=True)
+            return
+        if self.ad_mode == "off" or not self.ad_cues or self.ad_next >= len(self.ad_cues) or not self.playing():
+            return
+        start, _, text = self.ad_cues[self.ad_next]
+        if now + 0.15 < start:
+            return
+        self.ad_next += 1
+        if now - start > 3:
+            return  # long past (a skip landed after it): don't read a stale description
+        self.ad_active, self.ad_text = True, text
+        self.caption.SetLabel("Description: " + text)
+        self.caption.Wrap(max(200, self.panel.GetClientSize().width - 40))
+        if self.ad_mode == "pause":
+            self.media.Pause()
+            self.ad_paused = True
+        else:
+            self.fading = True
+            self.media.SetVolume(self.base_volume * 0.35)
+        self.reader.speak(text)
+
+    def _end_ad(self, resume: bool):
+        if not self.ad_active:
+            return
+        self.ad_active = False
+        self.reader.stop()
+        if self.caption.GetLabel().startswith("Description: "):
+            self.caption.SetLabel("")
+        self.fading = False
+        if self.loaded:
+            self.media.SetVolume(self.base_volume)
+        if self.ad_paused:
+            self.ad_paused = False
+            if resume and self.loaded:
+                self.media.Play()  # the item stays wherever it was paused
+                self.media.SetPlaybackRate(self.speed)
+
+    def cycle_ad(self):
+        order = [m for m, _ in AD_MODES]
+        self.ad_mode = order[(order.index(self.ad_mode) + 1) % len(order)]
+        self.cfg["app_ad_mode"] = self.ad_mode
+        engine.save_settings(self.cfg)
+        self._end_ad(resume=True)
+        self._byline()
+        if not self.ad_cues:
+            self.say("Audio description %s. This one has none yet: Find or Make Audio Description, "
+                     "in the Playback menu." % dict(AD_MODES)[self.ad_mode])
+        else:
+            self.say("Audio description %s." % dict(AD_MODES)[self.ad_mode])
+
+    def find_description(self):
+        if not self.item:
+            return
+        url = self.item.get("url") or self.item.get("page")
+        if self.playing():
+            self.toggle()
+        self.main.describe_dialog(url, self.item.get("title") or "", self.item.get("path"))
 
     def _is_video(self) -> bool:
         if self.item.get("path"):
@@ -465,6 +570,11 @@ class PlayerFrame(wx.Frame):
             if self.item and self.index >= 0:
                 self.play_index(self.index)
             return
+        if self.ad_active:
+            # Space while a description is being read: stop reading and carry on.
+            self._end_ad(resume=True)
+            self._update_buttons()
+            return
         if self.playing():
             self.media.Pause()
             self.save_position()
@@ -483,11 +593,22 @@ class PlayerFrame(wx.Frame):
         self.media.Seek(int(target * 1000))
         self.slider.SetValue(int(target))
         self._show_time(target, force=True)
+        self._ad_reseek(target)
 
     def on_slider_release(self, _):
         self.dragging = False
         if self.loaded:
             self.media.Seek(int(self.slider.GetValue() * 1000))
+            self._ad_reseek(self.slider.GetValue())
+
+    def on_slider_moved(self, _):
+        """The position slider moved by the keyboard or VoiceOver: go there."""
+        if self.loaded and not self.item.get("live") and not self.dragging:
+            target = self.slider.GetValue()
+            if abs(target - self.media.Tell() / 1000.0) >= 1:
+                self.media.Seek(int(target * 1000))
+                self._show_time(target, force=True)
+                self._ad_reseek(target)
 
     def skip_len(self) -> int:
         return int(self.cfg.get("app_skip", 10) or 10)
@@ -551,17 +672,36 @@ class PlayerFrame(wx.Frame):
     # ------------------------------------------------------------------ every quarter second
 
     def on_tick(self, _):
+        if self.item and not self.loaded and self.load_started and time.time() - self.load_started > 1 and \
+                self.media.Length() > 0:
+            # Ready without saying so: AVFoundation sometimes never sends the "loaded" event for a
+            # stream (seen intermittently with YouTube audio), though it knows the length.
+            self.on_loaded(None)
+        waited = time.time() - self.load_started if self.item and not self.loaded and self.load_started else 0
+        if waited > 8 and not self.item.get("told_slow"):
+            # A busy sound system can take 20 seconds to open anything (seen with coreaudiod
+            # struggling); say so rather than leave silence that sounds broken.
+            self.item["told_slow"] = True
+            self.say("Still getting ready to play.")
+        if waited > 30 and not self.item.get("path") and not self.item.get("retried"):
+            # Really stalled: fetch a fresh link and try once more. Not sooner: restarting a load
+            # that was merely slow made it slower.
+            self.item["retried"] = True
+            self.status("Still waiting for the stream; trying a fresh link.")
+            self.play_index(self.index)
+            return
         if self.item and not self.item.get("path") and not self.loaded and self.load_started and \
-                time.time() - self.load_started > 25:
+                time.time() - self.load_started > 60:
             self.load_started = 0
             self.fail("That stream didn't start. It may only play after downloading.")
-        if not self.loaded:
+        if not self.loaded or not self.IsShown():
             return
         now = self.media.Tell() / 1000.0
         if not self.dragging and not self.item.get("live"):
             self.slider.SetValue(int(now))
         self._show_time(now)
-        if self.captions_on and self.cues:
+        self._ad_tick(now)
+        if self.captions_on and self.cues and not self.ad_active:
             line = words.cue_at(self.cues, now)
             if line != self.caption.GetLabel():
                 self.caption.SetLabel(line)
@@ -640,6 +780,9 @@ class PlayerFrame(wx.Frame):
     def on_key(self, event):
         """Plain keys for playing: Space, arrows, T, C, [ and ]. Not while typing or in the queue."""
         focus = self.FindFocus()
+        for native in (self.slider, self.volume):  # wx doesn't see a focused slider; the Mac does
+            if mac_has_focus(native):
+                focus = native
         key = event.GetKeyCode()
         if key == wx.WXK_TAB and not event.ControlDown():
             # wx's own Tab stopped dead at the Speed menu on the Mac (it couldn't move onto the
@@ -653,7 +796,8 @@ class PlayerFrame(wx.Frame):
         mods = event.GetModifiers()
         if key == wx.WXK_SPACE and not isinstance(focus, wx.Button) and mods == 0:
             self.toggle()
-        elif key in (wx.WXK_LEFT, wx.WXK_RIGHT) and focus is not self.slider and focus is not self.volume:
+        elif key in (wx.WXK_LEFT, wx.WXK_RIGHT) and focus is not self.volume:
+            # On the position slider too: steps of the skip length, not the slider's own.
             sign = -1 if key == wx.WXK_LEFT else 1
             if mods == wx.MOD_SHIFT:
                 self.skip(sign * 60)
@@ -665,6 +809,8 @@ class PlayerFrame(wx.Frame):
             self.say_time()
         elif mods == 0 and key in (ord("C"), ord("c")):
             self.toggle_captions()
+        elif mods == 0 and key in (ord("D"), ord("d")):
+            self.cycle_ad()
         elif mods == 0 and key == ord("["):
             self.step_speed(-1)
         elif mods == 0 and key == ord("]"):
@@ -677,6 +823,9 @@ class PlayerFrame(wx.Frame):
             event.Skip()
 
     def _tab(self, step: int, focus):
+        for native in (self.slider, self.volume):
+            if mac_has_focus(native):
+                focus = native
         order = [c for c in (self.slider, self.prev_btn, self.back_btn, self.play_btn, self.fwd_btn,
                              self.next_btn, self.speed_choice, self.volume, self.download_btn, self.show_btn,
                              self.qlist) if c.IsShown() and c.IsEnabled()]
@@ -685,9 +834,13 @@ class PlayerFrame(wx.Frame):
         k = order.index(focus) if focus in order else (-1 if step > 0 else 0)
         for n in range(1, len(order) + 1):
             target = order[(k + step * n) % len(order)]
-            target.SetFocus()
-            if self.FindFocus() is target:
-                return  # some controls won't take focus on the Mac (the volume slider): skip them
+            if target in (self.slider, self.volume):
+                if mac_focus(target):
+                    return
+            else:
+                target.SetFocus()
+                if self.FindFocus() is target:
+                    return
 
     def say(self, text: str):
         self.status(text)
@@ -697,8 +850,34 @@ class PlayerFrame(wx.Frame):
         self.SetStatusText(text)
 
     def on_close(self, event):
+        """Closing hides the player; it's never destroyed while the app runs.
+
+        wxWidgets' Mac media backend can crash when AVFoundation sends a late "paused" notice to
+        a media control that has been destroyed (use after free, found by closing and reopening
+        the player). Keeping one player alive, and stopping it well before the app quits
+        (shutdown()), avoids it."""
+        self.save_position()
+        self._end_ad(resume=False)
+        self.media.Stop()
+        self.loaded = False
+        self.load_started = 0.0
+        self.item = None
+        self.Hide()
+        if event.CanVeto():
+            event.Veto()
+        self.main.Raise()
+
+    def shutdown(self):
+        """Before the app quits: stop, then let AVFoundation's last notices arrive while the
+        control still exists."""
         self.save_position()
         self.timer.Stop()
-        self.media.Stop()
-        self.main.player = None
-        event.Skip()
+        self._end_ad(resume=False)
+        try:
+            self.media.Stop()
+            end = time.time() + 0.5
+            while time.time() < end:
+                wx.SafeYield(None, True)
+                time.sleep(0.02)
+        except Exception:  # noqa: BLE001
+            pass

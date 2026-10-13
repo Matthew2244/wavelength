@@ -305,6 +305,7 @@ class MainFrame(wx.Frame):
         self._m(d, "&Play\tCtrl+P", lambda e: self.on_play())
         self._m(d, "Play &All Finished\tCtrl+Shift+P", lambda e: self.on_play_all())
         self._m(d, "Play the Link &Without Downloading\tCtrl+Shift+Return", lambda e: self.on_play_link())
+        self._m(d, "Audio &Description...\tCtrl+Shift+A", lambda e: self.on_describe())
         d.AppendSeparator()
         self._m(d, "&Open File\tCtrl+Down", self.on_open)
         self._m(d, "Show in %s\tCtrl+R" % FOLDER_APP, self.on_show)
@@ -997,6 +998,63 @@ class MainFrame(wx.Frame):
             start = next((i for i, it in enumerate(items) if it["path"] == p), 0)
         self.open_player(items, start)
 
+    # -------------------------------------------------------- audio description
+
+    def on_describe(self):
+        job = self.selected()
+        if job and job.task != "describe":
+            from .player import playable_file
+            path = playable_file(job.files) if job.files else None
+            self.describe_dialog(job.url, job.title, path)
+            return
+        urls = words.links_in(self.link.GetValue())
+        if urls:
+            self.describe_dialog(urls[0], "", None)
+        else:
+            self.tell("Select a download, or put a link in the Link field, then choose Audio Description.")
+
+    def describe_dialog(self, url, title, path):
+        def run_find(u):
+            res = {}
+
+            def on(ev):
+                if ev.get("ev") == "about":
+                    res["about"] = ev
+                elif ev.get("ev") == "candidates":
+                    res["candidates"] = ev.get("items") or []
+            run_task({"task": "find_description", "url": u, "title": title}, on, timeout=240)
+            return res
+
+        def make():
+            video = path if path and os.path.splitext(path)[1].lower() in (".mp4", ".m4v", ".mov", ".mkv", ".webm") \
+                else ""
+            job = Job(url=url, dest=self.cfg["to"], task="describe", source_path=video)
+            job.title = title
+            job.probed = True
+            self.mgr.add(job)
+            self.structure_changed = True
+            self.refresh()
+            self.tell("Making audio description for %s. It's in the downloads list; when it's done, Play "
+                      "reads it as the video plays." % (title or "it"))
+
+        def track_play(fmt):
+            self.open_player([{"url": url, "title": title + " (described)", "want": "audio", "format": fmt}])
+
+        def track_download(fmt):
+            job = self._job_from_ui(url)
+            job.format_id, job.format_audio_only = fmt, True
+            job.name = (title + " (audio described)") if title else ""
+            self.mgr.add(job)
+            self.tell("Downloading the described track.")
+
+        actions = {"make": make, "track_play": track_play, "track_download": track_download,
+                   "version_play": lambda e: self.play_links([e]),
+                   "version_download": lambda e: self.add_links([e["url"]])}
+        dlg = dialogs.DescribeDialog(self.player if self.player and self.player.IsActive() else self, url, title,
+                                     run_find, actions)
+        dlg.ShowModal()
+        dlg.Destroy()
+
     def on_open(self, _):
         job = self.selected()
         files = [f for f in (job.files if job else []) if os.path.exists(f)]
@@ -1355,6 +1413,10 @@ class MainFrame(wx.Frame):
                 return
         self.timer.Stop()
         self.mgr.shutdown()
+        if self.player is not None:
+            self.player.shutdown()
+            self.player.Destroy()
+            self.player = None
         winsparkle.cleanup()
         event.Skip()
 

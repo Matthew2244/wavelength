@@ -65,3 +65,18 @@ def test_failure_always_named(frame, monkeypatch):
 
 def test_end_of_batch_left_to_the_summary(frame, monkeypatch):
     assert finish(frame, monkeypatch, [job("done", "A")], busy=False, batch_total=3) == []
+
+
+def test_describe_window_offers_people_first(frame, monkeypatch):
+    from media_download import dialogs
+    monkeypatch.setattr(dialogs.threading, "Thread", lambda target, daemon: type("T", (), {"start": lambda s: None})())
+    dlg = dialogs.DescribeDialog(frame, "https://x/v", "Clip", lambda u: {}, {})
+    dlg._found({"about": {"title": "Clip", "track": "251", "track_words": "English descriptive", "has_video": True,
+                          "can_make": True},
+                "candidates": [{"url": "https://y", "title": "Clip (Audio Described)", "duration": 60}]})
+    kinds = [o["kind"] for o in dlg.options]
+    assert kinds == ["track", "version", "make"]
+    dlg.list.SetSelection(2)
+    dlg._buttons()
+    assert dlg.make_btn.IsEnabled() and not dlg.play_btn.IsEnabled()
+    dlg.Destroy()

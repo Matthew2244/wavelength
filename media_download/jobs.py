@@ -35,6 +35,8 @@ class Job:
     item_title: str = ""
     extra: str = ""
     cover_art: bool = True
+    task: str = "download"       # or "describe": make audio description
+    source_path: str = ""        # describe: a downloaded video to read, instead of fetching one
 
     id: int = 0
     title: str = ""
@@ -82,6 +84,8 @@ class Job:
         return os.path.join(self.dest, self.subfolder) if self.subfolder else self.dest
 
     def format_words(self) -> str:
+        if self.task == "describe":
+            return "audio description, made by reading the picture"
         bits = [words.FORMAT_SHORT.get(self.kind, self.kind)]
         if self.format_id:
             bits = ["the exact stream %s" % self.format_id]
@@ -122,6 +126,6 @@ class Job:
     def spec(self) -> dict:
         """What a worker needs to run this download."""
         keys = ("url", "dest", "kind", "max_height", "format_id", "format_audio_only", "start", "end",
-                "chapters", "subtitles", "transcript", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp",
+                "chapters", "subtitles", "transcript", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp", "task", "source_path", "title",
                 "info_file", "info_time")
         return {k: getattr(self, k) for k in keys}

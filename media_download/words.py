@@ -221,7 +221,7 @@ def worth_updating_for(text: str) -> bool:
     lowered = (text or "").lower()
     hopeless = ("private", "unavailable", "removed", "members-only", "join this channel",
                 "does not exist", "no space left", "not a valid url", "unsupported url",
-                "geo", "copyright", "stopped by you")
+                "geo", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture")
     return not any(word in lowered for word in hopeless)
 
 
@@ -250,6 +250,13 @@ def explain_failure(text: str, cookies_used: bool = False, site: str | None = No
             and "safari" in lowered:
         return ("Reading Safari's sign-in needs Full Disk Access for Media Download: System Settings, Privacy "
                 "and Security, Full Disk Access. Or choose another browser.")
+    if "nodescribe:" in lowered:
+        what = (text.split("NODESCRIBE:", 1)[-1].strip().splitlines() or ["a helper"])[0]
+        return "Making audio description needs %s, which isn't on this computer." % what
+    if "no picture to describe" in lowered:
+        return "There's no picture to describe: it's audio only."
+    if "claude didn't return" in lowered:
+        return "Claude didn't send back any description. Try again in a while."
     if "badoptions:" in lowered or "no such option" in lowered:
         return ("The extra yt-dlp options in More Options weren't understood. Check them, or clear them "
                 "and Retry.")

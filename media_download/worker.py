@@ -347,8 +347,13 @@ def do_stream(yt_dlp, task):
                "best[ext=mp4][vcodec^=avc1][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/")
         fmt += "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio"
     else:
-        fmt = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=mp3]/best[ext=mp4][acodec!=none]" + \
-            ("/bestaudio[acodec=opus][ext!=webm]/bestaudio/best" if mac else "/best")
+        # On the Mac, HLS first: YouTube's direct M4A is a segmented DASH file the Mac's player
+        # often never starts (and reads at twice its length); its HLS audio plays every time.
+        fmt = ("bestaudio[protocol^=m3u8]/" if mac else "") + \
+            "bestaudio[ext=m4a][protocol!*=dash]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=mp3]/" \
+            "best[ext=mp4][acodec!=none]" + ("/bestaudio[acodec=opus][ext!=webm]/bestaudio/best" if mac else "/best")
+    if task.get("format"):
+        fmt = task["format"]  # an exact stream, such as a video's own described track
     args = ["--no-playlist", "-f", fmt] + tool_flags()
     if task.get("cookies"):
         args += ["--cookies-from-browser", task["cookies"]]
@@ -407,6 +412,102 @@ def do_stream(yt_dlp, task):
     emit("end", ok=True)
 
 
+def do_find_description(yt_dlp, task):
+    """What audio description exists for a link: its own described track, published described
+    versions, and whether one can be made here."""
+    from .options import tool_flags
+    from . import describe
+    logger = Logger()
+    info = None
+    try:
+        ydl = _make_ydl(yt_dlp, ["--no-playlist"] + tool_flags(), logger)
+        with ydl:
+            info = ydl.extract_info(task["url"], download=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(str(exc))
+    title = (info or {}).get("title") or task.get("title") or ""
+    track = describe.descriptive_track(info or {})
+    emit("about", title=title, duration=(info or {}).get("duration") or 0,
+         track=str(track.get("format_id")) if track else "",
+         track_words=(track.get("format_note") or "described track") if track else "",
+         has_video=any((f.get("vcodec") or "none") != "none" for f in (info or {}).get("formats") or []),
+         can_make=bool(describe.claude_path()))
+    found = []
+    if title:
+        try:
+            ydl = _make_ydl(yt_dlp, ["--flat-playlist"] + tool_flags(), logger)
+            with ydl:
+                res = ydl.extract_info("ytsearch10:" + describe.search_query(title), download=False)
+            for e in (res or {}).get("entries") or []:
+                if e and describe.looks_described(e.get("title") or "") and e.get("id"):
+                    found.append({"url": "https://www.youtube.com/watch?v=%s" % e["id"], "title": e.get("title"),
+                                  "duration": e.get("duration"), "uploader": e.get("uploader") or e.get("channel")})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(str(exc))
+    emit("candidates", items=describe.rank_candidates(title, found))
+    emit("end", ok=info is not None)
+
+
+def do_describe(yt_dlp, task):
+    """Make audio description: a small copy of the picture, frames at shot changes, Claude."""
+    import shutil
+    from .options import tool_flags
+    from . import describe, engine
+    spec = task["spec"]
+    claude = describe.claude_path()
+    ffmpeg = engine.find_tool("ffmpeg")
+    if not claude or not ffmpeg:
+        emit("log", text="NODESCRIBE: %s" % ("the Claude command-line tool" if not claude else "ffmpeg"))
+        emit("end", ok=False)
+        return
+    work = describe.new_workdir()
+    try:
+        video = spec.get("source_path") if spec.get("source_path") and os.path.exists(spec["source_path"]) else None
+        title = spec.get("title") or ""
+        if not video:
+            emit("stage", text="Getting a small copy of the picture")
+            logger = Logger()
+            args = ["-f", "bv*[height<=480][height>=200]/b[height<=480]/bv*/b", "-P", work, "-o", "video.%(ext)s",
+                    "--no-playlist"] + tool_flags()
+            got = {}
+            ydl = _make_ydl(yt_dlp, args, logger, {"post_hooks": [lambda p: got.__setitem__("path", p)]})
+            with ydl:
+                info = ydl.extract_info(spec["url"], download=True)
+            title = title or (info or {}).get("title") or "Video"
+            video = got.get("path") or next((os.path.join(work, f) for f in os.listdir(work)
+                                             if f.startswith("video.")), None)
+            if not video:
+                emit("log", text="ERROR: couldn't get the picture to describe")
+                emit("end", ok=False)
+                return
+        emit("stage", text="Finding the moments to describe")
+        frames = describe.sample_frames(video, os.path.join(work, "frames"), ffmpeg)
+        if not frames:
+            emit("log", text="ERROR: no picture to describe (is it audio only?)")
+            emit("end", ok=False)
+            return
+
+        def progress(done, total):
+            emit("stage", text="Describing, %d of %d moments" % (min(done + describe.BATCH, total), total)
+                 if done < total else "Saving the description")
+            emit("progress", done=done, total=total, speed=None, eta=None, part=1, parts=1)
+        rows = describe.describe_frames(frames, os.path.join(work, "frames"), title, claude, progress)
+        if not rows:
+            emit("log", text="ERROR: Claude didn't return any description")
+            emit("end", ok=False)
+            return
+        folder = os.path.join(spec["dest"], spec["subfolder"]) if spec.get("subfolder") else spec["dest"]
+        for path in describe.write_outputs(rows, folder, title):
+            emit("file", path=path)
+        emit("described", url=spec["url"], count=len(rows))
+        emit("end", ok=True)
+    except Exception as exc:  # noqa: BLE001
+        emit("log", text="ERROR: %s" % exc)
+        emit("end", ok=False)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def do_impersonate_check(yt_dlp, task):
     """How many browsers the engine can pass itself off as. Zero means curl_cffi is missing."""
     try:
@@ -434,7 +535,8 @@ def do_recognise(yt_dlp, task):
 
 
 TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
-         "impersonate": do_impersonate_check, "stream": do_stream}
+         "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
+         "describe": do_describe}
 
 
 def main() -> int:

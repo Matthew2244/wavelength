@@ -53,12 +53,22 @@ Media Download plays things too: what you've downloaded, and links you haven't.
 - **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
 - **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
 - **Play what you've downloaded:** select a row and press Play (Command-P), or Play All Finished (Command-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
-- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from half to double, without changing pitch. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. Escape closes the player. All of it is also in the Playback menu.
+- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from half to double, without changing pitch. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
 - **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.
 - **Captions** show in large type under the picture, from subtitles you downloaded or the stream's own.
 - Nothing is spoken unless you ask (T), or a new item starts while the player is in the background. Speed and volume are remembered.
 
 Windows plays MP4 and M4A streams; video from sites that only offer the Mac-style streaming format plays after downloading.
+
+### Audio description
+
+Select a download, or put a link in the Link field, and choose Audio Description (Command-Shift-A; it's also in the player's Playback menu). It looks, in order of how far each can be trusted:
+
+1. **A described track on the video itself**, written by a person. Play it or download it.
+2. **A described version someone has published**, usually on YouTube. Only candidates that share a real word with the title are shown, and you choose.
+3. **Make one**, when there's nothing else. Claude reads the picture at each change of shot and writes what it sees, with continuity ("he turns to the camera"). It takes about a minute for a short video, runs in the downloads list like any download, and is saved beside your downloads as a text file you can read and a timed file the player uses. It's labelled everywhere as machine-made and unchecked. Making one needs the [Claude command-line tool](https://claude.com/code); without it, the first two still work.
+
+**The player reads description at its moment.** By default it pauses the video while reading (extended description, so nothing is talked over); it can also read over the video with the sound lowered, or not at all. Press D to change it. Space while a description is being read skips the rest of it. It reads with the system voice, so it knows exactly when to carry on, or with your screen reader, in your own voice and rate (Settings). Sighted people see each description on screen as it's read.
 
 ### With a screen reader
 
@@ -90,6 +100,7 @@ Everything is in the menus with its shortcut. On Windows read Control for Comman
 | Command-P | Play the selected download |
 | Command-Shift-P | Play everything finished |
 | Command-Shift-Return | Play the link without downloading |
+| Command-Shift-A | Audio description: find it, or make it |
 | Return in the list | Open the file |
 | Delete in the list | Remove the row (the file stays) |
 | Command-R | Show the file in Finder or File Explorer |

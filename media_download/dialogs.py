@@ -282,6 +282,22 @@ class Settings(wx.Dialog):
         self.resume.SetValue(bool(cfg.get("app_resume", True)))
         self.resume.SetToolTip("For podcasts, lectures and audiobooks. Not for the first or last 30 seconds.")
         s.Add(self.resume, 0, wx.ALL, 6)
+        self.ad_vals = ["pause", "over", "off"]
+        _label = wx.StaticText(self, label="Audio description, when there is some:")
+        self.ad = wx.Choice(self, choices=["Pause the video to read it", "Read it over the video",
+                                           "Don't read it"])
+        m = cfg.get("app_ad_mode", "pause")
+        self.ad.SetSelection(self.ad_vals.index(m) if m in self.ad_vals else 0)
+        labelled(self, s, "Audio description, when there is some:", self.ad, _label,
+                 "Pausing is extended description: nothing gets talked over. D in the player changes it.")
+        self.adv_vals = ["system", "screen reader"]
+        _label = wx.StaticText(self, label="Read description with:")
+        self.adv = wx.Choice(self, choices=["The system voice", "My screen reader"])
+        v = cfg.get("app_ad_voice", "system")
+        self.adv.SetSelection(self.adv_vals.index(v) if v in self.adv_vals else 0)
+        labelled(self, s, "Read description with:", self.adv, _label,
+                 "The system voice lets the player resume exactly when it finishes. Your screen reader uses your "
+                 "own voice and rate; the pause is then estimated.")
         self.captions = wx.CheckBox(self, label="Show captions under videos when there are some")
         self.captions.SetValue(bool(cfg.get("app_captions", True)))
         s.Add(self.captions, 0, wx.ALL, 6)
@@ -318,6 +334,7 @@ class Settings(wx.Dialog):
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
+            "app_ad_mode": self.ad_vals[self.ad.GetSelection()], "app_ad_voice": self.adv_vals[self.adv.GetSelection()],
         })
         if self.push is not None:
             self.cfg["notify"] = self.push.GetValue()
@@ -557,3 +574,110 @@ class Search(wx.Dialog):
             self.play([self.results[i]])
             self.status.SetLabel("Getting %s ready to play." % (self.results[i].get("title") or "it"))
         wx.CallLater(400, self._preview_label)
+
+
+class DescribeDialog(wx.Dialog):
+    """Audio description for one video: its own described track, published described
+    versions, or make one. Each option is a row; the buttons act on the selected row."""
+
+    def __init__(self, parent, url: str, title: str, run_find, actions: dict):
+        super().__init__(parent, title="Audio Description", size=(760, 460),
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.url, self.title, self.actions = url, title, actions
+        self.options: list[dict] = []
+        s = wx.BoxSizer(wx.VERTICAL)
+        self.status = wx.StaticText(self, label="Looking for audio description for %s..." % (title or url))
+        s.Add(self.status, 0, wx.ALL, 10)
+        self.list = wx.ListBox(self, style=wx.LB_SINGLE)
+        mac_accessibility_label(self.list, "What's available")
+        s.Add(self.list, 1, wx.EXPAND | wx.ALL, 8)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.play_btn = wx.Button(self, label="Play")
+        self.dl_btn = wx.Button(self, label="Download")
+        self.make_btn = wx.Button(self, label="Make Description")
+        self.make_btn.SetToolTip("Claude reads frames from the video at each change of shot and writes what it "
+                                 "sees. Takes about a minute for a short video. Machine-made and unchecked.")
+        close = wx.Button(self, wx.ID_CANCEL, "Close")
+        for b in (self.play_btn, self.dl_btn, self.make_btn):
+            row.Add(b, 0, wx.RIGHT, 6)
+            b.Disable()
+        row.AddStretchSpacer()
+        row.Add(close, 0)
+        s.Add(row, 0, wx.EXPAND | wx.ALL, 8)
+        self.SetSizer(s)
+        self.SetEscapeId(wx.ID_CANCEL)
+        self.list.Bind(wx.EVT_LISTBOX, lambda e: self._buttons())
+        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self._act("play"))
+        self.play_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("play"))
+        self.dl_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("download"))
+        self.make_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("make"))
+        threading.Thread(target=lambda: wx.CallAfter(self._found, run_find(url)), daemon=True).start()
+
+    def _found(self, res):
+        if not self:
+            return
+        about = res.get("about") or {}
+        self.title = about.get("title") or self.title
+        opts = []
+        if about.get("track"):
+            opts.append({"kind": "track", "format": about["track"],
+                         "words": "This video has its own described track (%s): real description, by a person."
+                                  % about.get("track_words", "described")})
+        for c in res.get("candidates") or []:
+            opts.append({"kind": "version", "url": c["url"], "title": c.get("title"),
+                         "words": "A described version: %s%s%s" % (
+                             c.get("title"), ", " + words.duration(c["duration"]) if c.get("duration") else "",
+                             ", by " + c["uploader"] if c.get("uploader") else "")})
+        if about.get("has_video", True):
+            if about.get("can_make"):
+                opts.append({"kind": "make", "words": "Make a description: Claude reads the picture. Machine-made "
+                                                      "and unchecked; about a minute for a short video."})
+            else:
+                opts.append({"kind": "none", "words": "Making one needs the Claude command-line tool "
+                                                      "(claude.com/code), which isn't on this computer."})
+        self.options = opts
+        self.list.Set([o["words"] for o in opts])
+        found = sum(1 for o in opts if o["kind"] in ("track", "version"))
+        if found:
+            msg = "%s for %s. Described versions are by people, so they come first." % (
+                words.n(found, "described option"), self.title)
+        elif any(o["kind"] == "make" for o in opts):
+            msg = "Nobody seems to have described %s. You can make a description." % self.title
+        else:
+            msg = "No audio description found for %s." % self.title
+        self.status.SetLabel(msg)
+        self.status.Wrap(700)
+        from .system import announce
+        announce(msg)
+        if opts:
+            self.list.SetSelection(0)
+            self.list.SetFocus()
+        self._buttons()
+        self.Layout()
+
+    def _selected(self):
+        i = self.list.GetSelection()
+        return self.options[i] if 0 <= i < len(self.options) else None
+
+    def _buttons(self):
+        o = self._selected()
+        k = o and o["kind"]
+        self.play_btn.Enable(k in ("track", "version"))
+        self.dl_btn.Enable(k in ("track", "version"))
+        self.make_btn.Enable(k == "make")
+
+    def _act(self, what):
+        o = self._selected()
+        if not o:
+            return
+        if o["kind"] == "make" and what != "download":
+            self.actions["make"]()
+            self.EndModal(wx.ID_OK)
+        elif o["kind"] == "track":
+            self.actions["track_" + what](o["format"])
+            if what == "download":
+                self.EndModal(wx.ID_OK)
+        elif o["kind"] == "version":
+            self.actions["version_" + what]({"url": o["url"], "title": o["title"]})
+            if what == "download":
+                self.EndModal(wx.ID_OK)

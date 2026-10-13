@@ -376,3 +376,39 @@ def test_player_picks_the_whole_file_not_a_chapter(tmp_path):
         p.write_text("x")
     assert playable_file([str(chap), str(whole), str(txt)]) == str(whole)
     assert speed_words(1.0) == "Normal" and speed_words(1.5) == "1.5 times"
+
+
+def test_description_files_round_trip(tmp_path, monkeypatch):
+    from media_download import describe
+    monkeypatch.setattr(describe, "_registry", lambda: str(tmp_path / "reg.json"))
+    rows = [{"time": 0.0, "text": "A man stands by a fence."}, {"time": 12.0, "text": "He turns to the camera."}]
+    srt, txt = describe.write_outputs(rows, str(tmp_path), "Me at the zoo")
+    assert os.path.basename(srt) == "Me at the zoo - audio description.srt"
+    assert "No person wrote or checked it" in open(txt).read()
+    cues = words.caption_cues(open(srt).read())
+    assert [c[2] for c in cues] == ["A man stands by a fence.", "He turns to the camera."]
+    video = tmp_path / "Me at the zoo.mp4"
+    video.write_text("x")
+    assert describe.for_item(str(video), None) == srt          # beside a downloaded video
+    describe.remember("https://x/v", srt)
+    assert describe.for_item(None, "https://x/v") == srt         # for a link never downloaded
+
+
+def test_described_versions_must_share_a_real_word():
+    from media_download import describe
+    got = describe.rank_candidates("Wicked - Official Trailer", [
+        {"title": "Audio Described Welcome for Edinburgh Playhouse"},
+        {"title": "Wicked | Official Trailer | Audio Described"}])
+    assert [g["title"] for g in got] == ["Wicked | Official Trailer | Audio Described"]
+    assert describe.looks_described("Frozen II (Audio Description)")
+    assert not describe.looks_described("Frozen II trailer")
+
+
+def test_a_description_is_never_taken_for_captions(tmp_path):
+    pytest.importorskip("wx")
+    from media_download.player import captions_for
+    (tmp_path / "Clip.mp4").write_text("x")
+    (tmp_path / "Clip - audio description.srt").write_text("1\n00:00:00,000 --> 00:00:02,000\nA room.\n")
+    assert captions_for(str(tmp_path / "Clip.mp4")) == []
+    (tmp_path / "Clip.en.srt").write_text("1\n00:00:00,000 --> 00:00:02,000\nhello\n")
+    assert captions_for(str(tmp_path / "Clip.mp4")) == [(0.0, 2.0, "hello")]

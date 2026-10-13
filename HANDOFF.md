@@ -90,6 +90,23 @@ are written into the Playback menu's names; Tab is handled there too. The video 
 GPU, so `tools/snap.py` draws it black; test playback by state, not pictures.
 Test the player muted (`app_volume` 0) at night.
 
+**Audio description** (`describe.py`; worker tasks `find_description` and
+`describe`; `dialogs.DescribeDialog`; reading in `player.py` with `speech.Reader`).
+Finds the video's own described track, then published described versions
+(YouTube search, kept only if they share a distinctive word with the title,
+`rank_candidates`), then offers to make one: a `describe` job in the list
+downloads a ≤480p copy (or uses the downloaded video), samples frames at shot
+changes plus every 12 s of an unchanging shot (≤60), and runs `claude -p
+--allowedTools Read` in batches of 10 with the frames' folder as cwd. Output:
+"<title> - audio description.srt/.txt" beside the downloads, both labelled
+machine-made; `descriptions.json` maps a link to its .srt for streaming. The
+player reads each cue at its time: "pause" (default, extended description),
+"over" (sound at 35%), "off"; D cycles. `Reader` uses NSSpeechSynthesizer
+in-process on the Mac (`say` takes ~2.4 s to start with 442 voices), Prism's
+OneCore/SAPI on Windows, or the screen reader with an estimated pause.
+`MEDIA_DOWNLOAD_SILENT_SPEECH=1` mutes it for night tests. Me at the zoo: 23 s
+from link to a 2-line description.
+
 **Trying again by itself** (`Manager._try_later`). Network trouble or a 5xx
 waits 15 s then 60 s (`net_retries`, at most 2). A 429 pauses the whole site
 (`site_pause`) for 5, 10, then 15 minutes and announces it once; jobs wait
@@ -160,23 +177,43 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    overwrite each other's partial files.
 10. **yt-dlp reports only the main file.** Chapter files and subtitles are found
    beside it afterwards (same name start, written during this run).
-11. **Only files that exist at the end are reported**: the cover image is
+11. **Never destroy the player window while the app runs.** wxWidgets' Mac
+   media backend crashes (segfault in `QueuePauseEvent`) when AVFoundation
+   sends a late notice to a destroyed media control: close-and-reopen crashed
+   every time. Closing hides it; the app's own quit calls `shutdown()`, which
+   stops and lets those notices drain for half a second first.
+12. **A slow sound system makes everything slow to start.** With coreaudiod at
+   132% CPU (the StudioLive as output), even a local MP3 took 19 s to be ready.
+   The player says "Still getting ready" after 8 s and only refetches a stream
+   after 30 s; restarting at 12 s made a slow-but-working load slower.
+13. **YouTube's direct M4A (DASH) stream sometimes never starts on the Mac** and
+   reads at twice its length; streaming prefers HLS audio there, and the site's
+   duration wins over the player's.
+14. **wx sliders take keyboard focus only the Mac's way**: `system.mac_focus`
+   (makeFirstResponder) and `mac_has_focus`; wx's SetFocus and FindFocus don't
+   see them.
+15. **Only files that exist at the end are reported**: the cover image is
    downloaded, embedded and deleted, and was once counted as a third file.
-12. **curl_cffi must be inside the app** (pinned to yt-dlp's version, 0.16.0) or
+16. **curl_cffi must be inside the app** (pinned to yt-dlp's version, 0.16.0) or
    sites that check for a real browser turn the engine away; the self-test
    asks the frozen worker how many browsers it can pass as.
-13. **A slider says only its number** ("3") unless given a value description:
+17. **A slider says only its number** ("3") unless given a value description:
    `system.mac_value_description` sets what VoiceOver says ("3 seconds of 19
    seconds", "40 percent"). Any new slider needs one.
-14. **On the Mac a window reads in the order its controls were created.** A
+18. **On the Mac a window reads in the order its controls were created.** A
    field made before its label is heard before the label, and moving it in the
    tab order doesn't change that. `labelled()` takes the label made first.
-15. From the classic app, still true for the command: a GUI-launched process gets
+19. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.4.0** (2026-10-13): audio description made end to end off-screen (Me at
+  the zoo: described at 0.1 s and 12 s with the video paused for each, then it
+  carried on); the sliders take focus with VoiceOver ("Position, 36 seconds of
+  3 minutes 34", arrows step by the skip length; "Volume, 20 percent"); eight
+  open-and-close cycles of the player and a clean quit without the crash.
 - **Player, with VoiceOver** (2026-10-13, 2.3.2): Command-Shift-Return from the
   link opens it ("Loading: Player window, Play button"); T, Right, ], C, Space
   and Escape all work and speak. It found a **keyboard trap**: wx's Tab stuck
@@ -200,7 +237,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   found five real bugs.
 - Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
   tallies in two minutes.
-- 37 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
+- 43 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
   spoken sentences and needs wx) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,
@@ -238,10 +275,9 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Not done
 
-- **The two player sliders can't take keyboard focus on the Mac** (wx won't
-  give an NSSlider first responder; `_tab` skips them). Position has the arrows,
-  Shift-arrows, T and Back/Forward; volume has Command-Up/Down; VoiceOver's own
-  cursor reaches both. A focusable custom control would be the real fix.
+- Audio description hasn't been heard by a person yet, and making one has only
+  been tried on short videos. A long film would take many minutes and many
+  Claude calls (60 moments at most).
 - Windows can't play HLS, so YouTube video on Windows plays after downloading.
 
 - **Windows has not been tried by a person.** Speech there goes through Prism

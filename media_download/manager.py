@@ -425,7 +425,7 @@ class Manager:
         log, files, ok, already = [], [], False, False
         spec = job.spec()
         spec["rate_limit"] = self.settings.get("app_rate_limit") or ""
-        task = {"task": "download", "spec": spec,
+        task = {"task": job.task or "download", "spec": spec,
                 "fragments": int(self.settings.get("app_fragments") or 4)}
         try:
             proc = self._spawn(job, task, run)
@@ -451,6 +451,11 @@ class Manager:
                         job.stage = ev.get("text") or "Converting"
                     elif e == "file":
                         files.append(ev["path"])
+                    elif e == "described":
+                        srt = next((f for f in files if f.endswith(".srt")), None)
+                        if srt:
+                            from . import describe
+                            describe.remember(ev.get("url") or job.url, srt)
                     elif e == "already":
                         already = True
                     elif e == "log":

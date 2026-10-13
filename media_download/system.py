@@ -110,6 +110,53 @@ def _announce_windows(text: str) -> str | None:
     return None
 
 
+def _objc_send():
+    import ctypes
+    import ctypes.util
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+
+    def send(o, sel, *a, restype=ctypes.c_void_p, argtypes=()):
+        f = objc.objc_msgSend
+        f.restype = restype
+        f.argtypes = [ctypes.c_void_p, ctypes.c_void_p, *argtypes]
+        return f(o, objc.sel_registerName(sel.encode()), *a)
+    return ctypes, send
+
+
+def mac_focus(ctrl) -> bool:
+    """Give a control keyboard focus the Mac's way. A wx slider takes it from the Mac but not
+    from wx's SetFocus, and wx doesn't notice either way, so ask the window directly."""
+    if sys.platform != "darwin":
+        ctrl.SetFocus()
+        return wx_focus_is(ctrl)
+    try:
+        ctypes, send = _objc_send()
+        h = ctrl.GetHandle()
+        win = send(h, "window")
+        send(win, "makeFirstResponder:", h, restype=ctypes.c_bool, argtypes=(ctypes.c_void_p,))
+        return mac_has_focus(ctrl)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def mac_has_focus(ctrl) -> bool:
+    if sys.platform != "darwin":
+        return wx_focus_is(ctrl)
+    try:
+        ctypes, send = _objc_send()
+        h = ctrl.GetHandle()
+        return send(send(h, "window"), "firstResponder") == h
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def wx_focus_is(ctrl) -> bool:
+    import wx
+    return wx.Window.FindFocus() is ctrl
+
+
 def mac_value_description(ctrl, text: str) -> None:
     """What VoiceOver says for a slider's value: "1 minute 3 seconds of 4 minutes", not "63"."""
     if sys.platform != "darwin":
