@@ -129,8 +129,17 @@ class Manager:
         self.pump()
         return job
 
+    def _drop_temp(self, job: Job) -> None:
+        """Delete this download's partial files. Kept after a stop or failure so Retry resumes."""
+        import shutil
+        from .options import temp_dir
+        d = temp_dir(job.spec())
+        if os.path.basename(d) != "shared":
+            shutil.rmtree(d, ignore_errors=True)
+
     def remove(self, job: Job) -> None:
         self.stop(job, quiet=True)
+        self._drop_temp(job)
         with self.lock:
             if job in self.jobs:
                 self.jobs.remove(job)
@@ -400,6 +409,7 @@ class Manager:
                             pass
                         job.info_file = ""
                     if ok:
+                        self._drop_temp(job)
                         job.state = "skipped" if already and not files else "done"
                         job.stage = ""
                         job.percent = 100.0

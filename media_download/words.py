@@ -222,6 +222,13 @@ def explain_failure(text: str, cookies_used: bool = False, site: str | None = No
     if "http error 429" in lowered or "too many requests" in lowered:
         return ("%s says too many requests. Wait a few minutes, then Retry. Fewer downloads at once "
                 "in Settings helps too." % who)
+    if "badoptions:" in lowered or "no such option" in lowered:
+        return ("The extra yt-dlp options in More Options weren't understood. Check them, or clear them "
+                "and Retry.")
+    if ("logged-in" in lowered or "login required" in lowered or "provide account credentials" in lowered
+            or "sign in to view" in lowered or "requires authentication" in lowered):
+        return ("%s wants you signed in for this one. Choose your browser under \"Sign in using\" in More "
+                "Options, then Retry." % who)
     m = re.search(r"http error (5\d\d)", lowered)
     if m:
         return ("%s had a problem on its end (error %s). Retry in a minute usually works."

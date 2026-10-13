@@ -294,3 +294,21 @@ def test_release_notes_become_sparkle_html():
     import appcast
     out = appcast.notes_html("Windows now speaks.\n\n- One `fix`.\n- Two <b>.")
     assert out == "<p>Windows now speaks.</p>\n<ul><li>One <code>fix</code>.</li><li>Two &lt;b&gt;.</li></ul>"
+
+
+def test_each_download_gets_its_own_temporary_folder():
+    a, b = Job(url="https://x/1", dest="/tmp"), Job(url="https://x/1", dest="/tmp")
+    ta = options.download_args(a.spec())
+    tb = options.download_args(b.spec())
+    temp = lambda args: [v for v in args if v.startswith("temp:")][0]
+    assert temp(ta) != temp(tb)
+    assert Job.from_dict(a.to_dict()).tmp == a.tmp  # survives a restart, so Retry resumes
+
+
+def test_a_name_never_makes_a_folder():
+    assert options.output_template({"name": "zoo / named: test"}) == "zoo _ named_ test.%(ext)s"
+
+
+def test_sign_in_and_bad_options_explained():
+    assert "signed in" in words.explain_failure("The web client only works when logged-in.", site="vimeo.com")
+    assert "More Options" in words.explain_failure("BADOPTIONS: no such option: --x")

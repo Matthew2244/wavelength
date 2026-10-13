@@ -21,10 +21,16 @@ if sys.platform == "win32":
 CMD = "Command" if sys.platform == "darwin" else "Control"
 
 
-def labelled(parent, sizer, label, ctrl, tip=None, expand=True):
-    """A label and its control on one row. The label is also the control's spoken name on the Mac."""
+def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True):
+    """A label and its control on one row. The label is also the control's spoken name on the Mac.
+
+    Make the label (`text`) before the control: the Mac reads a window in the order its
+    controls were created, and a field heard before its own label reads backwards to anyone
+    moving through with VoiceOver's arrow keys. Moving it in the tab order doesn't help.
+    """
     row = wx.BoxSizer(wx.HORIZONTAL)
-    text = wx.StaticText(parent, label=label)
+    if text is None:
+        text = wx.StaticText(parent, label=label)
     row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
     row.Add(ctrl, 1 if expand else 0, wx.ALIGN_CENTER_VERTICAL)
     sizer.Add(row, 0, wx.EXPAND | wx.ALL, 6)
@@ -61,11 +67,13 @@ class MoreOptions(wx.Dialog):
                                           "Leave anything blank to skip it.")
         s.Add(intro, 0, wx.ALL, 8)
 
+        _label = wx.StaticText(self, label="Start at (for example 1:30):")
         self.start = wx.TextCtrl(self, value=opts.get("start", ""))
-        labelled(self, s, "Start at (for example 1:30):", self.start,
+        labelled(self, s, "Start at (for example 1:30):", self.start, _label,
                  "Download only part of it. Minutes and seconds, like 1:30, or hours too, like 1:02:00.")
+        _label = wx.StaticText(self, label="Stop at (for example 3:45):")
         self.end = wx.TextCtrl(self, value=opts.get("end", ""))
-        labelled(self, s, "Stop at (for example 3:45):", self.end, "Where the part you want ends.")
+        labelled(self, s, "Stop at (for example 3:45):", self.end, _label, "Where the part you want ends.")
 
         self.chapters = wx.CheckBox(self, label="Also save each chapter as its own file")
         self.chapters.SetValue(bool(opts.get("chapters")))
@@ -74,15 +82,17 @@ class MoreOptions(wx.Dialog):
         self.subs.SetValue(bool(opts.get("subtitles")))
         s.Add(self.subs, 0, wx.ALL, 6)
 
+        _label = wx.StaticText(self, label="Sign in using:")
         self.browser = wx.Choice(self, choices=[b[1] for b in BROWSERS])
         keys = [b[0] for b in BROWSERS]
         self.browser.SetSelection(keys.index(opts.get("cookies", "")) if opts.get("cookies", "") in keys else 0)
-        labelled(self, s, "Sign in using:", self.browser,
+        labelled(self, s, "Sign in using:", self.browser, _label,
                  "For members-only or age-checked videos, or when a site asks to confirm you're not a bot. "
                  "Uses the sign-in already in that browser. Nothing is sent anywhere else.")
 
+        _label = wx.StaticText(self, label="File name (without extension):")
         self.name = wx.TextCtrl(self, value=opts.get("name", ""))
-        labelled(self, s, "File name (without extension):", self.name,
+        labelled(self, s, "File name (without extension):", self.name, _label,
                  "Leave blank to name it after its title.")
 
         frow = wx.BoxSizer(wx.HORIZONTAL)
@@ -96,8 +106,9 @@ class MoreOptions(wx.Dialog):
         s.Add(frow, 0, wx.EXPAND | wx.ALL, 6)
         self.clear_pick.Enable(bool(self.opts.get("format_id")))
 
+        _label = wx.StaticText(self, label="Extra yt-dlp options (advanced):")
         self.extra = wx.TextCtrl(self, value=opts.get("extra", ""))
-        labelled(self, s, "Extra yt-dlp options (advanced):", self.extra,
+        labelled(self, s, "Extra yt-dlp options (advanced):", self.extra, _label,
                  "Anything yt-dlp accepts on its command line, for example --limit-rate 2M.")
 
         row, ok, _ = buttons(self, "Keep These Options")
@@ -204,23 +215,26 @@ class Settings(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         auto = engine.auto_parallel()
         self.parallel_vals = [0] + list(range(1, 13))
+        _label = wx.StaticText(self, label="Downloads at once:")
         self.parallel = wx.Choice(self, choices=["Automatic (%d on this computer)" % auto] +
                                   [str(i) for i in range(1, 13)])
         self.parallel.SetSelection(self.parallel_vals.index(int(cfg.get("app_parallel") or 0))
                                    if int(cfg.get("app_parallel") or 0) in self.parallel_vals else 0)
-        labelled(self, s, "Downloads at once:", self.parallel,
+        labelled(self, s, "Downloads at once:", self.parallel, _label,
                  "More at once uses more of the computer's cores for converting. Automatic is half the "
                  "cores, between two and eight.")
         self.site_vals = list(range(1, 7))
+        _label = wx.StaticText(self, label="From the same site at once:")
         self.per_site = wx.Choice(self, choices=[str(i) for i in self.site_vals])
         self.per_site.SetSelection(max(0, min(5, int(cfg.get("app_per_site") or 3) - 1)))
-        labelled(self, s, "From the same site at once:", self.per_site,
+        labelled(self, s, "From the same site at once:", self.per_site, _label,
                  "Sites that see too many downloads at once from one address start refusing. Three is safe.")
         self.frag_vals = [1, 2, 4, 8, 16]
+        _label = wx.StaticText(self, label="Pieces fetched at once per download:")
         self.frags = wx.Choice(self, choices=["1", "2", "4", "8", "16"])
         f = int(cfg.get("app_fragments") or 4)
         self.frags.SetSelection(self.frag_vals.index(f) if f in self.frag_vals else 2)
-        labelled(self, s, "Pieces fetched at once per download:", self.frags,
+        labelled(self, s, "Pieces fetched at once per download:", self.frags, _label,
                  "Long videos arrive in pieces; fetching several at once is faster on a quick connection.")
 
         self.cover = wx.CheckBox(self, label="Add cover art to audio files")
@@ -230,10 +244,11 @@ class Settings(wx.Dialog):
         self.sounds.SetValue(bool(cfg.get("app_sounds", True)))
         s.Add(self.sounds, 0, wx.ALL, 6)
         self.say_vals = [0, 10, 30, 60]
+        _label = wx.StaticText(self, label="Speak progress while downloading:")
         self.say = wx.Choice(self, choices=["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"])
         v = int(cfg.get("app_announce_progress") or 0)
         self.say.SetSelection(self.say_vals.index(v) if v in self.say_vals else 0)
-        labelled(self, s, "Speak progress while downloading:", self.say,
+        labelled(self, s, "Speak progress while downloading:", self.say, _label,
                  "For screen readers. Finishes and failures are always spoken.")
         self.clip = wx.CheckBox(self, label="Offer a link I've copied when I switch to the app")
         self.clip.SetValue(bool(cfg.get("app_clipboard", True)))

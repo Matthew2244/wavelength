@@ -348,8 +348,32 @@ class MainFrame(wx.Frame):
             return 0
         if self.next_opts.get("name") and len(urls) > 1:
             self.next_opts.pop("name")  # one name can't fit several files
+        # The same link, same choices, already waiting or downloading: a second row would race
+        # the first for one file. Point at the first instead.
+        with self.mgr.lock:
+            pending = {(j.url, j.spec().get("kind"), j.start, j.end, j.format_id): j
+                       for j in self.mgr.jobs if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
+        added, dupes = [], []
         for u in urls:
-            self.mgr.add(self._job_from_ui(u))
+            job = self._job_from_ui(u)
+            key = (job.url, job.kind, job.start, job.end, job.format_id)
+            if key in pending:
+                dupes.append(pending[key])
+                continue
+            pending[key] = job
+            added.append(u)
+            self.mgr.add(job)
+        if dupes and not added:
+            first = dupes[0]
+            self.structure_changed = True
+            self.refresh()
+            if first.id in self.rows:
+                self.list.SetSelection(self.rows.index(first.id))
+                self.show_details()
+            self.tell("Already in the list: %s." % (first.title or first.url) if len(dupes) == 1
+                      else "All %d are already in the list." % len(dupes))
+            return 0
+        urls = added
         if self.next_opts:
             self.next_opts = {}
             self._show_opts()
@@ -360,6 +384,9 @@ class MainFrame(wx.Frame):
                                                       words.site_name(urls[0]) or urls[0]))
         else:
             self.tell("Added %s%s." % (words.n(len(urls), "link"), " from the " + source if source else ""))
+        if dupes:
+            self.tell("Added %s. %d %s already in the list." % (words.n(len(urls), "link"), len(dupes),
+                                                                "was" if len(dupes) == 1 else "were"))
         return len(urls)
 
     def add_from_text(self, text: str, source: str = ""):

@@ -88,6 +88,7 @@ which beats archive.org's file ids.
     .venv/bin/python build_app.py               build for this computer, runs the self-test
     .venv/bin/python tools/screenshot.py X.png [POINTS]   window draws itself, no screen capture
     .venv/bin/python tools/drive.py WORKDIR [links...]    real window, real downloads, off-screen
+    .venv/bin/python tools/train.py WORKDIR [--only NAME...]  real-world matrix: 19 links and options at once, each result checked
     .venv/bin/python tools/make_icon.py         redraw assets/icon.*
     .venv/bin/python tools/release_mac.py vX.Y.Z  sign, notarize, staple, replace the Mac zip, attach the signed appcast
 
@@ -122,13 +123,30 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Mac (`check.sh` enforces it), and every custom dialog sets an Escape button.
 8. **`ytmsearch:` doesn't exist.** YouTube Music search uses its search page,
    songs section.
-9. From the classic app, still true for the command: a GUI-launched process gets
+9. **Every download has its own temporary folder** (`Job.tmp`, kept across
+   Stop and Retry so a retry resumes, deleted when it finishes or the row is
+   removed). One shared folder let the same video in two formats at once
+   overwrite each other's partial files.
+10. **yt-dlp reports only the main file.** Chapter files and subtitles are found
+   beside it afterwards (same name start, written during this run).
+11. **On the Mac a window reads in the order its controls were created.** A
+   field made before its label is heard before the label, and moving it in the
+   tab order doesn't change that. `labelled()` takes the label made first.
+12. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
-- 22 unit and scheduler tests (one hammers Stop and Retry) (`tests/`, fake worker, offline); CI runs them on
+- `tools/train.py`, 19 of 19 (2026-10-13): YouTube as best, MP3, FLAC, 720p
+  H.264, a 5-second WAV cut, subtitles, chapters (9 files), youtu.be and YouTube
+  Music links, an exact stream, an awkward file name; SoundCloud, Bandcamp,
+  archive.org, a plain MP3 link; and four failures that must explain themselves
+  (removed video, sign-in wanted, not media, bad extra options). Its first run
+  found five real bugs.
+- Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
+  tallies in two minutes.
+- 28 unit and scheduler tests (one hammers Stop and Retry) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,
   SoundCloud, archive.org FLAC, an archive.org playlist of 8 to MP3 (51 s at

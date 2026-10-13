@@ -47,10 +47,14 @@ def _safe_folder(name: str) -> str:
     return cleaned[:120] or "Playlist"
 
 
+def temp_dir(spec: dict) -> str:
+    return os.path.join(engine.TEMP, spec.get("tmp") or "shared")
+
+
 def output_template(spec: dict) -> str:
     if spec.get("name"):
-        stem = spec["name"].replace("%", "%%")
-        return stem + ".%(ext)s"
+        # A "/" in a name would make a folder; ":" is a separator on older Mac paths.
+        return _safe_folder(spec["name"]).replace("%", "%%") + ".%(ext)s"
     stem = "%(title)s.%(ext)s"
     if spec.get("item_title"):
         # A playlist's listing often names items better than the item's own page does
@@ -75,7 +79,9 @@ def tool_flags(fragments: int = 4) -> list[str]:
 
 
 def download_args(spec: dict, fragments: int = 4) -> list[str]:
-    args = ["-P", "home:" + spec["dest"], "-P", "temp:" + engine.TEMP,
+    # Each download gets its own temporary folder. A shared one let two downloads of the same
+    # video (as MP3 and as FLAC, say) overwrite each other's partial files (found in training).
+    args = ["-P", "home:" + spec["dest"], "-P", "temp:" + temp_dir(spec),
             "--trim-filenames", "150" if sys.platform == "win32" else "180",
             "-o", output_template(spec),
             "--no-playlist", "--no-mtime",  # the file's date is the day you got it, so it sorts to the top

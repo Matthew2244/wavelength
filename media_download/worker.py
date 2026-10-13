@@ -88,7 +88,7 @@ def do_download(yt_dlp, task):
     from .options import download_args, tool_flags
     spec = task["spec"]
     logger = Logger()
-    state = {"part": 1, "parts": 1, "fmt": None, "last": 0.0}
+    state = {"part": 1, "parts": 1, "fmt": None, "last": 0.0, "files": [], "started": time.time()}
 
     def hook(d):
         info = d.get("info_dict") or {}
@@ -121,17 +121,20 @@ def do_download(yt_dlp, task):
                 emit("stage", text=text)
 
     def post_hook(path):
-        emit("file", path=os.path.abspath(path))
+        path = os.path.abspath(path)
+        state.setdefault("files", []).append(path)
+        emit("file", path=path)
 
     args = download_args(spec, task.get("fragments", 4)) + tool_flags(task.get("fragments", 4))
     os.makedirs(spec["dest"], exist_ok=True)
     from . import engine
-    os.makedirs(engine.TEMP, exist_ok=True)
+    from .options import temp_dir
+    os.makedirs(temp_dir(spec), exist_ok=True)
     try:
         ydl = _make_ydl(yt_dlp, args, logger, {"progress_hooks": [hook], "postprocessor_hooks": [pp_hook],
                                                 "post_hooks": [post_hook]})
-    except Exception as exc:  # bad raw flags under More Options land here
-        emit("log", text="Those extra options weren't understood: %s" % exc)
+    except (Exception, SystemExit) as exc:  # bad raw flags under More Options; argparse exits
+        emit("log", text="BADOPTIONS: %s" % (exc if str(exc) not in ("2", "") else spec.get("extra", "")))
         emit("end", ok=False)
         return
     with ydl:
@@ -148,6 +151,21 @@ def do_download(yt_dlp, task):
         except Exception as exc:  # noqa: BLE001
             logger.error("ERROR: %s" % exc)
             code = 1
+    if code == 0:
+        # Chapter files and subtitles are made beside the main file but never reported by
+        # yt-dlp's final hook, so the row and Show in Finder knew only the whole file.
+        for path in list(state.get("files", [])):
+            folder, base = os.path.split(path)
+            stem = os.path.splitext(base)[0]
+            try:
+                for name in sorted(os.listdir(folder)):
+                    full = os.path.join(folder, name)
+                    if (full not in state["files"] and name.startswith(stem)
+                            and os.path.getmtime(full) >= state["started"] - 1):
+                        state["files"].append(full)
+                        emit("file", path=full)
+            except OSError:
+                pass
     emit("end", ok=(code == 0))
 
 

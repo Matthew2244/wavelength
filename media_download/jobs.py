@@ -57,6 +57,7 @@ class Job:
     info_time: float = 0.0
     probed: bool = False
     engine_retry: bool = False
+    tmp: str = ""
     run: int = 0
     added: float = 0.0
     finished: float = 0.0
@@ -68,6 +69,9 @@ class Job:
             self.added = time.time()
         if not self.site:
             self.site = words.site_name(self.url)
+        if not self.tmp:
+            # Its own temporary folder, kept across Stop and Retry so a retry resumes.
+            self.tmp = "job-%d-%d" % (int(self.added * 1000), self.id)
 
     def folder(self) -> str:
         return os.path.join(self.dest, self.subfolder) if self.subfolder else self.dest
@@ -110,6 +114,6 @@ class Job:
     def spec(self) -> dict:
         """What a worker needs to run this download."""
         keys = ("url", "dest", "kind", "max_height", "format_id", "format_audio_only", "start", "end",
-                "chapters", "subtitles", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art",
+                "chapters", "subtitles", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp",
                 "info_file", "info_time")
         return {k: getattr(self, k) for k in keys}

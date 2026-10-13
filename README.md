@@ -269,7 +269,7 @@ python3 -m venv .venv && .venv/bin/pip install wxPython pyinstaller certifi "yt-
 
 `check.sh` parses the Python, confirms every command-line option has help text, runs the tests and the app's self-test, and checks that every dialog closes with Escape and every control has a spoken name. It also still compiles the classic dialog app. It exits non-zero if anything fails. It exists because a broken build once got committed and pushed when an error scrolled past.
 
-`tools/screenshot.py` has the window draw itself into a PNG, at any text size, with no screen capture. `tools/drive.py` runs the real window through real downloads off-screen and prints every row and every spoken message, so the wording can be checked by reading it. Releases: tag `vX.Y.Z` and GitHub Actions builds both apps; `tools/release_mac.py vX.Y.Z` then signs and notarizes the Mac one on a Mac holding the Developer ID.
+`tools/train.py` downloads a matrix of real links and options all at once and checks every result: run it after anything that touches downloading. `tools/screenshot.py` has the window draw itself into a PNG, at any text size, with no screen capture. `tools/drive.py` runs the real window through real downloads off-screen and prints every row and every spoken message, so the wording can be checked by reading it. Releases: tag `vX.Y.Z` and GitHub Actions builds both apps; `tools/release_mac.py vX.Y.Z` then signs and notarizes the Mac one on a Mac holding the Developer ID.
 
 ## Design notes
 
