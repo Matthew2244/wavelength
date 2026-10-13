@@ -110,6 +110,28 @@ def _announce_windows(text: str) -> str | None:
     return None
 
 
+def mac_value_description(ctrl, text: str) -> None:
+    """What VoiceOver says for a slider's value: "1 minute 3 seconds of 4 minutes", not "63"."""
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        f = objc.objc_msgSend
+        f.restype = ctypes.c_void_p
+        f.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]
+        s = f(objc.objc_getClass(b"NSString"), objc.sel_registerName(b"stringWithUTF8String:"), text.encode())
+        f.restype = None
+        f.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        f(ctrl.GetHandle(), objc.sel_registerName(b"setAccessibilityValueDescription:"), s)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def announce(text: str) -> None:
     """Have the screen reader say something without moving focus.
 

@@ -163,10 +163,13 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 12. **curl_cffi must be inside the app** (pinned to yt-dlp's version, 0.16.0) or
    sites that check for a real browser turn the engine away; the self-test
    asks the frozen worker how many browsers it can pass as.
-13. **On the Mac a window reads in the order its controls were created.** A
+13. **A slider says only its number** ("3") unless given a value description:
+   `system.mac_value_description` sets what VoiceOver says ("3 seconds of 19
+   seconds", "40 percent"). Any new slider needs one.
+14. **On the Mac a window reads in the order its controls were created.** A
    field made before its label is heard before the label, and moving it in the
    tab order doesn't change that. `labelled()` takes the label made first.
-14. From the classic app, still true for the command: a GUI-launched process gets
+15. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 

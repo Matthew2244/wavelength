@@ -27,7 +27,7 @@ import wx.media
 
 from . import engine, words
 from .manager import run_task
-from .system import announce, mac_accessibility_label, open_path, reveal
+from .system import announce, mac_accessibility_label, mac_value_description, open_path, reveal
 
 SPEEDS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
 SLEEP_CHOICES = [(0, "Off"), (15, "15 minutes"), (30, "30 minutes"), (45, "45 minutes"), (60, "1 hour"),
@@ -177,6 +177,7 @@ class PlayerFrame(wx.Frame):
         vlab = wx.StaticText(p, label="Volume:")
         self.volume = wx.Slider(p, value=int(self.base_volume * 100), minValue=0, maxValue=100, size=(160, -1))
         mac_accessibility_label(self.volume, "Volume")
+        mac_value_description(self.volume, "%d percent" % int(self.base_volume * 100))
         self.download_btn = wx.Button(p, label="Download This")
         self.download_btn.SetToolTip("Keep a copy of what's playing, in the main window's format.")
         self.show_btn = wx.Button(p, label="Show File")
@@ -474,6 +475,7 @@ class PlayerFrame(wx.Frame):
     def set_volume(self, v: float, say=True):
         self.base_volume = round(v, 2)
         self.volume.SetValue(int(self.base_volume * 100))
+        mac_value_description(self.volume, "%d percent" % int(self.base_volume * 100))
         if self.loaded and not self.fading:
             self.media.SetVolume(self.base_volume)
         self.cfg["app_volume"] = self.base_volume
@@ -550,8 +552,11 @@ class PlayerFrame(wx.Frame):
         self.last_second = sec
         if self.item.get("live") or not self.length:
             self.time.SetLabel("Live %s" % words.clock_words(now))
+            mac_value_description(self.slider, "Live")
         else:
             self.time.SetLabel("%s of %s" % (words.clock_words(now), words.clock_words(self.length)))
+            mac_value_description(self.slider, "%s of %s" % (words.duration(now) or "0 seconds",
+                                                             words.duration(self.length)))
         self.panel.Layout()
 
     # ------------------------------------------------------------------ the rest
