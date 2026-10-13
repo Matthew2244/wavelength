@@ -13,10 +13,11 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.4.4 is the latest release, signed and
-notarized on the Mac, with both appcasts serving it. The Studio took it
-through Sparkle (Matthew, the same day; verified 2.4.4, signature valid).
-So did the MacBook (verified 2.4.4). Check `CFBundleShortVersionString`
+**Where it stands (2026-10-13):** 2.4.6 is the latest release, signed and
+notarized on the Mac, with both appcasts serving it. Installed on the Studio
+and the MacBook from the notarized zip (neither had the app open; verified
+2.4.6, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
 
