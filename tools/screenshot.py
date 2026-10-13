@@ -29,7 +29,7 @@ app = wx.App(False)
 f = gui.MainFrame()
 f.SetSize((900, 780))
 f.mgr.pump = lambda: None
-dest = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs/Media Downloads")
+dest = os.path.expanduser("~/Downloads/Media Downloads")
 samples = [
     ("done", "Herbie Hancock - Cantaloupe Island (Live)", dict(bytes_done=9_400_000, files=["/x/a.m4a"])),
     ("done", "Jimmy Smith - The Sermon", dict(bytes_done=31_200_000, files=["/x/b.opus"])),

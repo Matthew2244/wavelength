@@ -313,6 +313,24 @@ class Manager:
         for j in due:
             self.listener(j, "changed")
 
+    def _no_room(self, job: Job) -> bool:
+        """Too big for the disk it's going to? Say so before starting, not at 90 percent (lock held)."""
+        import shutil
+        need = job.bytes_total or 0
+        if job.kind != "video" and job.kind in ("wav", "flac"):
+            need *= 6  # converting compressed audio to WAV or FLAC makes it several times bigger
+        if not need:
+            return False
+        try:
+            free = shutil.disk_usage(job.dest if os.path.isdir(job.dest) else os.path.dirname(job.dest)).free
+        except OSError:
+            return False
+        if free > need * 1.1 + 200_000_000:
+            return False
+        job.reason = ("There isn't room: it needs about %s and that disk has %s free. Free some space, or "
+                      "choose another folder, then Retry." % (words.size(need), words.size(free)))
+        return True
+
     def _try_later(self, job: Job, text: str) -> bool:
         """Network trouble or a "slow down": wait and try again by itself. True if it will (lock held).
 
@@ -403,6 +421,10 @@ class Manager:
                 if not stopped:
                     if playlist is not None:
                         job.state = "waiting_choice"
+                    elif ok and self._no_room(job):
+                        job.state = "failed"
+                        job.finished = time.time()
+                        self.batch_counts["failed"] += 1
                     elif ok:
                         job.state = "waiting"
                         job.probed = True

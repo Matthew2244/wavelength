@@ -355,6 +355,9 @@ def pretty_folder(path: str) -> str:
     icloud = os.path.join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")
     if path.startswith(icloud):
         return "iCloud Drive" + path[len(icloud):].replace(os.sep, " > ")
+    downloads = os.path.join(home, "Downloads")
+    if path == downloads or path.startswith(downloads + os.sep):
+        return "Downloads" + path[len(downloads):].replace(os.sep, " > ")
     if path.startswith(home + os.sep):
         return "your home folder" + path[len(home):].replace(os.sep, " > ")
     return path

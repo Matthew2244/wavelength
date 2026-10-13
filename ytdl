@@ -107,8 +107,8 @@ import urllib.parse
 import urllib.request
 
 HOME = os.path.expanduser("~")
-DEST = os.path.join(HOME, "Library", "Mobile Documents", "com~apple~CloudDocs",
-                    "Media Downloads")
+# On the computer itself by default, like the app; --setup or --set to=... chooses elsewhere.
+DEST = os.path.join(HOME, "Downloads", "Media Downloads")
 SCRATCH = os.path.join(HOME, ".cache", "ytdl-temp")
 PUSHOVER = os.path.join(HOME, "bin", "pushover")
 
@@ -381,9 +381,11 @@ def do_setup():
     icloud = os.path.join(HOME, "Library", "Mobile Documents", "com~apple~CloudDocs")
     try:
         choice = ask("1 of 7. Where should downloads go?",
-                     [("iCloud Drive, in Media Downloads",
+                     [("Downloads, in Media Downloads (on this computer)",
+                       os.path.join(HOME, "Downloads", "Media Downloads")),
+                      ("iCloud Drive, in Media Downloads (on all your devices)",
                        os.path.join(icloud, "Media Downloads")),
-                      ("Your Downloads folder", os.path.join(HOME, "Downloads")),
+                      ("Your Downloads folder itself", os.path.join(HOME, "Downloads")),
                       ("Your Music folder", os.path.join(HOME, "Music")),
                       ("Somewhere else — type the path", "ASK")],
                      pretty_path(setting(cfg, "to", DEST)))

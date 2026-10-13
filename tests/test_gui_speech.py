@@ -80,3 +80,39 @@ def test_describe_window_offers_people_first(frame, monkeypatch):
     dlg._buttons()
     assert dlg.make_btn.IsEnabled() and not dlg.play_btn.IsEnabled()
     dlg.Destroy()
+
+
+def test_unavailable_folder_is_said_and_nothing_added(frame, monkeypatch):
+    said, asked = [], []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+
+    class No:
+        def __init__(self, parent, msg, *a, **k):
+            asked.append(msg)
+
+        def SetOKCancelLabels(self, *a):
+            pass
+
+        def ShowModal(self):
+            return wx.ID_CANCEL
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.wx, "MessageDialog", No)
+    old = frame.cfg["to"]
+    frame.cfg["to"] = "/Volumes/A Drive That Is Not Plugged In/Media"
+    try:
+        before = len(frame.mgr.jobs)
+        assert frame.add_links(["https://x.com/a"]) == 0
+        assert len(frame.mgr.jobs) == before
+        assert "isn't connected" in asked[0]
+        assert said[-1] == "Nothing added: the download folder isn't available."
+    finally:
+        frame.cfg["to"] = old
+
+
+def test_default_folder_is_on_this_computer():
+    from media_download import engine, words
+    d = engine.default_folder()
+    assert "CloudDocs" not in d and d.endswith(os.path.join("Downloads", "Media Downloads"))
+    assert words.pretty_folder(d) == "Downloads > Media Downloads"

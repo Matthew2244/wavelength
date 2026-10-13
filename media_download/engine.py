@@ -55,11 +55,34 @@ CONFIG = os.path.join(_TEST, "config.json") if _TEST else os.path.join(HOME, ".c
 PUSHOVER = os.path.join(HOME, "bin", "pushover")
 
 
+def downloads_dir() -> str:
+    """This computer's own Downloads folder. On Windows, wherever the person has moved it."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD),
+                            ("d", ctypes.c_ubyte * 8)]
+            # FOLDERID_Downloads {374DE290-123F-4565-9164-39C4925E467B}
+            fid = GUID(0x374DE290, 0x123F, 0x4565, (ctypes.c_ubyte * 8)(0x91, 0x64, 0x39, 0xC4, 0x92, 0x5E, 0x46, 0x7B))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, None, ctypes.byref(out)) == 0:
+                path = out.value
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                if path:
+                    return path
+        except Exception:  # noqa: BLE001
+            pass
+    return os.path.join(HOME, "Downloads")
+
+
 def default_folder() -> str:
-    icloud = os.path.join(HOME, "Library", "Mobile Documents", "com~apple~CloudDocs")
-    if os.path.isdir(icloud):
-        return os.path.join(icloud, "Media Downloads")
-    return os.path.join(HOME, "Downloads", "Media Downloads")
+    """Downloads > Media Downloads, on the computer itself, on every system. Not a cloud folder:
+    a new person's files should land where they'd look first, and a synced folder would push
+    every download to their other devices. Change Folder lets anyone choose otherwise."""
+    return os.path.join(downloads_dir(), "Media Downloads")
 
 
 DEFAULTS = {
@@ -78,7 +101,8 @@ DEFAULTS = {
     "app_clipboard": True,
     "app_search_site": "youtube",
     "app_signin_browser": "",     # remembered for Retry Using a Browser's Sign-in
-    "app_rate_limit": "",         # "", "500K", "1M", "5M", "10M"
+    "app_rate_limit": "",
+    "app_keep_awake": True,      # don't let the computer sleep while downloading         # "", "500K", "1M", "5M", "10M"
     "app_welcomed": False,
 }
 

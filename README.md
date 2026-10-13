@@ -22,7 +22,7 @@ On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (
 
 ## Using the app
 
-![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: iCloud Drive > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
+![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
 1. Paste a link into the Link field and press Return. Paste several at once and each gets its own row.
 2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Tick the results you want.
@@ -41,6 +41,8 @@ A link to a playlist or album asks whether you want all of it, some of it (tick 
 **When things go wrong, it sorts itself out where it can.** A dropped connection or a server hiccup tries again by itself, after 15 seconds and then a minute. When a site says "too many requests", every download from that site waits a few minutes, the row says when it will try again, and it carries on without you, so a long playlist can finish overnight. When a site wants you signed in, select the row and choose Retry Using a Browser's Sign-in: it borrows the sign-in from the browser you choose, and remembers which. Spotify, Apple Music and Netflix use copy protection (DRM), and the app says so plainly rather than looking broken.
 
 **A long list** can be filtered: type in Filter (Command-Shift-F) to show only rows containing those words, like "failed" or part of a title. Escape shows everything again.
+
+Downloads go to **Downloads > Media Downloads** on your computer until you choose somewhere else with Change Folder. While anything is downloading, the computer won't go to sleep (so an overnight playlist finishes; Settings can turn that off). If the folder isn't there, say on a drive that's unplugged, or a download won't fit on the disk, it tells you before starting.
 
 While anything is downloading, the Dock icon shows how many (on Windows, the taskbar button shows progress), so you can see it from another app.
 
@@ -282,9 +284,9 @@ you can see what they refer to.
   --no-auto-update         never upgrade yt-dlp on its own
 ```
 
-Downloads default to `~/Library/Mobile Documents/com~apple~CloudDocs/Media Downloads`
-(iCloud Drive). `ytdl --set-default --to ~/Music` changes that for good; `--to` changes
-it for one run.
+Downloads default to Downloads > Media Downloads on the computer itself.
+`ytdl --setup` offers iCloud Drive and others; `ytdl --set-default --to ~/Music` changes it
+for good; `--to` changes it for one run.
 
 **`best` never converts; a named format sometimes must.** `--format best` keeps the
 source codec, so a Bandcamp FLAC stays FLAC and an MP3 stays an MP3. Naming a format

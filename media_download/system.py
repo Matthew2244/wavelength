@@ -286,6 +286,35 @@ def taskbar_progress(frame, fraction: float | None) -> None:
         pass
 
 
+_awake = {"proc": None, "on": False}
+
+
+def keep_awake(on: bool) -> None:
+    """Keep the computer from going to sleep while downloads run, and only then.
+
+    A long playlist left overnight stops halfway if the computer sleeps. The screen may still
+    turn off. Mac: `caffeinate -i` while busy. Windows: SetThreadExecutionState. Call from the
+    main thread, as the window's timer does.
+    """
+    if on == _awake["on"]:
+        return
+    _awake["on"] = on
+    try:
+        if sys.platform == "darwin":
+            if on:
+                _awake["proc"] = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif _awake["proc"] is not None:
+                _awake["proc"].terminate()
+                _awake["proc"] = None
+        elif sys.platform == "win32":
+            import ctypes
+            ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if on else 0))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def open_path(path: str) -> None:
     if sys.platform == "darwin":
         subprocess.Popen(["open", path])

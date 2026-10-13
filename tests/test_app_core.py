@@ -412,3 +412,19 @@ def test_a_description_is_never_taken_for_captions(tmp_path):
     assert captions_for(str(tmp_path / "Clip.mp4")) == []
     (tmp_path / "Clip.en.srt").write_text("1\n00:00:00,000 --> 00:00:02,000\nhello\n")
     assert captions_for(str(tmp_path / "Clip.mp4")) == [(0.0, 2.0, "hello")]
+
+
+def test_too_big_for_the_disk_fails_before_starting(fake, monkeypatch):
+    import collections
+    m, _ = fake
+    usage = collections.namedtuple("usage", "total used free")
+    monkeypatch.setattr(manager.shutil if hasattr(manager, "shutil") else __import__("shutil"), "disk_usage",
+                        lambda p: usage(10**12, 10**12 - 300_000_000, 300_000_000))
+    j = Job(url="https://a.com/one", dest="/tmp")
+    j.bytes_total = 2_000_000_000
+    with m.lock:
+        assert m._no_room(j)
+    assert "isn't room" in j.reason and "2 GB" in j.reason
+    j.bytes_total = 1_000
+    with m.lock:
+        assert not m._no_room(j)

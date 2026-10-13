@@ -13,6 +13,12 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
+Downloads go to **Downloads > Media Downloads on the computer itself** by default,
+Mac and Windows (`engine.default_folder`; Windows asks for the real Downloads
+folder with SHGetKnownFolderPath). Never a cloud folder by default (Matthew,
+2026-10-13): Change Folder is the person's choice. Matthew's own config keeps
+the iCloud folder he chose. The command's default and `--setup` order match.
+
 The app and the command share one settings file, `~/.config/ytdl/config.json`.
 The app's own keys start with `app_`; `save_settings()` keeps any key it doesn't
 know. Video quality lives in `app_max_height`, not `max_height`, because the app
@@ -106,6 +112,14 @@ in-process on the Mac (`say` takes ~2.4 s to start with 442 voices), Prism's
 OneCore/SAPI on Windows, or the screen reader with an estimated pause.
 `MEDIA_DOWNLOAD_SILENT_SPEECH=1` mutes it for night tests. Me at the zoo: 23 s
 from link to a 2-line description.
+
+**Looking after the computer.** While anything downloads, the computer is kept
+from sleeping (`system.keep_awake`: `caffeinate -i -w <pid>` on the Mac,
+SetThreadExecutionState on Windows), so an overnight playlist finishes; a
+setting turns it off. A download folder that can't be written (an unplugged
+drive) is caught before anything is added, with Choose Folder offered. After
+the lookup knows the size, a download too big for the free space fails at once
+with both numbers (WAV and FLAC conversions counted at six times).
 
 **Trying again by itself** (`Manager._try_later`). Network trouble or a 5xx
 waits 15 s then 60 s (`net_retries`, at most 2). A 429 pauses the whole site
@@ -237,7 +251,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   found five real bugs.
 - Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
   tallies in two minutes.
-- 43 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
+- 47 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
   spoken sentences and needs wx) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,

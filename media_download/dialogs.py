@@ -40,6 +40,24 @@ def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True):
     return text
 
 
+def fit_choices(win):
+    """Size every popup menu in a window to its longest choice: on the Mac a popup sizes itself
+    to its first choice and cuts the rest off ("Pause the video to read...")."""
+    for c in win.GetChildren():
+        if isinstance(c, wx.Choice) and c.GetCount():
+            dc = wx.ClientDC(c)
+            dc.SetFont(c.GetFont())
+            w = max(dc.GetTextExtent(c.GetString(i))[0] for i in range(c.GetCount()))
+            c.SetMinSize((w + 60, -1))
+
+
+def heading(dlg, sizer, text):
+    h = wx.StaticText(dlg, label=text)
+    h.SetFont(h.GetFont().Bold())
+    sizer.Add(h, 0, wx.LEFT | wx.TOP, 8)
+    return h
+
+
 def buttons(dlg, ok_label, cancel_label="Cancel"):
     row = wx.BoxSizer(wx.HORIZONTAL)
     cancel = wx.Button(dlg, wx.ID_CANCEL, cancel_label)
@@ -221,6 +239,7 @@ class Settings(wx.Dialog):
         super().__init__(parent, title="Settings", style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.cfg = cfg
         s = wx.BoxSizer(wx.VERTICAL)
+        heading(self, s, "Downloads")
         auto = engine.auto_parallel()
         self.parallel_vals = [0] + list(range(1, 13))
         _label = wx.StaticText(self, label="Downloads at once:")
@@ -266,9 +285,7 @@ class Settings(wx.Dialog):
         self.say.SetSelection(self.say_vals.index(v) if v in self.say_vals else 0)
         labelled(self, s, "Speak progress while downloading:", self.say, _label,
                  "For screen readers. Finishes and failures are always spoken.")
-        heading = wx.StaticText(self, label="Player")
-        heading.SetFont(heading.GetFont().Bold())
-        s.Add(heading, 0, wx.LEFT | wx.TOP, 8)
+        heading(self, s, "Player")
         self.skip_vals = [5, 10, 15, 30, 60]
         _label = wx.StaticText(self, label="Skip back and forward by:")
         self.skip = wx.Choice(self, choices=["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"])
@@ -301,12 +318,15 @@ class Settings(wx.Dialog):
         self.captions = wx.CheckBox(self, label="Show captions under videos when there are some")
         self.captions.SetValue(bool(cfg.get("app_captions", True)))
         s.Add(self.captions, 0, wx.ALL, 6)
-        heading = wx.StaticText(self, label="Everything else")
-        heading.SetFont(heading.GetFont().Bold())
-        s.Add(heading, 0, wx.LEFT | wx.TOP, 8)
+        heading(self, s, "Everything else")
         self.clip = wx.CheckBox(self, label="Offer a link I've copied when I switch to the app")
         self.clip.SetValue(bool(cfg.get("app_clipboard", True)))
         s.Add(self.clip, 0, wx.ALL, 6)
+        self.awake = wx.CheckBox(self, label="Keep the computer awake while downloading")
+        self.awake.SetValue(bool(cfg.get("app_keep_awake", True)))
+        self.awake.SetToolTip("So a long playlist left overnight finishes. Only while something is "
+                              "downloading; the screen can still turn off.")
+        s.Add(self.awake, 0, wx.ALL, 6)
         self.upd = wx.CheckBox(self, label="Keep the download engine up to date automatically")
         self.upd.SetValue(bool(cfg.get("auto_update", True)))
         self.upd.SetToolTip("Sites change often and the engine (yt-dlp) keeps up. Checks once a day, "
@@ -319,6 +339,7 @@ class Settings(wx.Dialog):
             s.Add(self.push, 0, wx.ALL, 6)
         row, ok, _ = buttons(self, "Save Settings")
         s.Add(row, 0, wx.EXPAND | wx.ALL, 6)
+        fit_choices(self)
         self.SetSizerAndFit(s)
         ok.Bind(wx.EVT_BUTTON, self.on_ok)
         self.parallel.SetFocus()
@@ -332,6 +353,7 @@ class Settings(wx.Dialog):
             "app_cover_art": self.cover.GetValue(), "app_sounds": self.sounds.GetValue(),
             "app_announce_progress": self.say_vals[self.say.GetSelection()],
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
+            "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
             "app_ad_mode": self.ad_vals[self.ad.GetSelection()], "app_ad_voice": self.adv_vals[self.adv.GetSelection()],

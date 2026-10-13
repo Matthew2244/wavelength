@@ -24,8 +24,8 @@ import wx.adv
 from . import APP_NAME, __version__, dialogs, engine, sparkle, update, winsparkle, words
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
-from .system import (announce, dock_badge, mac_accessibility_label, open_path, play, pushover, reveal,
-                     taskbar_progress)
+from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
+                     reveal, taskbar_progress)
 
 def M(label: str) -> str:
     """A label with its Alt-key letter on Windows. On the Mac a button's "&D" also answers
@@ -376,8 +376,34 @@ class MainFrame(wx.Frame):
                    cookies=o.get("cookies", ""), name=o.get("name", ""),
                    extra=o.get("extra", ""), cover_art=bool(self.cfg.get("app_cover_art", True)))
 
+    def folder_ready(self) -> bool:
+        """The download folder can be written. If not (a drive unplugged, a folder deleted or
+        locked), say so and offer to choose another, rather than failing every download."""
+        to = self.cfg["to"]
+        try:
+            os.makedirs(to, exist_ok=True)
+            ok = os.access(to, os.W_OK)
+        except OSError:
+            ok = False
+        if ok:
+            return True
+        dlg = wx.MessageDialog(self, "Media Download can't save to %s. It may be on a drive that isn't connected, "
+                               "or a folder that's been moved or locked.\n\nChoose another folder?"
+                               % words.pretty_folder(to), "Download folder unavailable",
+                               wx.OK | wx.CANCEL | wx.OK_DEFAULT | wx.ICON_WARNING)
+        dlg.SetOKCancelLabels("&Choose Folder...", "Cancel")
+        go = dlg.ShowModal() == wx.ID_OK
+        dlg.Destroy()
+        if go:
+            self.on_folder(None)
+            return self.cfg["to"] != to and os.access(self.cfg["to"], os.W_OK)
+        self.tell("Nothing added: the download folder isn't available.")
+        return False
+
     def add_links(self, urls: list[str], source: str = "") -> int:
         if not urls:
+            return 0
+        if not self.folder_ready():
             return 0
         if self.next_opts.get("name") and len(urls) > 1:
             self.next_opts.pop("name")  # one name can't fit several files
@@ -895,6 +921,7 @@ class MainFrame(wx.Frame):
 
     def on_tick(self, _):
         self.refresh()
+        keep_awake(bool(self.cfg.get("app_keep_awake", True)) and self.mgr.busy())
         every = int(self.cfg.get("app_announce_progress") or 0)
         if every and time.time() - self.last_spoken_progress >= every:
             with self.mgr.lock:
@@ -1412,6 +1439,7 @@ class MainFrame(wx.Frame):
                 event.Veto()
                 return
         self.timer.Stop()
+        keep_awake(False)
         self.mgr.shutdown()
         if self.player is not None:
             self.player.shutdown()
