@@ -237,3 +237,53 @@ def test_stop_and_retry_hammered_never_strands_a_download(fake):
             m.retry(j)
     assert wait(lambda: all(j.state == "done" for j in jobs), 40), [j.state for j in jobs]
     assert not m.procs
+
+
+class _FakeBackend:
+    def __init__(self, name, running, said):
+        self.name, self._running, self.said = name, running, said
+
+    @property
+    def features(self):
+        class F:
+            is_supported_at_runtime = self._running
+            supports_output = True
+        return F
+
+    def output(self, text, interrupt=False):
+        self.said.append((self.name, text))
+
+
+def _fake_prism(monkeypatch, running):
+    import enum
+    import types
+    said = []
+    ids = enum.IntEnum("BackendId", {n: i + 1 for i, n in enumerate(
+        ("SAPI", "ONE_CORE", "NVDA", "JAWS", "ZDSR", "SYSTEM_ACCESS", "ZOOM_TEXT", "SENSE_READER",
+         "PC_TALKER", "BOY_PC_READER", "UIA"))})
+
+    class Ctx:
+        def exists(self, bid):
+            return True
+
+        def acquire(self, bid):
+            name = ids(bid).name
+            if name not in running and name not in ("UIA", "SAPI", "ONE_CORE"):
+                raise RuntimeError("Backend not available")
+            return _FakeBackend(name, name in running or name in ("SAPI", "ONE_CORE"), said)
+    monkeypatch.setitem(sys.modules, "prism", types.SimpleNamespace(Context=Ctx, BackendId=ids))
+    from media_download import system
+    monkeypatch.setattr(system, "_win_reader", {"ctx": None, "failed": False})
+    return system, said
+
+
+def test_windows_speech_prefers_the_running_reader(monkeypatch):
+    system, said = _fake_prism(monkeypatch, running={"JAWS"})
+    assert system._announce_windows("Done: Song.") == "JAWS"
+    assert said == [("JAWS", "Done: Song.")]
+
+
+def test_windows_speech_falls_back_to_narrator_never_plain_tts(monkeypatch):
+    system, said = _fake_prism(monkeypatch, running=set())
+    assert system._announce_windows("Done: Song.") == "UIA"
+    assert said == [("UIA", "Done: Song.")]

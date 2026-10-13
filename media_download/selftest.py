@@ -44,6 +44,17 @@ def run() -> int:
             import yt_dlp_ejs  # noqa: F401  the YouTube challenge solver must be inside
         except Exception as exc:  # noqa: BLE001
             problems.append("ejs: %s" % exc)
+        if sys.platform == "win32":
+            # Windows speech: Prism must load inside the app and offer UI Automation at least.
+            try:
+                import prism
+                ctx = prism.Context()
+                if not ctx.exists(prism.BackendId.UIA):
+                    problems.append("speech: Prism has no UI Automation backend")
+                names = [ctx.name_of(ctx.id_of(i)) for i in range(ctx.backends_count)]
+                print("Windows speech backends: " + ", ".join(names))
+            except Exception as exc:  # noqa: BLE001
+                problems.append("speech: %s" % exc)
     status = "OK" if not problems else "FAILED: " + "; ".join(problems)
     print("%s %s %s" % (APP_NAME, __version__, status))
     sys.stdout.flush()

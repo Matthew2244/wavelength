@@ -21,8 +21,9 @@ has a value (-1, any codec) the command would misread.
 ## How the app is built
 
 - `gui.py` the window; `dialogs.py` More Options, Settings, playlist question,
-  tick list, Search. `system.py` VoiceOver announcements, reveal/open, sounds,
-  Pushover.
+  tick list, Search. `system.py` announcements (VoiceOver on the Mac, Prism on
+  Windows), reveal/open, sounds, Pushover. It must import without wx: the
+  Linux CI tests import it and don't install wx.
 - `manager.py` the download list and scheduler, no wx, fully testable.
   Limits: downloads at once (automatic = half the cores, 2 to 8), per site (3,
   counting only rows downloading, not converting), lookups (4).
@@ -130,9 +131,13 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   not yet replaced this app with a newer release. The first real test is
   2.0.1: install it through Help, Check for App Updates on both Macs.
 
-- **Windows has not been tried by a person**, and on Windows nothing is spoken
-  yet; messages go to the status bar. NVDA's controller client, or UI
-  Automation notifications, would close that.
+- **Windows has not been tried by a person.** Speech there goes through Prism
+  (`prismatoid`, MPL-2.0, bundles NVDA's controller client, LGPL): the first
+  running reader of NVDA, JAWS, ZDSR, System Access, ZoomText, Sense Reader,
+  PC-Talker, BoyPC, else UI Automation notifications (Narrator). Never SAPI or
+  OneCore, so nobody without a screen reader gets talked at. The order is
+  unit-tested with a fake Prism and the Windows self-test checks Prism loads
+  with a UIA backend, but no reader has heard it yet. NVDA is the first to try.
 - The Windows build is unsigned, so SmartScreen warns once.
 - `ytdescribe` is still command-line only. A "Describe this video" item in the
   app would bring it to everyone.

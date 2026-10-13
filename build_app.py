@@ -22,6 +22,8 @@ args = [
     "--hidden-import", "media_download.gui", "--hidden-import", "media_download.worker",
     "--hidden-import", "media_download.selftest",
 ]
+if sys.platform == "win32":
+    args += ["--collect-all", "prism"]  # Prism: speech through NVDA, JAWS, Narrator and others
 icon = os.path.join("assets", "icon.icns" if sys.platform == "darwin" else "icon.ico")
 if os.path.exists(icon):
     args += ["--icon", icon]

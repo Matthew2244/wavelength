@@ -5,10 +5,10 @@ import os
 import subprocess
 import sys
 
-import wx
 
 
-def mac_accessibility_label(ctrl: wx.Window, label: str) -> None:
+
+def mac_accessibility_label(ctrl, label: str) -> None:
     """Give a control a spoken name on macOS, where wx has no API for it.
 
     Without this VoiceOver announces the report as just "text". Windows screen
@@ -46,12 +46,55 @@ def mac_accessibility_label(ctrl: wx.Window, label: str) -> None:
         pass  # a missing label must never stop the app
 
 
-def announce(text: str) -> None:
-    """Have the screen reader say something without moving focus (macOS VoiceOver).
+_win_reader = {"ctx": None, "failed": False}
 
-    Used for short confirmations like "Report copied". Elsewhere the same text
-    also goes to the status bar, where Windows screen readers can read it.
+# Screen readers first, checked as running; then UI Automation notifications, which Narrator
+# (and NVDA, JAWS) hear. Never SAPI or OneCore: with no screen reader running, a sighted
+# person should not suddenly be talked at.
+_WIN_ORDER = ("NVDA", "JAWS", "ZDSR", "SYSTEM_ACCESS", "ZOOM_TEXT", "SENSE_READER", "PC_TALKER",
+              "BOY_PC_READER", "UIA")
+
+
+def _announce_windows(text: str) -> str | None:
+    """Speak through the running Windows screen reader with Prism. Returns the reader's name."""
+    if _win_reader["failed"]:
+        return None
+    try:
+        import prism
+        if _win_reader["ctx"] is None:
+            _win_reader["ctx"] = prism.Context()
+        ctx = _win_reader["ctx"]
+        for name in _WIN_ORDER:
+            bid = getattr(prism.BackendId, name, None)
+            if bid is None or not ctx.exists(bid):
+                continue
+            try:
+                backend = ctx.acquire(bid)  # initialising fails for a reader that isn't running
+            except Exception:  # noqa: BLE001
+                continue
+            feats = backend.features
+            if name != "UIA" and not feats.is_supported_at_runtime:
+                continue
+            if feats.supports_output:
+                backend.output(text, interrupt=False)  # speech and braille
+            else:
+                backend.speak(text, interrupt=False)
+            return name
+    except Exception:  # noqa: BLE001 - no Prism, or it failed to load: the status bar still shows it
+        _win_reader["failed"] = True
+    return None
+
+
+def announce(text: str) -> None:
+    """Have the screen reader say something without moving focus.
+
+    Mac: VoiceOver, through an accessibility announcement. Windows: NVDA, JAWS and the
+    others through Prism, or UI Automation for Narrator. The same text also goes to the
+    status bar, so nothing depends on this working.
     """
+    if sys.platform == "win32":
+        _announce_windows(text)
+        return
     if sys.platform != "darwin":
         return
     try:

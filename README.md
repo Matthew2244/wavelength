@@ -44,7 +44,7 @@ Built with wxPython, so every control is the system's own and VoiceOver, NVDA, J
 - Progress isn't spoken unless you ask for it in Settings (every 10, 30 or 60 seconds).
 - Command-J (Control-J on Windows) says what's happening right now: how many are downloading, waiting, done and failed.
 - The list and Details never jump under you. A row's text changes in place, and Details only rewrites itself while you're reading it when something real happens, never for a percentage.
-- On Windows, messages go to the status bar, where NVDA (NVDA+End) and JAWS (Insert+Page Down) read them. Spoken announcements there are on the list to do.
+- On Windows the same messages are spoken through whichever screen reader is running: NVDA, JAWS, ZDSR, System Access, ZoomText and others, or Narrator through UI Automation. That's done with [Prism](https://github.com/ethindp/prism). With no screen reader running nothing is spoken, so a sighted person is never suddenly talked at. Everything spoken also appears in the status bar.
 
 ### With low vision
 
