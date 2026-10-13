@@ -139,10 +139,15 @@ def pushover(text: str, failed: bool = False) -> None:
         base += ["--priority", "1"]
     sound = "ytdl-fail" if failed else "ytdl-done"
 
+    # No Mac-side echo: the app has already spoken and played its own sound, so the echo would
+    # say everything twice. Its VoiceOver speech landing on top of the app's own announcement
+    # also left VoiceOver not answering until it was restarted (2026-10-12).
+    env = dict(os.environ, PUSHOVER_NO_LOCAL_ECHO="1")
+
     def go():
         for cmd in (base + ["--sound", sound], base):
             try:
-                if subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0:
+                if subprocess.run(cmd, capture_output=True, timeout=30, env=env).returncode == 0:
                     return
             except Exception:  # noqa: BLE001
                 return

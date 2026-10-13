@@ -211,3 +211,16 @@ def test_list_survives_a_restart(fake, monkeypatch, tmp_path):
     assert m2.restore() == 1
     states = {j.url: j.state for j in m2.jobs}
     assert states == {"https://a.com/one": "done", "https://b.com/two": "stopped"}
+
+
+def test_video_prefers_h264_unless_asked_for_more():
+    assert "vcodec^=avc1" in options.selector(spec(kind="video"))[1]
+    assert "vcodec^=avc1" in options.selector(spec(kind="video", max_height=720))[1]
+    assert "avc1" not in options.selector(spec(kind="video", max_height=2160))[1]
+    assert options.selector(spec(kind="video", max_height=-1))[1] == "bv*+ba/b"
+
+
+def test_playlist_items_named_from_the_listing():
+    t = options.output_template({"subfolder": "Barton Hall", "index": 2, "item_title": "Lazy Lightning>Supplication"})
+    assert t.startswith("Barton Hall/002 - Lazy Lightning")
+    assert t.endswith(".%(ext)s")

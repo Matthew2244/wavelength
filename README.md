@@ -1,20 +1,92 @@
 # ytdl-accessible
 
-**Download audio and video from the web, on a Mac, without fighting your screen reader.**
+**Media Download saves audio and video from about 1,750 sites. It works the same whether you look at it or listen to it.**
 
-It saves the file where you tell it and leaves it alone. It never opens or plays
-anything.
+YouTube, Bandcamp, SoundCloud, Vimeo, the BBC, archive.org, Mixcloud, and plain links to a media file. It saves the file where you tell it and never plays anything on its own.
 
-Works on about 1,750 sites — YouTube, Bandcamp, SoundCloud, Vimeo, the BBC,
-archive.org, Mixcloud — and on plain links to a media file.
+What's here:
 
-You get three things:
+- **Media Download**, an app for Mac and Windows
+- **`ytdl`**, the same downloader as a command that talks in whole sentences
+- **`ytdescribe`**, audio description for a video (at the end)
 
-- **`ytdl`** — a command that says what it is doing in whole sentences
-- **Media Download** — an app in your Applications folder, if you would rather click
-- **`ytdescribe`** — audio description for a video (see the end)
+## Get the app
 
-## Install
+**Mac:** download `Media-Download-mac.zip` from the [latest release](https://github.com/Matthew2244/ytdl-accessible/releases/latest), open it, and drag Media Download into Applications. It's signed and notarized by Apple, so it opens without a warning.
+
+**Windows:** download `Media-Download-windows.zip` from the same page, unzip it anywhere, and run `Media Download.exe`. Windows may say it doesn't recognise the app. Choose More info, then Run anyway.
+
+The app updates itself (Help, Check for App Updates). The download engine inside it, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
+
+On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (inspecting files) and deno (YouTube needs it). If you already have them, from Homebrew for example, it uses yours. If not, it offers to fetch them once, about 100 MB, into its own folder.
+
+## Using the app
+
+![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: iCloud Drive > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
+
+1. Paste a link into the Link field and press Return. Paste several at once and each gets its own row.
+2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Tick the results you want.
+3. Choose a format before you add the link. "Best audio, as the site sends it" never converts anything. MP3, M4A, Opus, WAV and FLAC convert. Video saves an MP4 that plays everywhere unless you ask for higher than 1080.
+
+Each row says its status first, then the title: "Downloading, 45 percent, about 2 minutes left: Green Onions". A long title gets cut off at the end of a row, so the part you need comes first. Select a row and Details below says everything known about it, including where the file went or, if it failed, why, in a plain sentence.
+
+A link to a playlist or album asks whether you want all of it, some of it (tick the ones you want), or just the one item the link pointed at. Each item gets its own row, numbered, in a folder named after the set.
+
+**More Options** sets things for the next download only: just a section (from 1:30 to 3:45), one file per chapter, English subtitles, a browser's sign-in for members-only or age-checked videos, an exact stream chosen from a list, a file name, or any raw yt-dlp option.
+
+**Quitting** while something is downloading asks first. Whatever didn't finish comes back next time, stopped, and Resume Unfinished picks up where it left off.
+
+### With a screen reader
+
+Built with wxPython, so every control is the system's own and VoiceOver, NVDA, JAWS and Narrator read it natively. Every control has a spoken name and a help tag.
+
+- Finishes and failures are spoken as they happen, without moving focus. A big batch, like an album, becomes a short tally ("12 of 40 done") at most every 20 seconds rather than forty separate announcements. Failures are always named.
+- Progress isn't spoken unless you ask for it in Settings (every 10, 30 or 60 seconds).
+- Command-J (Control-J on Windows) says what's happening right now: how many are downloading, waiting, done and failed.
+- The list and Details never jump under you. A row's text changes in place, and Details only rewrites itself while you're reading it when something real happens, never for a percentage.
+- On Windows, messages go to the status bar, where NVDA (NVDA+End) and JAWS (Insert+Page Down) read them. Spoken announcements there are on the list to do.
+
+### With low vision
+
+View, Bigger Text (Command-Plus) makes the link field, the list, Details and every label larger, up to 48 points, and it's remembered. Command-0 goes back to normal. Colors follow the system, including Increase Contrast and dark mode. Status is always written in words, never shown by color alone.
+
+### Keyboard
+
+Everything is in the menus with its shortcut. On Windows read Control for Command.
+
+| Keys | Does |
+|---|---|
+| Return in the Link field | Download the link, or search if it's words |
+| Command-F | Search |
+| Command-Shift-V | Download every link on the clipboard |
+| Command-O | Download the links in a text file |
+| Command-L, Command-D, Command-E | Go to the Link field, the Downloads list, Details |
+| Command-J | Say what's happening |
+| Return in the list | Open the file |
+| Delete in the list | Remove the row (the file stays) |
+| Command-R | Show the file in Finder or File Explorer |
+| Command-Period | Stop |
+| Command-Shift-R | Retry |
+| Command-Shift-Up and Down | Move a download up or down the queue |
+| Command-Shift-K | Clear finished downloads from the list |
+| Command-Plus, Command-Minus, Command-0 | Text size |
+| Command-Comma | Settings |
+
+You can also drop links, a text file of links, or a web location onto the window or the Dock icon.
+
+### Settings
+
+Downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, cover art for audio files, sounds, spoken progress, offering a link you've copied when you switch to the app, and keeping the download engine up to date. The format, quality and folder in the main window are remembered too, and shared with the `ytdl` command.
+
+### Fast on a big computer
+
+Every download runs in its own process, so several download and convert at once on separate cores. One that crashes can't take the window with it, and Stop is immediate. On a 20-core Mac Studio, eight songs from an archive.org concert converted to MP3 in 51 seconds, against 171 seconds one at a time. Long videos also arrive in several pieces at once.
+
+When a download fails in a way a newer engine might fix, the app checks for one, updates, and tries once more by itself.
+
+## The command line: `ytdl`
+
+The same downloader, for a terminal.
 
 ```bash
 git clone https://github.com/Matthew2244/ytdl-accessible.git
@@ -22,15 +94,11 @@ cd ytdl-accessible
 ./install.sh
 ```
 
-That checks for [Homebrew](https://brew.sh), installs `yt-dlp` and `ffmpeg` if you
-do not have them, puts the commands somewhere on your PATH, and builds the app. It
-never uses `sudo`. If it needs you to do something — like adding a folder to your
-PATH — it says so in plain words at the end.
+That checks for [Homebrew](https://brew.sh), installs `yt-dlp` and `ffmpeg` if you don't have them, puts the commands on your PATH, and installs the app from the latest release. It never uses `sudo`, and if you need to do something yourself, like adding a folder to your PATH, it says so at the end.
 
 To remove everything later: `./install.sh --uninstall`
 
-Then either open **Media Download** from your Applications folder, or copy a link
-and run:
+Copy a link and run:
 
 ```bash
 ytdl
@@ -38,7 +106,7 @@ ytdl
 
 `ytdl --setup` walks you through where downloads go and what format you want.
 
-## Why this exists
+### Why the command exists
 
 yt-dlp is excellent. Its **output** is the problem if you listen to your computer
 rather than look at it.
@@ -65,15 +133,15 @@ Everything else here follows from the same idea: errors are sentences rather tha
 tracebacks, durations are "6 minutes 42 seconds" rather than `402`, and anything
 that would need a glance at a progress bar is instead reported when it matters.
 
-## What it needs
+### What it needs
 
-macOS and [Homebrew](https://brew.sh). The installer handles the rest.
+macOS and [Homebrew](https://brew.sh) for the command. The installer handles the rest. The app needs nothing.
 
 `ytdescribe` additionally wants the `claude` CLI on your PATH to read the video
 frames, and an ElevenLabs key in the Keychain as `elevenlabs-api-key` if you want
 the description spoken. Both are optional — `ytdl` does not need either.
 
-## Usage
+### Usage
 
 ```
 ytdl                       URL from the clipboard
@@ -193,19 +261,15 @@ something you don't want, that is macOS file association, not this tool — and
 ## Working on it
 
 ```bash
-./check.sh
+python3 -m venv .venv && .venv/bin/pip install wxPython pyinstaller certifi "yt-dlp[default]" pytest pillow
+.venv/bin/python -m media_download      # run the app from source
+./check.sh                              # before every commit
+.venv/bin/python build_app.py           # build the app for this computer
 ```
 
-Compiles the AppleScript, parses the Python, confirms every command-line option
-has help text, and checks two things about the dialogs that are easy to get
-wrong and invisible once wrong: that no dialog has the same button set as both
-default and cancel (which silently kills Escape), and that every list offers a
-Back item. Exits non-zero if anything fails.
+`check.sh` parses the Python, confirms every command-line option has help text, runs the tests and the app's self-test, and checks that every dialog closes with Escape and every control has a spoken name. It also still compiles the classic dialog app. It exits non-zero if anything fails. It exists because a broken build once got committed and pushed when an error scrolled past.
 
-It exists because a broken AppleScript once got committed and pushed: the
-compile failed, the error scrolled past, and the app was left missing from
-Applications. Anything checkable should be checked by something that does not
-get tired.
+`tools/screenshot.py` has the window draw itself into a PNG, at any text size, with no screen capture. `tools/drive.py` runs the real window through real downloads off-screen and prints every row and every spoken message, so the wording can be checked by reading it. Releases: tag `vX.Y.Z` and GitHub Actions builds both apps; `tools/release_mac.py vX.Y.Z` then signs and notarizes the Mac one on a Mac holding the Developer ID.
 
 ## Design notes
 
@@ -296,16 +360,11 @@ minimal `PATH` of `/usr/bin:/bin:/usr/sbin:/sbin`, with no Homebrew in it — so
 is invisible and every download fails while the identical command works fine in a
 terminal. This is the classic way a working script dies as an app.
 
-## The Mac app
+## The classic dialog app
 
-`YouTubeDownload.applescript` compiles to an app you can launch from Applications or
-Spotlight. Dialogs rather than a Terminal window, because each dialog is readable by
-VoiceOver and a scrolling terminal is the thing this project exists to avoid.
+`legacy/MediaDownload.applescript` is the first Media Download: a chain of AppleScript dialogs over the `ytdl` command. It still compiles (`check.sh` makes sure) for anyone who prefers it:
 
-It prefills the URL from the clipboard, asks for a format, validates the link
-**before** starting anything, then launches the download detached and returns
-immediately — a blocking app with no progress readout would be the worst of both
-worlds.
+    osacompile -o "Media Download (classic).app" legacy/MediaDownload.applescript
 
 ## Optional: Pushover
 

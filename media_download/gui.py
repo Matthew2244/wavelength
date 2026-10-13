@@ -26,10 +26,19 @@ from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import announce, mac_accessibility_label, open_path, play, pushover, reveal
 
+def M(label: str) -> str:
+    """A label with its Alt-key letter on Windows. On the Mac a button's "&D" also answers
+    Command-D, which stole the menu's Go to Downloads List (found with VoiceOver)."""
+    return label.replace("&", "") if sys.platform == "darwin" else label
+
+
 HELP_URL = "https://github.com/Matthew2244/ytdl-accessible#readme"
 DAY = 24 * 3600
 CMD = "Command" if sys.platform == "darwin" else "Control"
 FOLDER_APP = "Finder" if sys.platform == "darwin" else "File Explorer"
+
+MORE_TIP = ("Just part of it, chapters, subtitles, a browser's sign-in, an exact stream, a file name. "
+            "For the next download only.")
 
 WELCOME = (
     "Welcome to Media Download.\n\n"
@@ -93,16 +102,16 @@ class MainFrame(wx.Frame):
 
         # link + actions
         row = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(p, label="&Link or search words:")
+        lab = wx.StaticText(p, label=M("&Link or search words:"))
         self._texts.append(lab)
         self.link = wx.TextCtrl(p, style=wx.TE_PROCESS_ENTER)
         self.link.SetHint("Paste a link, or type words to search")
         self.link.SetToolTip("Paste a link and press Return to download it. Paste several at once and each "
                              "gets its own row. Or type words and press Return to search.")
         mac_accessibility_label(self.link, "Link or search words")
-        self.download_btn = wx.Button(p, label="&Download")
+        self.download_btn = wx.Button(p, label=M("&Download"))
         self.download_btn.SetToolTip("Download the link in the Link field (Return).")
-        self.search_btn = wx.Button(p, label="&Search...")
+        self.search_btn = wx.Button(p, label=M("&Search..."))
         self.search_btn.SetToolTip("Search YouTube, SoundCloud or YouTube Music by words (%s-F)." % CMD)
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.link, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
@@ -112,7 +121,7 @@ class MainFrame(wx.Frame):
 
         # format, quality, folder
         row = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(p, label="&Format:")
+        lab = wx.StaticText(p, label=M("&Format:"))
         self._texts.append(lab)
         self.kind = wx.Choice(p, choices=[label for _, label in words.FORMAT_LABELS])
         keys = [k for k, _ in words.FORMAT_LABELS]
@@ -120,7 +129,7 @@ class MainFrame(wx.Frame):
         self.kind.SetToolTip("What every new download is saved as. \"Best audio\" keeps the sound exactly as "
                              "the site sends it, with no conversion. Remembered.")
         mac_accessibility_label(self.kind, "Format")
-        self.height_lab = wx.StaticText(p, label="&Video quality:")
+        self.height_lab = wx.StaticText(p, label=M("&Video quality:"))
         self._texts.append(self.height_lab)
         self.height = wx.Choice(p, choices=[label for _, label in words.HEIGHTS])
         hv = [h for h, _ in words.HEIGHTS]
@@ -138,7 +147,7 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.folder_text = wx.StaticText(p, label="")
         self._texts.append(self.folder_text)
-        self.folder_btn = wx.Button(p, label="C&hange Folder...")
+        self.folder_btn = wx.Button(p, label=M("C&hange Folder..."))
         self.folder_btn.SetToolTip("Choose where downloads are saved. Remembered.")
         row.Add(self.folder_text, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.folder_btn, 0)
@@ -147,15 +156,14 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.opts_text = wx.StaticText(p, label=dialogs.options_summary({}))
         self._texts.append(self.opts_text)
-        self.more_btn = wx.Button(p, label="&More Options...")
-        self.more_btn.SetToolTip("Just part of it, chapters, subtitles, a browser's sign-in, an exact stream, "
-                                 "a file name. For the next download only.")
+        self.more_btn = wx.Button(p, label=M("&More Options..."))
+        self.more_btn.SetToolTip(dialogs.options_summary({}) + " " + MORE_TIP)
         row.Add(self.opts_text, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.more_btn, 0)
         s.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # the list
-        lab = wx.StaticText(p, label="Do&wnloads:")
+        lab = wx.StaticText(p, label=M("Do&wnloads:"))
         self._texts.append(lab)
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 10)
         self.list = wx.ListBox(p, style=wx.LB_SINGLE)
@@ -164,7 +172,7 @@ class MainFrame(wx.Frame):
                              "Delete removes the row (never the file).")
         s.Add(self.list, 3, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
-        lab = wx.StaticText(p, label="D&etails:")
+        lab = wx.StaticText(p, label=M("D&etails:"))
         self._texts.append(lab)
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 10)
         self.details = wx.TextCtrl(p, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2)
@@ -172,11 +180,11 @@ class MainFrame(wx.Frame):
         s.Add(self.details, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.open_btn = wx.Button(p, label="&Open")
+        self.open_btn = wx.Button(p, label=M("&Open"))
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
-        self.stop_btn = wx.Button(p, label="S&top")
-        self.retry_btn = wx.Button(p, label="&Retry")
-        self.remove_btn = wx.Button(p, label="Remo&ve from List")
+        self.stop_btn = wx.Button(p, label=M("S&top"))
+        self.retry_btn = wx.Button(p, label=M("&Retry"))
+        self.remove_btn = wx.Button(p, label=M("Remove from L&ist"))
         self.open_btn.SetToolTip("Open the downloaded file in its usual app.")
         self.show_btn.SetToolTip("Show the downloaded file in %s." % FOLDER_APP)
         self.stop_btn.SetToolTip("Stop this download. Retry carries on from where it stopped.")
@@ -188,6 +196,7 @@ class MainFrame(wx.Frame):
 
         self.gauge = wx.Gauge(p, range=1000)
         self.gauge.SetToolTip("Overall progress of everything downloading now.")
+        mac_accessibility_label(self.gauge, "Overall progress")
         s.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         p.SetSizer(s)
         self.CreateStatusBar()
@@ -343,7 +352,7 @@ class MainFrame(wx.Frame):
             self.mgr.add(self._job_from_ui(u))
         if self.next_opts:
             self.next_opts = {}
-            self.opts_text.SetLabel(dialogs.options_summary({}))
+            self._show_opts()
         self.structure_changed = True
         self.refresh()
         if len(urls) == 1:
@@ -459,7 +468,7 @@ class MainFrame(wx.Frame):
                 job.uploader = e.get("uploader") or ""
                 self.mgr.add(job)
             self.next_opts = {}
-            self.opts_text.SetLabel(dialogs.options_summary({}))
+            self._show_opts()
             self.structure_changed = True
             self.refresh()
             self.tell("Added %s from the search." % words.n(len(chosen), "download"))
@@ -492,6 +501,8 @@ class MainFrame(wx.Frame):
     def _update_folder_text(self):
         to = self.cfg["to"]
         self.folder_text.SetLabel("Saving to: %s" % words.pretty_folder(to))
+        # Tab skips plain text, so the button carries the answer too.
+        self.folder_btn.SetToolTip("Saving to %s. Choose another folder. Remembered." % words.pretty_folder(to))
         self.folder_text.SetToolTip(to)
         self.panel.Layout()
 
@@ -512,11 +523,16 @@ class MainFrame(wx.Frame):
         dlg = dialogs.MoreOptions(self, self.next_opts, link, self.probe_now)
         if dlg.ShowModal() == wx.ID_OK:
             self.next_opts = {k: v for k, v in dlg.opts.items() if v}
-            self.opts_text.SetLabel(dialogs.options_summary(self.next_opts))
-            self.panel.Layout()
+            self._show_opts()
             self.tell(dialogs.options_summary(self.next_opts))
         dlg.Destroy()
         self.link.SetFocus()
+
+    def _show_opts(self):
+        text = dialogs.options_summary(self.next_opts)
+        self.opts_text.SetLabel(text)
+        self.more_btn.SetToolTip(text + " " + MORE_TIP)  # Tab skips plain text; the button says it
+        self.panel.Layout()
 
     def probe_now(self, url):
         out = {}
@@ -614,7 +630,7 @@ class MainFrame(wx.Frame):
             if failed:
                 pushover("Media Download: %d done, %d failed." % (done, failed), failed=True)
             else:
-                pushover("Media Download: %s." % words.n(done, "download") + " finished")
+                pushover("Media Download: %s finished." % words.n(done, "download"))
         if not self.IsActive() and (done or failed):
             try:
                 n = wx.adv.NotificationMessage(APP_NAME, "%d done%s." % (done, ", %d failed" % failed
@@ -648,7 +664,7 @@ class MainFrame(wx.Frame):
             return
         url = job.url
         can_single = ("v=" in url and "list=" in url) or len(entries) == 1
-        dlg = PQ = dialogs.PlaylistQuestion(self, title, len(entries), can_single, data.get("site") or job.site)
+        dlg = PQ = dialogs.PlaylistQuestion(self, title, len(entries), can_single, job.site or data.get("site"))
         ans = dlg.ShowModal()
         dlg.Destroy()
         if ans == PQ.ALL:
@@ -723,8 +739,11 @@ class MainFrame(wx.Frame):
     def show_details(self, progress_only=False):
         job = self.selected()
         if not job:
-            if not self.rows:
-                self.details.SetValue(WELCOME)
+            text = WELCOME if not self.rows else (
+                "Select a download in the list to read about it here. %s in the list."
+                % words.n(len(self.rows), "download"))
+            if self.details.GetValue() != text:
+                self.details.SetValue(text)
             return
         text = words.details_text(job)
         # While someone is reading the details, only rewrite them when something real

@@ -306,7 +306,7 @@ class TickList(wx.Dialog):
         self.SetSizer(s)
         b_all.Bind(wx.EVT_BUTTON, lambda e: self._set_all(True))
         b_none.Bind(wx.EVT_BUTTON, lambda e: self._set_all(False))
-        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count())
+        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
         self._count()
         self.list.SetFocus()
         if entries:
@@ -317,9 +317,12 @@ class TickList(wx.Dialog):
             self.list.Check(i, on)
         self._count()
 
-    def _count(self):
+    def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
         self.count.SetLabel("%d of %d ticked." % (k, self.list.GetCount()))
+        if speak:  # VoiceOver re-reads the row before the tick lands, so say the result
+            from .system import announce
+            announce("%d ticked." % k)
         self.ok.SetLabel("%s (%d)" % (self.ok_label, k))
         self.ok.Enable(k > 0)
         self.Layout()
@@ -401,7 +404,7 @@ class Search(wx.Dialog):
         self.SetSizer(s)
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
         self.query.Bind(wx.EVT_TEXT_ENTER, self.on_search)
-        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count())
+        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate)
         self.query.SetFocus()
         if query.strip():
@@ -442,9 +445,12 @@ class Search(wx.Dialog):
         announce(self.status.GetLabel())
         self._count()
 
-    def _count(self):
+    def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
         self.ok.SetLabel("Download Ticked (%d)" % k)
+        if speak:
+            from .system import announce
+            announce("%d ticked." % k)
         self.ok.Enable(k > 0)
         self.Layout()
 

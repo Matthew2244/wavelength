@@ -114,7 +114,7 @@ for m in re.finditer(r"class (\w+)\(wx\.Dialog\):(.*?)(?=\nclass |\ndef |\Z)", s
     if "SetEscapeId(wx.ID_CANCEL)" not in m.group(2) and "buttons(self" not in m.group(2):
         problems.append("dialog %s has no Escape button" % m.group(1))
 # Every control the window shows must have a spoken name or be a labelled button.
-for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details"):
+for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details", "self.gauge"):
     if "mac_accessibility_label(%s," % ctrl not in src:
         problems.append("%s has no spoken name" % ctrl)
 for p in problems:

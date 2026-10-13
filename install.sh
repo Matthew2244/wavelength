@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install ytdl, ytdescribe and the Media Download app.
+# Install ytdl, ytdescribe and the Media Download app (from the latest release).
 #
 # Plain sentences, one per line, no progress bars — the whole project exists
 # because scrolling output is useless when you are listening to it.
@@ -108,18 +108,24 @@ done
 # ------------------------------------------------------------------ 5. app
 
 say ""
-say "Step 4 of 4. Building the app."
+say "Step 4 of 4. Getting the Media Download app."
 APPDIR="/Applications"
 [ -w "$APPDIR" ] || APPDIR="$HOME/Applications"
 mkdir -p "$APPDIR"
-rm -rf "$APPDIR/Media Download.app"
-if osacompile -o "$APPDIR/Media Download.app" "$HERE/MediaDownload.applescript" >/dev/null 2>&1; then
-  say "  Media Download is in $APPDIR"
+ZIPURL="https://github.com/Matthew2244/ytdl-accessible/releases/latest/download/Media-Download-mac.zip"
+TMPD="$(mktemp -d)"
+if curl -fsSL -o "$TMPD/app.zip" "$ZIPURL" && ditto -x -k "$TMPD/app.zip" "$TMPD/x" && [ -d "$TMPD/x/Media Download.app" ]; then
+  rm -rf "$APPDIR/Media Download.app"
+  ditto "$TMPD/x/Media Download.app" "$APPDIR/Media Download.app"
+  say "  Media Download is in $APPDIR. It updates itself from now on."
   LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
   [ -x "$LSREG" ] && "$LSREG" -f "$APPDIR/Media Download.app" >/dev/null 2>&1
 else
-  say "  Could not build the app. The ytdl command still works."
+  say "  Couldn't download the app. Get it by hand from:"
+  say "  https://github.com/Matthew2244/ytdl-accessible/releases/latest"
+  say "  The ytdl command works either way."
 fi
+rm -rf "$TMPD"
 
 # -------------------------------------------------------------- 6. verify
 
