@@ -47,7 +47,9 @@ def run() -> int:
         if sys.platform == "win32":
             # Windows speech: Prism must load inside the app and offer UI Automation at least.
             try:
-                import prism
+                from .system import load_prism
+                prism = load_prism()
+                print("Prism compiled part: %s" % getattr(sys.modules.get("prism._prism_cffi"), "__file__", "?"))
                 ctx = prism.Context()
                 if not ctx.exists(prism.BackendId.UIA):
                     problems.append("speech: Prism has no UI Automation backend")

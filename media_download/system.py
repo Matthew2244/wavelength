@@ -55,12 +55,37 @@ _WIN_ORDER = ("NVDA", "JAWS", "ZDSR", "SYSTEM_ACCESS", "ZOOM_TEXT", "SENSE_READE
               "BOY_PC_READER", "UIA")
 
 
+def load_prism():
+    """Import Prism, also inside the packaged app.
+
+    Prism finds its compiled part by adding prism/_native to the package's path at import
+    time, which the packaged app's importer doesn't follow ("No module named
+    prism._prism_cffi", caught by the Windows self-test). So when frozen, find it by name
+    and load it first.
+    """
+    if getattr(sys, "frozen", False) and "prism._prism_cffi" not in sys.modules:
+        import importlib.util
+        base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        for root, _, files in os.walk(base):
+            hit = [f for f in files if f.startswith("_prism_cffi") and f.endswith((".pyd", ".so"))]
+            if hit:
+                if sys.platform == "win32":
+                    os.add_dll_directory(root)  # prism.dll sits beside it
+                spec = importlib.util.spec_from_file_location("prism._prism_cffi", os.path.join(root, hit[0]))
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules["prism._prism_cffi"] = mod
+                spec.loader.exec_module(mod)
+                break
+    import prism
+    return prism
+
+
 def _announce_windows(text: str) -> str | None:
     """Speak through the running Windows screen reader with Prism. Returns the reader's name."""
     if _win_reader["failed"]:
         return None
     try:
-        import prism
+        prism = load_prism()
         if _win_reader["ctx"] is None:
             _win_reader["ctx"] = prism.Context()
         ctx = _win_reader["ctx"]

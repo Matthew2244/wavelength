@@ -23,7 +23,9 @@ args = [
     "--hidden-import", "media_download.selftest",
 ]
 if sys.platform == "win32":
-    args += ["--collect-all", "prism"]  # Prism: speech through NVDA, JAWS, Narrator and others
+    # Prism: speech through NVDA, JAWS, Narrator and others. Its compiled part loads cffi's
+    # backend from C, so nothing names it and the packager would leave it out.
+    args += ["--collect-all", "prism", "--hidden-import", "_cffi_backend"]
 icon = os.path.join("assets", "icon.icns" if sys.platform == "darwin" else "icon.ico")
 if os.path.exists(icon):
     args += ["--icon", icon]
@@ -70,7 +72,10 @@ with tempfile.TemporaryFile("w+") as log:
     except subprocess.TimeoutExpired:
         sys.exit("Self-test: TIMED OUT")
     log.seek(0)
-    result = log.read().strip().splitlines()[-1:] or ["(no output)"]
+    lines = log.read().strip().splitlines()
+    for line in lines[:-1]:
+        print("  " + line)
+    result = lines[-1:] or ["(no output)"]
 print("Self-test:", result[0])
 if "OK" not in result[0]:
     sys.exit("The built app failed its self-test.")
