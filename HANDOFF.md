@@ -117,6 +117,10 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 - Get Helper Tools for real (sandbox, 6 s, ~95 MB): ffmpeg 9.0.2, ffprobe,
   deno 2.9.7, each signature-checked; then a YouTube video downloaded with
   only those, Homebrew hidden.
+- v2.0.1: the Windows self-test loads Prism inside the packaged app and lists
+  NVDA, JAWS, ZDSR, ZoomText, System Access, UIA and others. It took two
+  tries: the packager left out `_prism_cffi.pyd` until its folder was added by
+  hand (`build_app.py`), and `load_prism()` loads it by path.
 - v2.0.0: CI green on all eight jobs, Windows app built and self-tested on
   CI, Mac app signed, notarized, stapled, Gatekeeper "Notarized Developer ID".
   Installed on the Studio and the MacBook (self-test OK there; the MacBook has
@@ -127,10 +131,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Not done
 
-- The self-updater is MIDI Tempo Fix's, unchanged apart from names, but has
-  not yet replaced this app with a newer release. The first real test is
-  2.0.1: install it through Help, Check for App Updates on both Macs.
-
+- **The self-updater has found an update but not yet installed one.** On
+  2026-10-13 the Studio's 2.0.0 found 2.0.1 and showed the Install dialog;
+  Install was not pressed because Matthew was at the Mac and the relaunch would
+  have taken his keyboard. Both Macs are still on 2.0.0. The first person to
+  press Install, on either Mac, is the real test (MIDI Tempo Fix's identical
+  code has done it many times).
 - **Windows has not been tried by a person.** Speech there goes through Prism
   (`prismatoid`, MPL-2.0, bundles NVDA's controller client, LGPL): the first
   running reader of NVDA, JAWS, ZDSR, System Access, ZoomText, Sense Reader,
