@@ -16,8 +16,8 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 **Where it stands (2026-10-13):** 2.4.4 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. The Studio took it
 through Sparkle (Matthew, the same day; verified 2.4.4, signature valid).
-The MacBook was on 2.4.1 and Sparkle will offer it; check
-`CFBundleShortVersionString` before assuming. No person has tried the Windows
+So did the MacBook (verified 2.4.4). Check `CFBundleShortVersionString`
+before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
 
 Downloads go to **Downloads > Media Downloads on the computer itself** by default,
