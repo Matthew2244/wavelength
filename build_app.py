@@ -43,9 +43,36 @@ if sys.platform == "darwin":
 args.append("app.py")
 subprocess.run(args, check=True)
 
+from build_app_support import FEED, SPARKLE_PUBLIC_KEY, sparkle_dir  # noqa: E402
+
+
+def embed_sparkle(app: str, sign_id: str | None) -> None:
+    fw_dir = os.path.join(app, "Contents", "Frameworks")
+    os.makedirs(fw_dir, exist_ok=True)
+    dest = os.path.join(fw_dir, "Sparkle.framework")
+    shutil.rmtree(dest, ignore_errors=True)
+    subprocess.run(["ditto", os.path.join(sparkle_dir(), "Sparkle.framework"), dest], check=True)
+    # The XPC services are for sandboxed apps; this one isn't, so they're left out.
+    shutil.rmtree(os.path.join(dest, "Versions", "B", "XPCServices"), ignore_errors=True)
+    sign = ["codesign", "--force", "--sign", sign_id or "-"]
+    if sign_id:
+        sign += ["--options", "runtime", "--timestamp"]
+    b = os.path.join(dest, "Versions", "B")
+    for part in (os.path.join(b, "Autoupdate"), os.path.join(b, "Updater.app"), dest):
+        subprocess.run(sign + [part], check=True)
+
+
 os.chdir("dist")
 if sys.platform == "darwin":
     plist = f"{NAME}.app/Contents/Info.plist"
+    embed_sparkle(f"{NAME}.app", SIGN_ID)
+    for key, kind, value in (("SUFeedURL", "-string", FEED), ("SUPublicEDKey", "-string", SPARKLE_PUBLIC_KEY),
+                             ("SUEnableAutomaticChecks", "-bool", "YES"),
+                             ("SUScheduledCheckInterval", "-integer", "86400")):
+        subprocess.run(["plutil", "-replace", key, kind, value, plist], check=True)
+    if os.environ.get("MEDIA_DOWNLOAD_TEST_FEED"):  # a local test feed is plain http
+        subprocess.run(["plutil", "-replace", "NSAppTransportSecurity", "-json",
+                        '{"NSAllowsLocalNetworking": true}', plist], check=True)
     for key in ("CFBundleShortVersionString", "CFBundleVersion"):
         subprocess.run(["plutil", "-replace", key, "-string", __version__, plist], check=True)
     # Text files and web locations dropped on the Dock icon add their links.

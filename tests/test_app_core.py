@@ -287,3 +287,10 @@ def test_windows_speech_falls_back_to_narrator_never_plain_tts(monkeypatch):
     system, said = _fake_prism(monkeypatch, running=set())
     assert system._announce_windows("Done: Song.") == "UIA"
     assert said == [("UIA", "Done: Song.")]
+
+
+def test_release_notes_become_sparkle_html():
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import appcast
+    out = appcast.notes_html("Windows now speaks.\n\n- One `fix`.\n- Two <b>.")
+    assert out == "<p>Windows now speaks.</p>\n<ul><li>One <code>fix</code>.</li><li>Two &lt;b&gt;.</li></ul>"

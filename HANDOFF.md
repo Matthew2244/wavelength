@@ -36,7 +36,28 @@ has a value (-1, any codec) the command would misread.
   the same thing by every choice and raw flags under More Options just work.
 - `engine.py` paths, settings, helper tools, and keeping yt-dlp current.
 - `words.py` every sentence the app says. Rows are status first.
-- `update.py` the app's own updates from GitHub releases (from MIDI Tempo Fix).
+- `sparkle.py` app updates on the Mac: Sparkle 2.10.0 in Contents/Frameworks,
+  driven through the Objective-C runtime with ctypes. `update.py` (from MIDI
+  Tempo Fix) does Windows, and the Mac when run from source.
+
+**Sparkle.** `build_app_support.py` downloads Sparkle once (sha256 pinned),
+`build_app.py` embeds the framework without its XPC services (they're for
+sandboxed apps), signs it, and writes `SUFeedURL`, `SUPublicEDKey`, daily
+checks into Info.plist. The feed is
+`releases/latest/download/appcast.xml`; `tools/release_mac.py` writes it with
+`tools/appcast.py`, signing the notarized zip with the **EdDSA private key in
+the Studio's login Keychain** ("Private key for signing Sparkle updates",
+account ed25519, made 2026-10-13; sign_update has Always Allow). **Lose that key
+and no Sparkle-installed copy will accept another update.** Back it up with
+`~/Library/Caches/media-download-build/sparkle-2.10.0/x/bin/generate_keys -x FILE`
+into somewhere safe, never the repo. The Always Allow is tied to sign_update's
+path, so a new Sparkle version asks once more. To rehearse an update, build
+with `MEDIA_DOWNLOAD_TEST_FEED=http://127.0.0.1:8765/appcast.xml` (adds a
+localhost exception), serve a signed appcast and zip, run the copy from a
+scratch folder, and afterwards delete the `SU*` keys from
+`io.github.matthew2244.mediadownload` defaults: every copy shares that domain.
+Windows will use WinSparkle once there's an installer; WinSparkle runs an
+installer and can't install a zip.
 - `launch.py` the one entry point: `--worker`, `--probe-engine`, `--self-test`,
   else the window.
 
@@ -68,7 +89,7 @@ which beats archive.org's file ids.
     .venv/bin/python tools/screenshot.py X.png [POINTS]   window draws itself, no screen capture
     .venv/bin/python tools/drive.py WORKDIR [links...]    real window, real downloads, off-screen
     .venv/bin/python tools/make_icon.py         redraw assets/icon.*
-    .venv/bin/python tools/release_mac.py vX.Y.Z  sign, notarize, staple, replace the release's Mac zip
+    .venv/bin/python tools/release_mac.py vX.Y.Z  sign, notarize, staple, replace the Mac zip, attach the signed appcast
 
 The venv is `.venv` (Python 3.14, wxPython 4.3.1). `MEDIA_DOWNLOAD_TEST_DIR`
 puts every file the app writes (settings, list, engine, tools) inside one folder.
@@ -117,6 +138,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 - Get Helper Tools for real (sandbox, 6 s, ~95 MB): ffmpeg 9.0.2, ffprobe,
   deno 2.9.7, each signature-checked; then a YouTube video downloaded with
   only those, Homebrew hidden.
+- Sparkle rehearsal (2026-10-13), signed test copies 2.1.0 to 2.1.1 from a
+  local feed: VoiceOver reads the window ("A new version of Media Download is
+  available", the version sentence, the release notes as a list), Tab reaches
+  the checkbox and all three buttons, Install Update is the default, Escape
+  closes it. Install Update, then "Ready to Install", then Install and
+  Relaunch: 2.1.1 running about 2 seconds later, signature intact.
 - The self-updater, for real (2026-10-13): the Studio's 2.0.0 found 2.0.1,
   Install was pressed, and about 6 seconds later 2.0.1 was in /Applications,
   running, Gatekeeper-accepted, no old copy left behind.

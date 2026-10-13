@@ -12,6 +12,7 @@ Steps, each checked before the next:
 4. Staple the approval to the app, so it opens without a warning even offline.
 5. Check that Gatekeeper accepts it, zip it, and replace the release's Mac zip
    (the one CI attached unsigned) with this one.
+6. Sign that zip for Sparkle (EdDSA key in the Keychain) and attach appcast.xml.
 
 Notarization uses an App Store Connect API key, read from the Keychain entry
 named by --keychain-service (account = key ID, password = base64 .p8), the way
@@ -97,9 +98,22 @@ def main():
     print(text.strip().splitlines()[-1] if text.strip() else "(no self-test output)")
     if test.returncode != 0 or "OK" not in text:
         sys.exit("The signed app did not pass its self-test.")
+    # Sparkle's update list: this release, its download, and the EdDSA signature of exactly
+    # this zip. Installed copies read it from releases/latest/download/appcast.xml.
+    version = a.tag.lstrip("v")
+    url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/{ZIP}"
+    notes = subprocess.run(["gh", "release", "view", a.tag, "--json", "body", "--jq", ".body"],
+                           capture_output=True, text=True).stdout
+    notes_file = os.path.join("dist", "release-notes.md")
+    with open(notes_file, "w") as f:
+        f.write(notes)
+    appcast = os.path.join("dist", "appcast.xml")
+    with open(appcast, "w") as f:
+        run([sys.executable, os.path.join("tools", "appcast.py"), out, version, url, notes_file], stdout=f)
     if not a.no_upload:
-        run(["gh", "release", "upload", a.tag, out, "--clobber"])
-    print(f"Done: {out} is signed, notarized, stapled" + ("." if a.no_upload else f", and attached to {a.tag}."))
+        run(["gh", "release", "upload", a.tag, out, appcast, "--clobber"])
+    print(f"Done: {out} is signed, notarized, stapled" + ("." if a.no_upload else
+          f", and attached to {a.tag} with its signed appcast.xml."))
 
 
 if __name__ == "__main__":

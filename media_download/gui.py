@@ -21,7 +21,7 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, dialogs, engine, update, words
+from . import APP_NAME, __version__, dialogs, engine, sparkle, update, words
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import announce, mac_accessibility_label, open_path, play, pushover, reveal
@@ -1062,6 +1062,8 @@ class MainFrame(wx.Frame):
         threading.Thread(target=work, daemon=True).start()
 
     def quiet_update_check(self):
+        if sparkle.start():
+            return  # Sparkle checks daily on its own and shows its own window
         if time.time() - self.ui.ReadFloat("last_update_check", 0) < DAY:
             return
         self.ui.WriteFloat("last_update_check", time.time())
@@ -1078,6 +1080,8 @@ class MainFrame(wx.Frame):
         self.SetStatusText("Version %s is available. Help, Check for App Updates installs it." % info["version"])
 
     def on_check_updates(self, _):
+        if sparkle.check():
+            return  # Sparkle's window says what it found
         self.tell("Checking for a newer version. You have %s." % update.current_version())
         wx.Yield()
         info = update.latest()

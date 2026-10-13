@@ -44,6 +44,10 @@ def run() -> int:
             import yt_dlp_ejs  # noqa: F401  the YouTube challenge solver must be inside
         except Exception as exc:  # noqa: BLE001
             problems.append("ejs: %s" % exc)
+        if sys.platform == "darwin" and getattr(sys, "frozen", False):
+            from . import sparkle
+            if not sparkle.load():
+                problems.append("updates: Sparkle.framework didn't load")
         if sys.platform == "win32":
             # Windows speech: Prism must load inside the app and offer UI Automation at least.
             try:

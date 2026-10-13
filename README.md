@@ -16,7 +16,7 @@ What's here:
 
 **Windows:** download `Media-Download-windows.zip` from the same page, unzip it anywhere, and run `Media Download.exe`. Windows may say it doesn't recognise the app. Choose More info, then Run anyway.
 
-The app updates itself (Help, Check for App Updates). The download engine inside it, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
+The app updates itself. On the Mac that's [Sparkle](https://sparkle-project.org), the update window most Mac apps outside the App Store use: it checks once a day, shows what's new, and offers Install Update, Remind Me Later or Skip This Version (Help, Check for App Updates asks right away). Every update is signed, and the app refuses one that isn't, so nobody but the author can push an update to you. On Windows, Help, Check for App Updates downloads the new version, checks it starts, and swaps it in. The download engine inside the app, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
 
 On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (inspecting files) and deno (YouTube needs it). If you already have them, from Homebrew for example, it uses yours. If not, it offers to fetch them once, about 100 MB, into its own folder.
 
