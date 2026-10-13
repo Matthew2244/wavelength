@@ -110,8 +110,25 @@ def main():
     appcast = os.path.join("dist", "appcast.xml")
     with open(appcast, "w") as f:
         run([sys.executable, os.path.join("tools", "appcast.py"), out, version, url, notes_file], stdout=f)
+    uploads = [out, appcast]
+    # Windows: CI attached the installer; sign it here (the key never leaves this Mac) and
+    # publish WinSparkle's update list beside it.
+    setup = os.path.join("dist", "Media-Download-Setup.exe")
+    if os.path.exists(setup):
+        os.remove(setup)
+    got = subprocess.run(["gh", "release", "download", a.tag, "-p", "Media-Download-Setup.exe", "-D", "dist"],
+                         capture_output=True, text=True)
+    if got.returncode == 0 and os.path.exists(setup):
+        win_url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/Media-Download-Setup.exe"
+        win_cast = os.path.join("dist", "appcast-windows.xml")
+        with open(win_cast, "w") as f:
+            run([sys.executable, os.path.join("tools", "appcast.py"), setup, version, win_url, notes_file,
+                 "--windows"], stdout=f)
+        uploads.append(win_cast)
+    else:
+        print("No Windows installer on the release yet, so no Windows update list this time.")
     if not a.no_upload:
-        run(["gh", "release", "upload", a.tag, out, appcast, "--clobber"])
+        run(["gh", "release", "upload", a.tag, *uploads, "--clobber"])
     print(f"Done: {out} is signed, notarized, stapled" + ("." if a.no_upload else
           f", and attached to {a.tag} with its signed appcast.xml."))
 

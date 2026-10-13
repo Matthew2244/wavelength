@@ -266,6 +266,28 @@ class Settings(wx.Dialog):
         self.say.SetSelection(self.say_vals.index(v) if v in self.say_vals else 0)
         labelled(self, s, "Speak progress while downloading:", self.say, _label,
                  "For screen readers. Finishes and failures are always spoken.")
+        heading = wx.StaticText(self, label="Player")
+        heading.SetFont(heading.GetFont().Bold())
+        s.Add(heading, 0, wx.LEFT | wx.TOP, 8)
+        self.skip_vals = [5, 10, 15, 30, 60]
+        _label = wx.StaticText(self, label="Skip back and forward by:")
+        self.skip = wx.Choice(self, choices=["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"])
+        sk = int(cfg.get("app_skip", 10) or 10)
+        self.skip.SetSelection(self.skip_vals.index(sk) if sk in self.skip_vals else 1)
+        labelled(self, s, "Skip back and forward by:", self.skip, _label, "What Left and Right arrows do in the player.")
+        self.play_next = wx.CheckBox(self, label="Play the next item when one finishes")
+        self.play_next.SetValue(bool(cfg.get("app_play_next", True)))
+        s.Add(self.play_next, 0, wx.ALL, 6)
+        self.resume = wx.CheckBox(self, label="Remember where I stopped in each item")
+        self.resume.SetValue(bool(cfg.get("app_resume", True)))
+        self.resume.SetToolTip("For podcasts, lectures and audiobooks. Not for the first or last 30 seconds.")
+        s.Add(self.resume, 0, wx.ALL, 6)
+        self.captions = wx.CheckBox(self, label="Show captions under videos when there are some")
+        self.captions.SetValue(bool(cfg.get("app_captions", True)))
+        s.Add(self.captions, 0, wx.ALL, 6)
+        heading = wx.StaticText(self, label="Everything else")
+        heading.SetFont(heading.GetFont().Bold())
+        s.Add(heading, 0, wx.LEFT | wx.TOP, 8)
         self.clip = wx.CheckBox(self, label="Offer a link I've copied when I switch to the app")
         self.clip.SetValue(bool(cfg.get("app_clipboard", True)))
         s.Add(self.clip, 0, wx.ALL, 6)
@@ -294,6 +316,8 @@ class Settings(wx.Dialog):
             "app_cover_art": self.cover.GetValue(), "app_sounds": self.sounds.GetValue(),
             "app_announce_progress": self.say_vals[self.say.GetSelection()],
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
+            "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
+            "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
         })
         if self.push is not None:
             self.cfg["notify"] = self.push.GetValue()
@@ -405,7 +429,7 @@ class PlaylistQuestion(wx.Dialog):
 class Search(wx.Dialog):
     """Search a site by words and tick what to download, without visiting the site."""
 
-    def __init__(self, parent, query: str, site: str, run_search):
+    def __init__(self, parent, query: str, site: str, run_search, play=None):
         super().__init__(parent, title="Search", size=(760, 600), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.run_search = run_search
         self.results = []
@@ -432,6 +456,13 @@ class Search(wx.Dialog):
         s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
         brow, self.ok, _ = buttons(self, "Download Ticked", "Close")
         self.ok.Disable()
+        self.play = play
+        if play:
+            self.play_btn = wx.Button(self, label="Play Selected")
+            self.play_btn.SetToolTip("Listen to the selected result without downloading it, to check it's the "
+                                     "right one. The search stays open.")
+            brow.Insert(1, self.play_btn, 0, wx.ALL, 6)
+            self.play_btn.Bind(wx.EVT_BUTTON, self.on_play)
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
@@ -494,3 +525,10 @@ class Search(wx.Dialog):
 
     def chosen(self):
         return [self.results[i] for i in self.list.GetCheckedItems()]
+
+    def on_play(self, _):
+        i = self.list.GetSelection()
+        if i == wx.NOT_FOUND or i >= len(self.results):
+            self.status.SetLabel("Select a result first, then Play Selected.")
+            return
+        self.play([self.results[i]])

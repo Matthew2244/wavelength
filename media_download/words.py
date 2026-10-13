@@ -442,3 +442,58 @@ def srt_to_text(srt: str, title: str = "", gap: float = 2.5, para_words: int = 7
         out_paras.append(" ".join(para))
     head = [title, ""] if title else []
     return "\n".join(head + ["\n\n".join(out_paras)]).strip() + "\n"
+
+
+def caption_cues(text: str) -> list:
+    """Captions (SRT or WebVTT) as [(start, end, line)], each line once, for showing under a video.
+
+    Rolling automatic captions repeat each line in two or three cues; a cue keeps only the
+    lines that are new, the same rule as srt_to_text.
+    """
+    cues, recent = [], []
+    for block in re.split(r"\n\s*\n", (text or "").replace("\r", "")):
+        start = end = None
+        lines = []
+        for ln in block.strip().split("\n"):
+            m = _TIME.search(ln)
+            if m:
+                g = [int(x) for x in m.groups()]
+                start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
+                end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
+            elif start is not None:
+                clean = re.sub(r"<[^>]+>", "", ln).strip()
+                if clean:
+                    lines.append(clean)
+        if start is None:
+            continue
+        new = [t for t in lines if t not in recent]
+        for t in new:
+            recent.append(t)
+            del recent[:-4]
+        if new:
+            cues.append((start, end, " ".join(new)))
+    return cues
+
+
+def cue_at(cues: list, t: float) -> str:
+    """The caption showing at t seconds: the last cue that has started, until the next one."""
+    lo, hi, best = 0, len(cues) - 1, ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if cues[mid][0] <= t:
+            best = cues[mid][2] if t <= cues[mid][1] + 3 else ""
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return best
+
+
+def clock_words(seconds) -> str:
+    """'1:23' or '1:02:03', for showing; duration() is for saying."""
+    try:
+        total = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return "0:00"
+    h, rest = divmod(total, 3600)
+    m, s = divmod(rest, 60)
+    return "%d:%02d:%02d" % (h, m, s) if h else "%d:%02d" % (m, s)

@@ -14,15 +14,15 @@ What's here:
 
 **Mac:** download `Media-Download-mac.zip` from the [latest release](https://github.com/Matthew2244/ytdl-accessible/releases/latest), open it, and drag Media Download into Applications. It's signed and notarized by Apple, so it opens without a warning.
 
-**Windows:** download `Media-Download-windows.zip` from the same page, unzip it anywhere, and run `Media Download.exe`. Windows may say it doesn't recognise the app. Choose More info, then Run anyway.
+**Windows:** download `Media-Download-Setup.exe` from the same page and run it. It installs just for you, with no administrator password, adds Media Download to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway. (`Media-Download-windows.zip` is there too, if you'd rather not install anything.)
 
-The app updates itself. On the Mac that's [Sparkle](https://sparkle-project.org), the update window most Mac apps outside the App Store use: it checks once a day, shows what's new, and offers Install Update, Remind Me Later or Skip This Version (Help, Check for App Updates asks right away). Every update is signed, and the app refuses one that isn't, so nobody but the author can push an update to you. On Windows, Help, Check for App Updates downloads the new version, checks it starts, and swaps it in. The download engine inside the app, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
+The app updates itself, with [Sparkle](https://sparkle-project.org) on the Mac and its twin WinSparkle on Windows: once a day it checks, shows what's new, and offers Install Update, Remind Me Later or Skip This Version (Help, Check for App Updates asks right away). Every update is signed, and the app refuses one that isn't, so nobody but the author can push an update to you. (The zip version on Windows updates itself in place instead.) The download engine inside the app, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
 
 On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (inspecting files) and deno (YouTube needs it). If you already have them, from Homebrew for example, it uses yours. If not, it offers to fetch them once, about 100 MB, into its own folder.
 
 ## Using the app
 
-![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: iCloud Drive > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
+![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: iCloud Drive > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
 1. Paste a link into the Link field and press Return. Paste several at once and each gets its own row.
 2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Tick the results you want.
@@ -45,6 +45,19 @@ A link to a playlist or album asks whether you want all of it, some of it (tick 
 While anything is downloading, the Dock icon shows how many (on Windows, the taskbar button shows progress), so you can see it from another app.
 
 **Quitting** while something is downloading asks first. Whatever didn't finish comes back next time, stopped, and Resume Unfinished picks up where it left off.
+
+### The player
+
+Media Download plays things too: what you've downloaded, and links you haven't.
+
+- **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
+- **Play what you've downloaded:** select a row and press Play (Command-P), or Play All Finished (Command-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
+- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from half to double, without changing pitch. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. Escape closes the player. All of it is also in the Playback menu.
+- **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.
+- **Captions** show in large type under the picture, from subtitles you downloaded or the stream's own.
+- Nothing is spoken unless you ask (T), or a new item starts while the player is in the background. Speed and volume are remembered.
+
+Windows plays MP4 and M4A streams; video from sites that only offer the Mac-style streaming format plays after downloading.
 
 ### With a screen reader
 
@@ -73,6 +86,9 @@ Everything is in the menus with its shortcut. On Windows read Control for Comman
 | Command-L, Command-D, Command-E | Go to the Link field, the Downloads list, Details |
 | Command-J | Say what's happening |
 | Command-Shift-F | Filter the list |
+| Command-P | Play the selected download |
+| Command-Shift-P | Play everything finished |
+| Command-Shift-Return | Play the link without downloading |
 | Return in the list | Open the file |
 | Delete in the list | Remove the row (the file stays) |
 | Command-R | Show the file in Finder or File Explorer |

@@ -326,6 +326,80 @@ def do_search(yt_dlp, task):
     emit("end", ok=True)
 
 
+def do_stream(yt_dlp, task):
+    """A link this computer's built-in player can play, without downloading.
+
+    The Mac's player (AVFoundation) plays HLS playlists with picture and sound together,
+    and M4A, MP3, MP4 and Opus files; Windows' plays MP4 and M4A. YouTube no longer offers
+    ready-combined MP4, so video on the Mac takes its HLS playlist, and audio takes the
+    M4A stream. Captions come along when there are English ones.
+    """
+    from .options import tool_flags
+    from . import words
+    logger = Logger()
+    want = task.get("want", "audio")
+    mac = sys.platform == "darwin"
+    if want == "video":
+        # Anything with picture, falling back to sound: a video-only HLS stream is fine on the
+        # Mac because its master playlist (below) carries the sound; an audio-only site gives audio.
+        fmt = ("best[vcodec!=none][acodec!=none][protocol^=m3u8]/bv*[protocol^=m3u8]/"
+               "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/" if mac else
+               "best[ext=mp4][vcodec^=avc1][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/")
+        fmt += "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio"
+    else:
+        fmt = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[ext=mp3]/best[ext=mp4][acodec!=none]" + \
+            ("/bestaudio[acodec=opus][ext!=webm]/bestaudio/best" if mac else "/best")
+    args = ["--no-playlist", "-f", fmt] + tool_flags()
+    if task.get("cookies"):
+        args += ["--cookies-from-browser", task["cookies"]]
+    try:
+        ydl = _make_ydl(yt_dlp, args, logger)
+        with ydl:
+            info = ydl.extract_info(task["url"], download=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(str(exc))
+        info = None
+    if not info:
+        emit("end", ok=False)
+        return
+    play_url = info.get("url")
+    has_video = (info.get("vcodec") or "none") != "none"
+    has_audio = (info.get("acodec") or "none") != "none"
+    proto = info.get("protocol") or ""
+    if has_video and not has_audio:
+        # Picture only: the HLS master playlist has the sound too (the Mac plays it). Otherwise
+        # there's nothing this player can do with a silent picture stream.
+        manifest = info.get("manifest_url") or next(
+            (f.get("manifest_url") for f in info.get("formats") or [] if f.get("manifest_url")), None)
+        play_url = manifest if (mac and manifest and proto.startswith("m3u8")) else None
+    got = "video" if has_video else "audio"
+    if not play_url:
+        emit("log", text="NOPLAYABLE")
+        emit("end", ok=False)
+        return
+    headers = info.get("http_headers") or {}
+    cues = []
+    subs = dict(info.get("automatic_captions") or {})
+    subs.update(info.get("subtitles") or {})  # real subtitles win over automatic ones
+    for lang in ("en", "en-US", "en-GB", "en-orig"):
+        tracks = subs.get(lang) or []
+        vtt = [t for t in tracks if t.get("ext") in ("vtt", "srt")]
+        if vtt:
+            try:
+                from .engine import fetch
+                cues = words.caption_cues(fetch(vtt[0]["url"], timeout=30).decode("utf-8", "replace"))
+            except Exception:  # noqa: BLE001 - captions are a bonus
+                cues = []
+            break
+    emit("stream", url=play_url, title=info.get("title") or "", uploader=info.get("uploader") or
+         info.get("channel") or "", duration=info.get("duration") or 0, is_live=bool(info.get("is_live")),
+         page=info.get("webpage_url") or task["url"], want=got,
+         odd_headers=sorted(k for k in headers if k.lower() not in ("user-agent", "accept", "accept-language",
+                                                                    "sec-fetch-mode")),
+         cues=cues[:20000])
+    emit("end", ok=True)
+
+
 def do_impersonate_check(yt_dlp, task):
     """How many browsers the engine can pass itself off as. Zero means curl_cffi is missing."""
     try:
@@ -353,7 +427,7 @@ def do_recognise(yt_dlp, task):
 
 
 TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
-         "impersonate": do_impersonate_check}
+         "impersonate": do_impersonate_check, "stream": do_stream}
 
 
 def main() -> int:

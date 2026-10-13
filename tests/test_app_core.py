@@ -354,3 +354,25 @@ def test_drm_and_transcripts():
 def test_speed_limit_reaches_yt_dlp():
     a = options.download_args(spec(rate_limit="1M"))
     assert a[a.index("--limit-rate") + 1] == "1M"
+
+
+def test_captions_follow_the_clock():
+    cues = words.caption_cues("1\n00:00:01,000 --> 00:00:03,000\nhello\n\n2\n00:00:03,000 --> 00:00:05,000\nhello\nthere\n")
+    assert cues == [(1.0, 3.0, "hello"), (3.0, 5.0, "there")]
+    assert words.cue_at(cues, 0.5) == ""
+    assert words.cue_at(cues, 2) == "hello"
+    assert words.cue_at(cues, 4) == "there"
+    assert words.cue_at(cues, 20) == ""
+    assert words.clock_words(3723) == "1:02:03" and words.clock_words(83) == "1:23"
+
+
+def test_player_picks_the_whole_file_not_a_chapter(tmp_path):
+    pytest.importorskip("wx")
+    from media_download.player import playable_file, speed_words
+    whole = tmp_path / "Album.mp3"
+    chap = tmp_path / "Album - 01 Intro.mp3"
+    txt = tmp_path / "Album - transcript.txt"
+    for p in (whole, chap, txt):
+        p.write_text("x")
+    assert playable_file([str(chap), str(whole), str(txt)]) == str(whole)
+    assert speed_words(1.0) == "Normal" and speed_words(1.5) == "1.5 times"

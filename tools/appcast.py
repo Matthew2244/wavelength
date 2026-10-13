@@ -1,4 +1,6 @@
-"""Write Sparkle's update list for one release: python tools/appcast.py ZIP VERSION URL [NOTES.md] > appcast.xml
+"""Write Sparkle's update list for one release: python tools/appcast.py FILE VERSION URL [NOTES.md] [--windows] > appcast.xml
+
+With --windows, FILE is the Windows installer and the list is for WinSparkle.
 
 The zip is signed with the EdDSA key in this Mac's login Keychain (Sparkle's
 sign_update finds it there); the signature goes into the appcast, and every copy
@@ -34,8 +36,10 @@ def notes_html(md: str) -> str:
 
 
 def main():
-    zip_path, version, url = sys.argv[1:4]
-    notes = open(sys.argv[4]).read() if len(sys.argv) > 4 else ""
+    windows = "--windows" in sys.argv
+    argv = [a for a in sys.argv if a != "--windows"]
+    zip_path, version, url = argv[1:4]
+    notes = open(argv[4]).read() if len(argv) > 4 else ""
     sig = subprocess.run([os.path.join(sparkle_bin(), "sign_update"), zip_path],
                          capture_output=True, text=True, check=True).stdout.strip()
     if "sparkle:edSignature" not in sig:
@@ -45,11 +49,15 @@ def main():
       <pubDate>{date}</pubDate>
       <sparkle:version>{v}</sparkle:version>
       <sparkle:shortVersionString>{v}</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>{min}</sparkle:minimumSystemVersion>
+      {minsys}
       <description><![CDATA[{notes}]]></description>
-      <enclosure url="{url}" {sig} type="application/octet-stream"/>
+      <enclosure url="{url}" {sig} type="application/octet-stream"{win}/>
     </item>""".format(v=version, date=formatdate(usegmt=True), min=MIN_MACOS, notes=notes_html(notes),
-                      url=html.escape(url, quote=True), sig=sig)
+                      url=html.escape(url, quote=True), sig=sig,
+                      minsys="" if windows else "<sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>" % MIN_MACOS,
+                      # WinSparkle runs the installer: quietly, and /relaunch=1 opens the app again after.
+                      win=' sparkle:os="windows" sparkle:installerArguments="/SILENT /SP- /SUPPRESSMSGBOXES '
+                          '/NORESTART /relaunch=1"' if windows else "")
     print("""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>

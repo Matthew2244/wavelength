@@ -103,7 +103,7 @@ fi
 if ! "$PY" - "$HERE" <<'PYEOF'
 import os, re, sys
 here = sys.argv[1]
-src = "".join(open(os.path.join(here, "media_download", f)).read() for f in ("gui.py", "dialogs.py"))
+src = "".join(open(os.path.join(here, "media_download", f)).read() for f in ("gui.py", "dialogs.py", "player.py"))
 problems = []
 # macOS gives Escape only to a button titled exactly "Cancel" in a message dialog.
 for m in re.finditer(r'SetOKCancelLabels\(([^)]*)\)', src):
@@ -114,7 +114,8 @@ for m in re.finditer(r"class (\w+)\(wx\.Dialog\):(.*?)(?=\nclass |\ndef |\Z)", s
     if "SetEscapeId(wx.ID_CANCEL)" not in m.group(2) and "buttons(self" not in m.group(2):
         problems.append("dialog %s has no Escape button" % m.group(1))
 # Every control the window shows must have a spoken name or be a labelled button.
-for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details", "self.gauge"):
+for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details", "self.gauge", "self.filter",
+             "self.slider", "self.speed_choice", "self.volume", "self.qlist"):
     if "mac_accessibility_label(%s," % ctrl not in src:
         problems.append("%s has no spoken name" % ctrl)
 for p in problems:

@@ -14,6 +14,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ["MEDIA_DOWNLOAD_TEST_DIR"] = tempfile.mkdtemp()
 
 import wx  # noqa: E402
@@ -67,32 +68,10 @@ for _ in range(20):
     wx.SafeYield()
     time.sleep(0.05)
 f._update_title()
-objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-objc.objc_getClass.restype = ctypes.c_void_p
-objc.sel_registerName.restype = ctypes.c_void_p
-objc.sel_registerName.argtypes = [ctypes.c_char_p]
-
-
-def send(o, sel, *a, restype=ctypes.c_void_p, argtypes=()):
-    fn = objc.objc_msgSend
-    fn.restype = restype
-    fn.argtypes = [ctypes.c_void_p, ctypes.c_void_p, *argtypes]
-    return fn(o, objc.sel_registerName(sel.encode()), *a)
-
-
-class R(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("w", ctypes.c_double), ("h", ctypes.c_double)]
-
-
-win = send(f.panel.GetHandle(), "window")
-content = send(send(win, "contentView"), "superview") or send(win, "contentView")
-bounds = send(content, "bounds", restype=R)
-rep = send(content, "bitmapImageRepForCachingDisplayInRect:", bounds, argtypes=(R,))
-send(content, "cacheDisplayInRect:toBitmapImageRep:", bounds, rep, restype=None, argtypes=(R, ctypes.c_void_p))
-props = send(objc.objc_getClass(b"NSDictionary"), "dictionary")
-data = send(rep, "representationUsingType:properties:", 4, props, argtypes=(ctypes.c_ulong, ctypes.c_void_p))
-path = send(objc.objc_getClass(b"NSString"), "stringWithUTF8String:", out.encode(), argtypes=(ctypes.c_char_p,))
-ok = send(data, "writeToFile:atomically:", path, True, restype=ctypes.c_bool, argtypes=(ctypes.c_void_p, ctypes.c_bool))
+import snap  # noqa: E402
+ok, w, h = snap.snap(f, out)
+class B: pass
+bounds = B(); bounds.w, bounds.h = w, h
 print("wrote", ok, bounds.w, bounds.h, "title:", f.GetTitle())
 f.timer.Stop()
 f.Destroy()

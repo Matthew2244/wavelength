@@ -74,6 +74,20 @@ Martin Riedl's signed static ffmpeg builds, deno's GitHub release (sha256
 checked); each must pass `codesign --verify` and run. Windows: yt-dlp's own
 FFmpeg-Builds and deno's release.
 
+**The player** (`player.py`, `PlayerFrame`, one window, `main.player`). Plays
+files and links through `wx.media.MediaCtrl`: AVFoundation on the Mac (verified:
+MP3, M4A, Opus, FLAC, MP4, a direct M4A stream URL, YouTube's HLS master
+playlist with picture and sound, an Icecast radio stream), WMP10 on Windows.
+Links go through the worker's `stream` task first: video on the Mac takes the
+HLS master playlist (YouTube no longer offers combined MP4), audio takes M4A/
+MP3; it returns English caption cues too. No duration from the site means live:
+the Mac's player invents a length for live radio (18 hours). Positions per item
+in `positions.json` (not the first or last 30 s); speed, volume, captions,
+skip length in settings (`app_*`). Plain keys come through `EVT_CHAR_HOOK` and
+are written into the Playback menu's names. The video picture is drawn by the
+GPU, so `tools/snap.py` draws it black; test playback by state, not pictures.
+Test the player muted (`app_volume` 0) at night.
+
 **Trying again by itself** (`Manager._try_later`). Network trouble or a 5xx
 waits 15 s then 60 s (`net_retries`, at most 2). A 429 pauses the whole site
 (`site_pause`) for 5, 10, then 15 minutes and announces it once; jobs wait
@@ -206,6 +220,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   Escape, Command-J, Command-D, Command-E.
 
 ## Not done
+
+- **The player hasn't been driven with VoiceOver yet**, only tested off-screen
+  muted (files, YouTube video with captions, SoundCloud, live radio, skip,
+  speed, pause, queue, sleep timer). Next session with the Mac free: tab
+  through it, and check Space and the arrows when focus is on each control.
+- Windows can't play HLS, so YouTube video on Windows plays after downloading.
 
 - **Windows has not been tried by a person.** Speech there goes through Prism
   (`prismatoid`, MPL-2.0, bundles NVDA's controller client, LGPL): the first

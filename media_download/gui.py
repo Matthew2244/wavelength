@@ -94,6 +94,7 @@ class MainFrame(wx.Frame):
         self.pending_playlists: list = []
         self.asking = False
         self.update_info = None
+        self.player = None
         self.mgr = Manager(self.cfg, self._from_manager)
 
         self.panel = wx.Panel(self)
@@ -113,10 +114,14 @@ class MainFrame(wx.Frame):
         self.download_btn = wx.Button(p, label=M("&Download"))
         self.download_btn.SetToolTip("Download the link in the Link field (Return).")
         self.search_btn = wx.Button(p, label=M("&Search..."))
+        self.play_link_btn = wx.Button(p, label=M("&Play"))
+        self.play_link_btn.SetToolTip("Play the link without downloading it. Paste several to play them in turn "
+                                      "(%s-Shift-Return)." % CMD)
         self.search_btn.SetToolTip("Search YouTube, SoundCloud or YouTube Music by words (%s-F)." % CMD)
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.link, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.download_btn, 0, wx.RIGHT, 6)
+        row.Add(self.play_link_btn, 0, wx.RIGHT, 6)
         row.Add(self.search_btn, 0)
         s.Add(row, 0, wx.EXPAND | wx.ALL, 10)
 
@@ -193,6 +198,8 @@ class MainFrame(wx.Frame):
         s.Add(self.details, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
+        self.play_btn = wx.Button(p, label=M("Pla&y"))
+        self.play_btn.SetToolTip("Play the selected download here (%s-P)." % CMD)
         self.open_btn = wx.Button(p, label=M("&Open"))
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
         self.stop_btn = wx.Button(p, label=M("S&top"))
@@ -203,7 +210,7 @@ class MainFrame(wx.Frame):
         self.stop_btn.SetToolTip("Stop this download. Retry carries on from where it stopped.")
         self.retry_btn.SetToolTip("Try a failed or stopped download again.")
         self.remove_btn.SetToolTip("Take the row off the list. Downloaded files stay where they are.")
-        for b in (self.open_btn, self.show_btn, self.stop_btn, self.retry_btn, self.remove_btn):
+        for b in (self.play_btn, self.open_btn, self.show_btn, self.stop_btn, self.retry_btn, self.remove_btn):
             row.Add(b, 0, wx.RIGHT, 6)
         s.Add(row, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -223,6 +230,8 @@ class MainFrame(wx.Frame):
 
         self.Bind(wx.EVT_BUTTON, self.on_download, self.download_btn)
         self.Bind(wx.EVT_BUTTON, self.on_search, self.search_btn)
+        self.Bind(wx.EVT_BUTTON, lambda e: self.on_play_link(), self.play_link_btn)
+        self.play_btn.Bind(wx.EVT_BUTTON, lambda e: self.on_play())
         self.link.Bind(wx.EVT_TEXT_ENTER, self.on_download)
         self.link.Bind(wx.EVT_TEXT_PASTE, self.on_paste_into_link)
         self.kind.Bind(wx.EVT_CHOICE, self.on_kind)
@@ -293,6 +302,10 @@ class MainFrame(wx.Frame):
             self._m(ed, "Settings...\tCtrl+,", self.on_settings, wx.ID_PREFERENCES)
 
         d = wx.Menu()
+        self._m(d, "&Play\tCtrl+P", lambda e: self.on_play())
+        self._m(d, "Play &All Finished\tCtrl+Shift+P", lambda e: self.on_play_all())
+        self._m(d, "Play the Link &Without Downloading\tCtrl+Shift+Return", lambda e: self.on_play_link())
+        d.AppendSeparator()
         self._m(d, "&Open File\tCtrl+Down", self.on_open)
         self._m(d, "Show in %s\tCtrl+R" % FOLDER_APP, self.on_show)
         self._m(d, "&Stop\tCtrl+.", self.on_stop)
@@ -498,7 +511,8 @@ class MainFrame(wx.Frame):
     def on_search(self, _, query=None):
         q = query if query is not None else (self.link.GetValue().strip()
                                               if not words.links_in(self.link.GetValue()) else "")
-        dlg = dialogs.Search(self, q, self.cfg.get("app_search_site", "youtube"), self.run_search)
+        dlg = dialogs.Search(self, q, self.cfg.get("app_search_site", "youtube"), self.run_search,
+                             play=lambda entries: self.play_links(entries))
         go = dlg.ShowModal() == wx.ID_OK
         chosen = dlg.chosen() if go else []
         self.cfg["app_search_site"] = dlg.site_key()
@@ -845,6 +859,7 @@ class MainFrame(wx.Frame):
         job = self.selected()
         has_file = bool(job and job.files and any(os.path.exists(f) for f in job.files))
         self.open_btn.Enable(has_file)
+        self.play_btn.Enable(bool(job))
         self.show_btn.Enable(has_file or bool(job and os.path.isdir(job.folder())))
         self.stop_btn.Enable(bool(job and (job.state in ACTIVE or job.state == "waiting")))
         self.retry_btn.Enable(bool(job and job.state in ("failed", "stopped")))
@@ -903,6 +918,84 @@ class MainFrame(wx.Frame):
             event.Skip()
 
     # -------------------------------------------------------- acting on a row
+
+    # -------------------------------------------------------- playing
+
+    def open_player(self, items, start=0):
+        from .player import PlayerFrame
+        if self.player is None:
+            self.player = PlayerFrame(self)
+            if self.text_pt != self.default_pt:
+                for c in (self.player.qlist, self.player.byline, self.player.pos_label):
+                    f = c.GetFont()
+                    f.SetPointSize(self.text_pt)
+                    c.SetFont(f)
+        self.player.set_queue(items, start)
+        self.player.Show()
+        self.player.Raise()
+        self.player.play_btn.SetFocus()
+
+    def _want(self) -> str:
+        return "video" if [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()] == "video" else "audio"
+
+    def play_links(self, entries):
+        """Play links without downloading: [{"url", "title"?, ...}]."""
+        items = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
+                  "want": self._want()} for e in entries]
+        if items:
+            self.open_player(items)
+
+    def on_play_link(self):
+        text = self.link.GetValue().strip()
+        urls = words.links_in(text)
+        if not urls and text and not words.looks_like_link(text):
+            self.on_search(None, query=text)
+            return
+        if not urls:
+            self.tell("Put a link in the Link field to play it.")
+            self.link.SetFocus()
+            return
+        self.play_links([{"url": u} for u in urls])
+
+    def _file_item(self, job):
+        from .player import playable_file
+        path = playable_file(job.files)
+        if not path:
+            return None
+        return {"path": path, "title": job.title or os.path.basename(path), "uploader": job.uploader,
+                "url": job.url}
+
+    def on_play(self):
+        job = self.selected()
+        if not job:
+            self.tell("Select a download first.")
+            return
+        item = self._file_item(job)
+        if item:
+            item.pop("url", None)
+            self.open_player([item])
+        else:
+            self.play_links([{"url": job.url, "title": job.title, "uploader": job.uploader}])
+
+    def on_play_all(self):
+        with self.mgr.lock:
+            jobs = [self.mgr.find(i) for i in self.rows]
+        items = []
+        for j in jobs:
+            it = j and j.state in ("done", "skipped") and self._file_item(j)
+            if it:
+                it.pop("url", None)
+                items.append(it)
+        if not items:
+            self.tell("Nothing finished to play yet.")
+            return
+        sel = self.selected()
+        start = 0
+        if sel:
+            from .player import playable_file
+            p = playable_file(sel.files) if sel.files else None
+            start = next((i for i, it in enumerate(items) if it["path"] == p), 0)
+        self.open_player(items, start)
 
     def on_open(self, _):
         job = self.selected()
