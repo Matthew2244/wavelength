@@ -306,14 +306,14 @@ def explain_failure(text: str, cookies_used: bool = False, site: str | None = No
     if "unavailable" in lowered or "removed" in lowered or "does not exist" in lowered or "404" in lowered:
         return "That isn't available. It may have been removed, made private, or blocked here."
     if "no space left" in lowered:
-        return "The disk is full."
+        return "The disk is full. Make some room, or choose File, Change Download Folder, then Retry."
     if "ffmpeg" in lowered and ("not found" in lowered or "not installed" in lowered):
         return "The converter (ffmpeg) is missing. Choose Get Helper Tools in the Help menu."
     if "timed out" in lowered or "connection" in lowered and ("refused" in lowered or "reset" in lowered) \
             or "network is unreachable" in lowered or "nodename nor servname" in lowered:
         return "Couldn't reach %s. Check the internet connection, then Retry." % (site or "the site")
     if "permission denied" in lowered or "operation not permitted" in lowered:
-        return "Couldn't write to the download folder. Choose another folder in Settings."
+        return "Couldn't write to the download folder. Choose File, Change Download Folder, then Retry."
     last = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     detail = last[-1] if last else ""
     detail = re.sub(r"^ERROR:\s*", "", detail)
@@ -337,9 +337,31 @@ STATE_WORDS = {
 }
 
 
+def job_name(job) -> str:
+    """What to call a download out loud: its title, else the file a direct link names,
+    else 'a vimeo.com link'. Never the whole address, which takes ten seconds to hear."""
+    if job.title:
+        return job.title
+    try:
+        path = urllib.parse.unquote(urllib.parse.urlparse(job.url).path)
+    except ValueError:
+        path = ""
+    leaf = path.rstrip("/").rsplit("/", 1)[-1]
+    if "." in leaf and 1 < len(leaf.rsplit(".", 1)[1]) <= 4 and len(leaf) <= 80:
+        return leaf
+    return "a %s link" % job.site if job.site else "that link"
+
+
+def short_link(url: str) -> str:
+    """'vimeo.com/76979871' from 'https://www.vimeo.com/76979871/': the part that tells links apart."""
+    s = re.sub(r"^[a-z][a-z0-9+.-]*://", "", url.strip(), flags=re.I)
+    s = re.sub(r"^(www|m)\.", "", s, flags=re.I)
+    return s.rstrip("/") or url
+
+
 def row_text(job) -> str:
     """One list row, status first: 'Downloading, 45 percent, about 2 minutes left: Title'."""
-    title = job.title or job.url
+    title = job.title or short_link(job.url)
     st = job.state
     if st == "downloading":
         bits = ["Downloading"]
@@ -392,7 +414,7 @@ def pretty_folder(path: str) -> str:
 
 def details_text(job) -> str:
     """Everything known about one download, one fact per line."""
-    lines = [job.title or job.url]
+    lines = [job_name(job)]
     lines.append("Status: " + row_text(job).split(": ", 1)[0] + ".")
     if job.state == "failed" and job.reason:
         lines.append(job.reason)

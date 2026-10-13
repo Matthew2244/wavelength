@@ -125,12 +125,14 @@ def do_download(yt_dlp, task):
         state.setdefault("files", []).append(path)
         emit("file", path=path)
 
-    args = download_args(spec, task.get("fragments", 4)) + tool_flags(task.get("fragments", 4))
     os.makedirs(spec["dest"], exist_ok=True)
     from . import engine
     from .options import temp_dir
     os.makedirs(temp_dir(spec), exist_ok=True)
     try:
+        # Inside the try: an unclosed quote in the extra options is the person's to fix, and must
+        # read as that, not as a failure worth updating the engine and retrying for.
+        args = download_args(spec, task.get("fragments", 4)) + tool_flags(task.get("fragments", 4))
         ydl = _make_ydl(yt_dlp, args, logger, {"progress_hooks": [hook], "postprocessor_hooks": [pp_hook],
                                                 "post_hooks": [post_hook]})
     except (Exception, SystemExit) as exc:  # bad raw flags under More Options; argparse exits

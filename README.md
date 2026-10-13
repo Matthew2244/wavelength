@@ -119,7 +119,7 @@ Help, About keeps a running tally of what you've downloaded ("Since October 13, 
 
 ### Settings
 
-Downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, sounds, spoken progress, offering a link you've copied when you switch to the app, and keeping the download engine up to date. The format, quality and folder in the main window are remembered too, and shared with the `ytdl` command.
+Downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, the finish and fail sounds (a short electric piano phrase, rising when a download is done and falling when one fails), spoken progress, offering a link you've copied when you switch to the app, and keeping the download engine up to date. The format, quality and folder in the main window are remembered too, and shared with the `ytdl` command.
 
 ### Fast on a big computer
 

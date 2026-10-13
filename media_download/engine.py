@@ -425,7 +425,7 @@ def update_engine(say=lambda s: None) -> tuple[str, str]:
             cmd = [sys.executable, "--probe-engine", tmp]
         else:
             cmd = [sys.executable, "-c", probe, tmp]
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120, **hidden_window())
         if out.returncode != 0 or [_version_key(x) for x in out.stdout.strip().splitlines()[-1:]] != [_version_key(ver)]:
             raise RuntimeError("the new engine didn't start")
         final = os.path.join(ENGINES, ver)

@@ -21,6 +21,8 @@ import subprocess
 import sys
 import tempfile
 
+from . import engine
+
 MIN_GAP = 4.0     # seconds between described moments
 STILL_EVERY = 12  # also a moment this often in a long unchanging shot
 BATCH = 10        # frames per Claude call: enough for continuity
@@ -54,6 +56,7 @@ def claude_path() -> str | None:
     """The Claude command-line tool, also when the app was opened from Finder with a short PATH."""
     home = os.path.expanduser("~")
     for p in (shutil.which("claude"), os.path.join(home, ".local", "bin", "claude"),
+              os.path.join(home, ".local", "bin", "claude.exe"),
               os.path.join(home, ".claude", "local", "claude"), "/opt/homebrew/bin/claude",
               "/usr/local/bin/claude", os.path.join(os.environ.get("APPDATA", ""), "npm", "claude.cmd")):
         if p and os.path.isfile(p) and os.access(p, os.X_OK):
@@ -135,7 +138,8 @@ def sample_frames(video: str, folder: str, ffmpeg: str) -> list[tuple[str, float
     out = subprocess.run([ffmpeg, "-hide_banner", "-i", video, "-vf",
                           "select='eq(n\\,0)+gt(scene\\,0.25)+gte(t-prev_selected_t\\,%d)',scale=768:-2,showinfo"
                           % STILL_EVERY, "-vsync", "vfr", "-q:v", "4", os.path.join(folder, "f%04d.jpg")],
-                         capture_output=True, text=True, timeout=1800)
+                         capture_output=True, encoding="utf-8", errors="replace", timeout=1800,
+                         **engine.hidden_window())
     times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)", out.stderr or "")]
     frames = sorted(f for f in os.listdir(folder) if f.endswith(".jpg"))
     paired = list(zip(frames, times + [0.0] * len(frames)))[:len(frames)]
@@ -159,9 +163,11 @@ def describe_frames(frames, folder, title, claude, progress=lambda done, total: 
         if carried:
             listing += "\n\nFor continuity, the description so far ended: %s" % carried
         try:
-            out = subprocess.run([claude, "-p", "--allowedTools", "Read", "--output-format", "text",
-                                  PROMPT % (title, listing)], cwd=folder, capture_output=True, text=True,
-                                 timeout=900)
+            # The prompt goes in on stdin: on Windows `claude` may be a .cmd wrapper, and cmd.exe
+            # would cut a many-line argument at its first line break.
+            out = subprocess.run([claude, "-p", "--allowedTools", "Read", "--output-format", "text"],
+                                 input=PROMPT % (title, listing), cwd=folder, capture_output=True,
+                                 encoding="utf-8", errors="replace", timeout=900, **engine.hidden_window())
         except (OSError, subprocess.TimeoutExpired):
             continue
         body = re.sub(r"^```(?:json)?|```$", "", (out.stdout or "").strip(), flags=re.M).strip()

@@ -436,3 +436,34 @@ def test_own_sounds_ship_and_unknown_kinds_have_none():
         path = system.sound_file(kind)
         assert path and os.path.getsize(path) > 10_000
     assert system.sound_file("nonsense") is None
+
+
+def test_a_download_without_a_title_is_never_read_out_as_a_whole_address():
+    j = Job(url="https://www.vimeo.com/76979871/", dest="/tmp")
+    assert words.job_name(j) == "a vimeo.com link"
+    assert words.row_text(j).endswith(": vimeo.com/76979871")
+    assert words.job_name(Job(url="https://example.org/music/My%20Song.mp3", dest="/tmp")) == "My Song.mp3"
+    j.title = "Real title"
+    assert words.job_name(j) == "Real title" and words.row_text(j).endswith("Real title")
+
+
+def test_extra_options_keep_windows_paths_and_refuse_an_open_quote(monkeypatch):
+    assert options.split_extra('--embed-metadata -o "%(title)s.%(ext)s"') == [
+        "--embed-metadata", "-o", "%(title)s.%(ext)s"]
+    monkeypatch.setattr(options.sys, "platform", "win32")
+    assert options.split_extra(r'--ffmpeg-location C:\tools "--paths" "D:\My Music"') == [
+        "--ffmpeg-location", r"C:\tools", "--paths", r"D:\My Music"]
+    monkeypatch.setattr(options.sys, "platform", "darwin")
+    with pytest.raises(ValueError):
+        options.split_extra('--title "unclosed')
+
+
+def test_playlist_folders_are_found_where_they_are_really_made(monkeypatch):
+    j = Job(url="https://x.com/a", dest="/tmp", subfolder="Live: 1977")
+    assert j.folder() == os.path.join("/tmp", options.safe_folder("Live: 1977"))
+    assert not options.safe_folder("x" * 119 + " .").endswith((" ", "."))
+    monkeypatch.setattr(options.sys, "platform", "win32")
+    assert options.safe_folder("CON") == "CON_" and options.safe_folder("Concert") == "Concert"
+    short = options.name_budget({"dest": "C:\\Users\\a\\Downloads", "tmp": "job-1"})
+    deep = options.name_budget({"dest": "D:\\" + "x" * 150, "tmp": "job-1"})
+    assert 60 <= deep < short <= 150

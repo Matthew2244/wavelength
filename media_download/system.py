@@ -8,6 +8,30 @@ import sys
 
 
 
+def windows_name(ctrl, label: str) -> None:
+    """Give a control a spoken name on Windows, for the few with no label straight before them
+    (a progress bar, say). Only the control's own name is replaced; its items, value and role
+    still come from Windows, which is what wx does for anything answered 'not implemented'."""
+    if sys.platform != "win32":
+        return
+    try:
+        import wx
+        if not hasattr(wx, "Accessible"):
+            return
+
+        class _Named(wx.Accessible):
+            def GetName(self, child_id):
+                if child_id == 0:
+                    return (wx.ACC_OK, label)
+                return (wx.ACC_NOT_IMPLEMENTED, "")
+
+        acc = _Named(ctrl)
+        ctrl.SetAccessible(acc)
+        ctrl._windows_name = acc  # keep the Python object alive with the control
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def mac_accessibility_label(ctrl, label: str) -> None:
     """Give a control a spoken name on macOS, where wx has no API for it.
 

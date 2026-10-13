@@ -81,7 +81,10 @@ class Job:
             self.tmp = "job-%d-%d" % (int(self.added * 1000), self.id)
 
     def folder(self) -> str:
-        return os.path.join(self.dest, self.subfolder) if self.subfolder else self.dest
+        if not self.subfolder:
+            return self.dest
+        from .options import safe_folder  # the name it's really saved under, not the raw title
+        return os.path.join(self.dest, safe_folder(self.subfolder))
 
     def format_words(self) -> str:
         if self.task == "describe":

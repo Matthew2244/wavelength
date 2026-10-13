@@ -420,7 +420,14 @@ class PlayerFrame(wx.Frame):
         self.say(reason)
         self._update_buttons()
         if self.cfg.get("app_play_next", True) and self.index + 1 < len(self.queue):
-            wx.CallLater(2500, self.go, +1)
+            failed_at = self.index
+
+            def onward():
+                # Only if nothing changed in the 2.5 s: closing the player, or picking another
+                # item, must not have it start something by itself.
+                if self and self.IsShown() and self.index == failed_at and not self.loaded:
+                    self.go(+1)
+            wx.CallLater(2500, onward)
 
     # ------------------------------------------------------------------ playing
 
@@ -652,6 +659,19 @@ class PlayerFrame(wx.Frame):
             return
         self.say("%s of %s. %s left." % (words.duration(now) or "0 seconds", words.duration(self.length),
                                           words.duration(max(0, self.length - now)).capitalize()))
+
+
+    def settings_changed(self) -> None:
+        """Settings was saved while the player exists (it is never destroyed, only hidden):
+        take the new captions, description mode and voice now, not at the next launch."""
+        self.captions_on = bool(self.cfg.get("app_captions", True))
+        if not self.captions_on and hasattr(self, "caption"):
+            self.caption.SetLabel("")
+        mode = self.cfg.get("app_ad_mode", "pause")
+        if mode != self.ad_mode:
+            self._end_ad(resume=True)  # a description mid-read must not leave the video paused or quiet
+            self.ad_mode = mode
+        self.reader.voice = self.cfg.get("app_ad_voice", "system")
 
     def toggle_captions(self):
         self.captions_on = not self.captions_on

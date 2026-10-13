@@ -25,7 +25,7 @@ from . import APP_NAME, __version__, dialogs, engine, geometry, sparkle, update,
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
-                     reveal, taskbar_progress)
+                     windows_name, reveal, taskbar_progress)
 
 def M(label: str) -> str:
     """A label with its Alt-key letter on Windows. On the Mac a button's "&D" also answers
@@ -92,6 +92,7 @@ class MainFrame(wx.Frame):
         self.finished_buffer: list[Job] = []
         self.last_spoken_progress = 0.0
         self.last_tally = 0.0
+        self.next_sound_at = 0.0
         self.last_clip = ""
         self.pending_playlists: list = []
         self.asking = False
@@ -171,10 +172,10 @@ class MainFrame(wx.Frame):
         s.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # the list
+        # Created filter first, then "Downloads:" straight before the list, though the label sits
+        # left of the filter on screen. On Windows a label names, and its Alt key focuses, the next
+        # control *created*: made in screen order, the list was nameless and Alt-W went to Filter.
         row = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(p, label=M("Do&wnloads:"))
-        self._texts.append(lab)
-        row.Add(lab, 1, wx.ALIGN_CENTER_VERTICAL)
         flab = wx.StaticText(p, label=M("F&ilter:"))
         self._texts.append(flab)
         self.filter = wx.SearchCtrl(p, size=(260, -1))
@@ -183,11 +184,15 @@ class MainFrame(wx.Frame):
         self.filter.SetToolTip("Type part of a title, a site or a status, like Failed or Downloading, to show "
                                "only those rows. Escape or the clear button shows everything again.")
         mac_accessibility_label(self.filter, "Filter the downloads list")
+        lab = wx.StaticText(p, label=M("Do&wnloads:"))
+        self._texts.append(lab)
+        row.Add(lab, 1, wx.ALIGN_CENTER_VERTICAL)
         row.Add(flab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         row.Add(self.filter, 0, wx.ALIGN_CENTER_VERTICAL)
         s.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.list = wx.ListBox(p, style=wx.LB_SINGLE)
         mac_accessibility_label(self.list, "Downloads")
+        windows_name(self.list, "Downloads")
         self.list.SetToolTip("Select a download to read about it below. Return opens the file; "
                              "Delete removes the row (never the file).")
         s.Add(self.list, 3, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -219,6 +224,7 @@ class MainFrame(wx.Frame):
         self.gauge = wx.Gauge(p, range=1000)
         self.gauge.SetToolTip("Overall progress of everything downloading now.")
         mac_accessibility_label(self.gauge, "Overall progress")
+        windows_name(self.gauge, "Overall progress")
         s.Add(self.gauge, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         p.SetSizer(s)
         self.CreateStatusBar()
@@ -433,7 +439,7 @@ class MainFrame(wx.Frame):
             if first.id in self.rows:
                 self.list.SetSelection(self.rows.index(first.id))
                 self.show_details()
-            self.tell("Already in the list: %s." % (first.title or first.url) if len(dupes) == 1
+            self.tell("Already in the list: %s." % words.job_name(first) if len(dupes) == 1
                       else "All %d are already in the list." % len(dupes))
             return 0
         urls = added
@@ -443,13 +449,13 @@ class MainFrame(wx.Frame):
         self.structure_changed = True
         self.refresh()
         if len(urls) == 1:
-            self.tell("Added%s: %s. Looking it up." % (" from the " + source if source else "",
-                                                      words.site_name(urls[0]) or urls[0]))
+            text = "Added%s: %s. Looking it up." % (" from the " + source if source else "",
+                                                    words.site_name(urls[0]) or words.short_link(urls[0]))
         else:
-            self.tell("Added %s%s." % (words.n(len(urls), "link"), " from the " + source if source else ""))
-        if dupes:
-            self.tell("Added %s. %d %s already in the list." % (words.n(len(urls), "link"), len(dupes),
-                                                                "was" if len(dupes) == 1 else "were"))
+            text = "Added %s%s." % (words.n(len(urls), "link"), " from the " + source if source else "")
+        if dupes:  # one sentence, not two in a row cutting each other off
+            text += " %d %s already in the list." % (len(dupes), "was" if len(dupes) == 1 else "were")
+        self.tell(text)
         return len(urls)
 
     def add_from_text(self, text: str, source: str = ""):
@@ -549,20 +555,34 @@ class MainFrame(wx.Frame):
         self.cfg["app_search_site"] = dlg.site_key()
         engine.save_settings(self.cfg)
         dlg.Destroy()
-        if chosen:
+        if chosen and self.folder_ready():  # the same checks as a pasted link gets
             if query is not None or not words.links_in(self.link.GetValue()):
                 self.link.SetValue("")
+            with self.mgr.lock:
+                pending = {(j.url, j.kind, j.start, j.end, j.format_id) for j in self.mgr.jobs
+                           if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
+            fresh = []
             for e in chosen:
                 job = self._job_from_ui(e["url"])
+                key = (job.url, job.kind, job.start, job.end, job.format_id)
+                if key in pending:
+                    continue
+                pending.add(key)
                 job.title = e.get("title") or ""
                 job.length = e.get("duration") or 0
                 job.uploader = e.get("uploader") or ""
                 self.mgr.add(job)
+                fresh.append(e)
+            already = len(chosen) - len(fresh)
+            chosen = fresh
             self.next_opts = {}
             self._show_opts()
             self.structure_changed = True
             self.refresh()
-            self.tell("Added %s from the search." % words.n(len(chosen), "download"))
+            self.tell(("Added %s from the search." % words.n(len(chosen), "download") if chosen else
+                       "Nothing new added from the search.") +
+                      (" %d %s already in the list." % (already, "was" if already == 1 else "were")
+                       if already else ""))
 
     # -------------------------------------------------------- choices
 
@@ -645,6 +665,8 @@ class MainFrame(wx.Frame):
         dlg = dialogs.Settings(self, self.cfg)
         if dlg.ShowModal() == wx.ID_OK:
             engine.save_settings(self.cfg)
+            if self.player is not None:
+                self.player.settings_changed()
             self.tell("Settings saved. Up to %d downloads at once." % self.mgr.parallel())
             self.mgr.pump()
         dlg.Destroy()
@@ -716,14 +738,17 @@ class MainFrame(wx.Frame):
         failed = [j for j in jobs if j.state == "failed"]
         big = self.mgr.batch_total > 3
         # When the whole batch is over, "All downloads finished" says it; don't say it twice.
-        summary_coming = not self.mgr.busy() and self.mgr.batch_total > 1
+        # Counted from what actually finished, not what was added: a stopped or removed download
+        # leaves batch_total high, and the one that did finish must still be named.
+        c = self.mgr.batch_counts
+        summary_coming = not self.mgr.busy() and c["done"] + c["failed"] > 1
         bits = []
         if summary_coming:
             done = []
         if done and not big:
             if len(done) == 1:
                 j = done[0]
-                bits.append(("Already here: %s." if j.state == "skipped" else "Done: %s.") % (j.title or j.url))
+                bits.append(("Already here: %s." if j.state == "skipped" else "Done: %s.") % words.job_name(j))
                 if j.note:
                     bits.append(j.note)
             else:
@@ -733,18 +758,31 @@ class MainFrame(wx.Frame):
             c = self.mgr.batch_counts
             bits.append("%d of %d done." % (c["done"], self.mgr.batch_total))
         if len(failed) == 1:
-            bits.append("Failed: %s. %s" % (failed[0].title or failed[0].url, failed[0].reason))
+            bits.append("Failed: %s. %s" % (words.job_name(failed[0]), failed[0].reason))
         elif failed and not summary_coming:
             bits.append("%s failed." % words.n(len(failed), "download"))
         if bits:
             self.tell(self._with_milestone(" ".join(bits)))
-        if failed and self.cfg.get("app_sounds", True) and self.mgr.busy():
-            play("failed")
+        if failed and self.mgr.busy():
+            self._sound("failed")
+
+    def _sound(self, kind: str) -> None:
+        """Play one of the app's sounds, never on top of the last: each lasts about a second, and
+        a failure straight followed by the end of the batch was two sounds at once, neither clear."""
+        if not self.cfg.get("app_sounds", True):
+            return
+        now = time.time()
+        wait = self.next_sound_at - now
+        self.next_sound_at = max(now, self.next_sound_at) + 1.4
+        if wait > 0:
+            wx.CallLater(int(wait * 1000), play, kind)
+        else:
+            play(kind)
 
     def _all_done(self, data):
         done, failed, took = data.get("done", 0), data.get("failed", 0), data.get("took", 0)
-        if self.cfg.get("app_sounds", True) and (done or failed):
-            play("failed" if failed and not done else "done")
+        if done or failed:
+            self._sound("failed" if failed and not done else "done")
         if took > 5:
             self.RequestUserAttention()
         if done + failed > 1:
@@ -814,10 +852,15 @@ class MainFrame(wx.Frame):
             import urllib.parse as up
             q = up.parse_qs(up.urlparse(url).query)
             single = "https://www.youtube.com/watch?v=%s" % q["v"][0] if "v" in q else entries[0]["url"]
-            job.url = single
-            job.state = "looking"
-            job.probed = False
-            self.mgr.retry(job)
+            # Not retry(): "looking" counts as active there, so it would return and leave the row
+            # stuck on "Looking up". The job is already counted in this batch; just start the lookup.
+            with self.mgr.lock:
+                job.url = single
+                job.site = words.site_name(single)
+                job.state = "looking"
+                job.probed = False
+                self.mgr.dirty = True
+            self.mgr.pump()
         else:
             self.mgr.remove(job)
             self.tell("Playlist not added.")
@@ -920,6 +963,12 @@ class MainFrame(wx.Frame):
         self.stop_btn.Enable(bool(job and (job.state in ACTIVE or job.state == "waiting")))
         self.retry_btn.Enable(bool(job and job.state in ("failed", "stopped")))
         self.remove_btn.Enable(bool(job))
+        # Stop, Retry and Remove each dim themselves when pressed. Focus left on a dimmed button
+        # goes nowhere, so hand it to the list, which then reads the row it landed on.
+        f = wx.Window.FindFocus()
+        if f in (self.play_btn, self.open_btn, self.show_btn, self.stop_btn, self.retry_btn,
+                 self.remove_btn) and not f.IsEnabled():
+            self.list.SetFocus()
 
     def _update_title(self):
         with self.mgr.lock:
@@ -1111,7 +1160,20 @@ class MainFrame(wx.Frame):
         dlg.ShowModal()
         dlg.Destroy()
 
+    def _typing(self):
+        """The text field with focus, if any. Four list commands borrow keys that mean editing
+        inside a field (Command-Delete, Command-Down, Command-Shift-Up/Down), and menu shortcuts
+        are seen before the field gets them, on both systems. So each of those commands checks
+        here first and does the editing instead: typing in the Link field must never remove a
+        download."""
+        w = wx.Window.FindFocus()
+        return w if isinstance(w, (wx.TextCtrl, wx.SearchCtrl)) else None
+
     def on_open(self, _):
+        t = self._typing()
+        if t:
+            t.SetInsertionPointEnd()
+            return
         job = self.selected()
         files = [f for f in (job.files if job else []) if os.path.exists(f)]
         if not files:
@@ -1134,7 +1196,7 @@ class MainFrame(wx.Frame):
         job = self.selected()
         if job and (job.state in ACTIVE or job.state == "waiting"):
             self.mgr.stop(job)
-            self.tell("Stopped: %s. Retry carries on from where it stopped." % (job.title or job.url))
+            self.tell("Stopped: %s. Retry carries on from where it stopped." % words.job_name(job))
 
     def on_stop_all(self, _):
         k = self.mgr.stop_all()
@@ -1144,7 +1206,7 @@ class MainFrame(wx.Frame):
         job = self.selected()
         if job and job.state in ("failed", "stopped"):
             self.mgr.retry(job)
-            self.tell("Trying again: %s." % (job.title or job.url))
+            self.tell("Trying again: %s." % words.job_name(job))
 
     def on_retry_signin(self, _):
         """For members-only, age-checked or "not a bot" failures: borrow a browser's sign-in."""
@@ -1171,7 +1233,7 @@ class MainFrame(wx.Frame):
         job.cookies = choice
         job.engine_retry = False
         self.mgr.retry(job)
-        self.tell("Trying again with %s's sign-in: %s." % (choice.capitalize(), job.title or job.url))
+        self.tell("Trying again with %s's sign-in: %s." % (choice.capitalize(), words.job_name(job)))
 
     def on_retry_failed(self, _):
         with self.mgr.lock:
@@ -1185,6 +1247,25 @@ class MainFrame(wx.Frame):
         self.tell("Resuming %s." % words.n(k, "download") if k else "Nothing is waiting to be resumed.")
 
     def on_remove(self, _):
+        t = self._typing()
+        if t:
+            if not t.IsEditable():
+                return
+            a, b = t.GetSelection()
+            if a == b:
+                text, pos = t.GetValue(), t.GetInsertionPoint()
+                if sys.platform == "darwin":
+                    a = text.rfind("\n", 0, pos) + 1        # Command-Delete: back to the line start
+                else:
+                    a = pos                                 # Ctrl-Backspace: back one word
+                    while a > 0 and text[a - 1].isspace():
+                        a -= 1
+                    while a > 0 and not text[a - 1].isspace():
+                        a -= 1
+                b = pos
+            if a != b:
+                t.Remove(a, b)
+            return
         job = self.selected()
         if not job:
             return
@@ -1195,7 +1276,7 @@ class MainFrame(wx.Frame):
         if self.rows:
             self.list.SetSelection(min(i, len(self.rows) - 1))
             self.show_details()
-        self.tell("Removed from the list: %s." % (job.title or job.url))
+        self.tell("Removed from the list: %s." % words.job_name(job))
 
     def on_clear(self, _):
         k = self.mgr.clear_finished()
@@ -1204,6 +1285,15 @@ class MainFrame(wx.Frame):
         self.tell("Cleared %s." % words.n(k, "finished download") if k else "Nothing finished to clear.")
 
     def on_move(self, delta):
+        t = self._typing()
+        if t:
+            # Shift-Command-Up/Down: select to the start or end of the text.
+            pos = t.GetInsertionPoint()
+            if delta < 0:
+                t.SetSelection(0, pos)
+            else:
+                t.SetSelection(pos, t.GetLastPosition())
+            return
         job = self.selected()
         if not job:
             return

@@ -163,6 +163,8 @@ class MoreOptions(wx.Dialog):
         threading.Thread(target=work, daemon=True).start()
 
     def _picked(self, res):
+        if not self:  # closed while the lookup was still going
+            return
         self.pick.Enable()
         if not res or not res.get("formats"):
             self.stream_text.SetLabel("Couldn't list the streams for that link. %s" % (res or {}).get("error", ""))
@@ -202,6 +204,14 @@ class MoreOptions(wx.Dialog):
         if a is not None and b is not None and b <= a:
             wx.MessageBox("Stop at must come after Start at.", "Check the times", wx.OK | wx.ICON_WARNING, self)
             self.end.SetFocus()
+            return
+        try:
+            from .options import split_extra
+            split_extra(self.extra.GetValue())
+        except ValueError:
+            wx.MessageBox("The extra yt-dlp options have a quote mark that's never closed.",
+                          "Check the extra options", wx.OK | wx.ICON_WARNING, self)
+            self.extra.SetFocus()
             return
         self.opts.update({
             "start": self.start.GetValue().strip(), "end": self.end.GetValue().strip(),

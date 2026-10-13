@@ -41,10 +41,33 @@ def selector(spec: dict) -> list[str]:
     return ["-f", "bestaudio/best"]
 
 
+_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {"COM%d" % i for i in range(1, 10)} | {"LPT%d" % i for i in range(1, 10)}
+
+
 def _safe_folder(name: str) -> str:
     bad = '<>:"/\\|?*' if sys.platform == "win32" else "/:"
-    cleaned = "".join("_" if c in bad or ord(c) < 32 else c for c in name).strip().strip(".")
-    return cleaned[:120] or "Playlist"
+    cleaned = "".join("_" if c in bad or ord(c) < 32 else c for c in name)
+    # Trimmed after cutting too: a cut can leave a trailing space or dot, which Windows drops
+    # silently, so the folder made and the folder looked for would differ.
+    cleaned = cleaned[:120].strip().strip(".").strip()
+    if sys.platform == "win32" and cleaned.split(".")[0].upper() in _RESERVED:
+        cleaned += "_"  # "CON" or "nul.txt" can't be a name on Windows at all
+    return cleaned or "Playlist"
+
+
+def safe_folder(name: str) -> str:
+    """The folder name a playlist really gets, for anything that needs to find it."""
+    return _safe_folder(name)
+
+
+def name_budget(spec: dict) -> int:
+    """How long the name under the download folder may be. Windows still stops most programs,
+    ffmpeg included, at 260 characters for a whole path, and the temporary copy lives deeper
+    than the finished one, with a fragment suffix on top."""
+    if sys.platform != "win32":
+        return 180
+    deepest = max(len(spec.get("dest", "")), len(temp_dir(spec)))
+    return max(60, min(150, 260 - deepest - 40))
 
 
 def temp_dir(spec: dict) -> str:
@@ -82,7 +105,7 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
     # Each download gets its own temporary folder. A shared one let two downloads of the same
     # video (as MP3 and as FLAC, say) overwrite each other's partial files (found in training).
     args = ["-P", "home:" + spec["dest"], "-P", "temp:" + temp_dir(spec),
-            "--trim-filenames", "150" if sys.platform == "win32" else "180",
+            "--trim-filenames", str(name_budget(spec)),
             "-o", output_template(spec),
             "--no-playlist", "--no-mtime",  # the file's date is the day you got it, so it sorts to the top
             "--retries", "10", "--fragment-retries", "10"]
@@ -128,8 +151,18 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
     if spec.get("rate_limit"):
         args += ["--limit-rate", spec["rate_limit"]]
     if spec.get("extra"):
-        args += shlex.split(spec["extra"])
+        args += split_extra(spec["extra"])
     return args
+
+
+def split_extra(text: str) -> list[str]:
+    """The raw yt-dlp options typed under More Options, split the way the person's own system
+    would. On Windows a backslash is a path separator, not an escape: POSIX splitting turned
+    C:\\tools into C:tools. Raises ValueError for an unclosed quote."""
+    if sys.platform == "win32":
+        parts = shlex.split(text, posix=False)
+        return [p[1:-1] if len(p) >= 2 and p[0] == p[-1] and p[0] in "\"'" else p for p in parts]
+    return shlex.split(text)
 
 
 def probe_args(spec: dict) -> list[str]:

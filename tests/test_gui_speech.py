@@ -24,8 +24,11 @@ def frame(tmp_path_factory):
     app.Destroy()
 
 
-def finish(frame, monkeypatch, jobs, busy, batch_total):
+def finish(frame, monkeypatch, jobs, busy, batch_total, counts=None):
     said = []
+    frame.mgr.batch_counts = counts or {
+        "done": sum(j.state in ("done", "skipped") for j in jobs),
+        "failed": sum(j.state == "failed" for j in jobs)}
     monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
     monkeypatch.setattr(gui, "play", lambda k: None)
     monkeypatch.setattr(frame.mgr, "busy", lambda: busy)
@@ -64,7 +67,32 @@ def test_failure_always_named(frame, monkeypatch):
 
 
 def test_end_of_batch_left_to_the_summary(frame, monkeypatch):
-    assert finish(frame, monkeypatch, [job("done", "A")], busy=False, batch_total=3) == []
+    assert finish(frame, monkeypatch, [job("done", "A")], busy=False, batch_total=3,
+                  counts={"done": 3, "failed": 0}) == []
+
+
+def test_the_one_that_finished_is_named_when_the_other_was_stopped(frame, monkeypatch):
+    # Two added, one stopped: no "All downloads finished" comes, so the finish must be said here.
+    assert finish(frame, monkeypatch, [job("done", "Song")], busy=False, batch_total=2) == ["Done: Song."]
+
+
+def test_editing_keys_in_the_link_field_never_touch_the_list(frame, monkeypatch):
+    removed = []
+    monkeypatch.setattr(frame.mgr, "remove", lambda j: removed.append(j))
+    monkeypatch.setattr(frame, "selected", lambda: job("done", "Keep me"))
+    t = frame.link
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: t))
+    t.SetValue("https://example.com/one two")
+    t.SetInsertionPointEnd()
+    frame.on_remove(None)
+    assert removed == []
+    assert t.GetValue() == ("" if sys.platform == "darwin" else "https://example.com/one ")
+    t.SetValue("abc def")
+    t.SetInsertionPoint(3)
+    frame.on_move(+1)
+    assert t.GetSelection() == (3, 7)
+    frame.on_open(None)
+    assert t.GetInsertionPoint() == 7
 
 
 def test_describe_window_offers_people_first(frame, monkeypatch):
@@ -157,3 +185,14 @@ def test_welcome_uses_the_first_name(frame, monkeypatch):
     assert frame.welcome().startswith("Welcome to Media Download, Matthew.")
     monkeypatch.setattr(gui.words, "first_name", lambda: "")
     assert frame.welcome().startswith("Welcome to Media Download.")
+
+
+def test_sounds_never_play_on_top_of_each_other(frame, monkeypatch):
+    played, later = [], []
+    monkeypatch.setattr(gui, "play", lambda k: played.append(k))
+    monkeypatch.setattr(gui.wx, "CallLater", lambda ms, fn, *a: later.append((ms, fn, a)))
+    frame.next_sound_at = 0.0
+    frame._sound("failed")
+    frame._sound("done")
+    assert played == ["failed"]
+    assert len(later) == 1 and 1000 <= later[0][0] <= 1400 and later[0][2] == ("done",)

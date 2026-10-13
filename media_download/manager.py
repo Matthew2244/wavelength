@@ -142,6 +142,9 @@ class Manager:
             shutil.rmtree(d, ignore_errors=True)
 
     def remove(self, job: Job) -> None:
+        with self.lock:
+            if job.state == "waiting_choice" and self.batch_started is not None:
+                self.batch_total = max(0, self.batch_total - 1)
         self.stop(job, quiet=True)
         self._drop_temp(job)
         with self.lock:
@@ -177,6 +180,9 @@ class Manager:
             entry = self.procs.pop(job.id, None)
             proc = entry[1] if entry else None
             if job.state in ACTIVE or job.state == "waiting":
+                # No longer part of what this batch will finish; keeps "3 of 5 done" honest.
+                if self.batch_started is not None:
+                    self.batch_total = max(0, self.batch_total - 1)
                 job.state = "stopped"
                 job.stage = ""
                 job.reason = "Stopped by you."

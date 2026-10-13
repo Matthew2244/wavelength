@@ -234,12 +234,50 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 18. **On the Mac a window reads in the order its controls were created.** A
    field made before its label is heard before the label, and moving it in the
    tab order doesn't change that. `labelled()` takes the label made first.
-19. From the classic app, still true for the command: a GUI-launched process gets
+19. **Menu shortcuts beat a focused text field on both systems.** Command-Delete
+   (Ctrl-Backspace), Command-Down and Command-Shift-Up/Down are list commands,
+   and they used to fire while typing in the Link field: Command-Delete there
+   removed the selected download. `_typing()` makes those four do the editing
+   instead when a field has focus. Any new shortcut that a text field also
+   uses needs the same check.
+20. **On Windows a label names, and its Alt key focuses, the next control
+   *created*.** The list was made right after the Filter box, so it had no name
+   and Alt-W went to Filter. Controls are created label-then-control even
+   where the layout puts them elsewhere; `system.windows_name` names anything
+   with no label before it (the progress bar).
+21. **The app's sounds are files**, `assets/sounds/done.*` and `fail.*`: a Rhodes
+   electric piano pair, rising for done and falling for failed, chosen by
+   Matthew by ear on 2026-10-13 from four families (masters, candidates and
+   the audition in iCloud, `Media Download Sounds`). MP3 on the Mac (afplay),
+   WAV on Windows (winsound). Each is 10 ms of silence, a 3 ms fade-in, a
+   150 ms fade-out and a 40 ms tail, leveled to -1.5 dBFS: the raw files
+   started at full level and ended still sounding, which clicks. `_sound()`
+   spaces them 1.4 s apart so a failure and the end of a batch don't play on
+   top of each other. If the files are missing, the system's Glass and Basso
+   play instead.
+22. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.4.4** (2026-10-13): an independent read of the whole app for Windows and
+  Mac faults found 14, all fixed with tests where wx allows: a "Just That One"
+  playlist answer left stuck on "Looking up"; a finish never announced when
+  another download in the batch was stopped; list shortcuts firing while
+  typing; the list nameless on Windows; console windows flashing while a
+  description is made; Windows paths in extra options losing their
+  backslashes; player settings ignored until restart; paths too long for
+  Windows; Details pointing at a playlist folder that didn't exist; focus left
+  on a dimmed button; two announcements for one action; a closed More Options
+  dialog crashing on a late answer; a closed player starting the next item by
+  itself; Search adding duplicates and skipping the folder check. Downloads
+  with no title yet are said by name ("a vimeo.com link"), never as a whole
+  web address. `tools/train.py` 23 of 23 afterwards, and the real window
+  driven with a good and a failing link.
+- **2.4.3** sounds: each file's first and last samples are silent, there are no
+  jumps in the first or last 10 ms, and the sound starts at 10 ms. Checked on
+  the decoded MP3s as well as the WAVs.
 - **2.4.0** (2026-10-13): audio description made end to end off-screen (Me at
   the zoo: described at 0.1 s and 12 s with the video paused for each, then it
   carried on); the sliders take focus with VoiceOver ("Position, 36 seconds of
@@ -319,7 +357,5 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   unit-tested with a fake Prism and the Windows self-test checks Prism loads
   with a UIA backend, but no reader has heard it yet. NVDA is the first to try.
 - The Windows build is unsigned, so SmartScreen warns once.
-- `ytdescribe` is still command-line only. A "Describe this video" item in the
-  app would bring it to everyone.
 - `.opus` still has no default app on Matthew's Mac, and "best" is often Opus.
   One Get Info, Open With, Change All on any `.opus` file settles it.
