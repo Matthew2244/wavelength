@@ -324,16 +324,34 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
+def sound_file(kind: str) -> str | None:
+    """The app's own sound for 'done' or 'failed', inside the app or beside the source."""
+    name = {"done": "done", "failed": "fail"}.get(kind)
+    if not name:
+        return None
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(base, "assets", "sounds", name + (".wav" if sys.platform == "win32" else ".mp3"))
+    return path if os.path.exists(path) else None
+
+
 def play(kind: str) -> None:
-    """'done' or 'failed'. System sounds, so nothing to ship and nothing to learn."""
+    """'done' (rising) or 'failed' (falling): the app's own sounds, chosen by ear, falling back to
+    the system's Glass and Basso if a file is ever missing. A missing sound must never matter."""
     try:
+        own = sound_file(kind)
         if sys.platform == "darwin":
-            name = {"done": "Glass", "failed": "Basso"}.get(kind, "Pop")
-            subprocess.Popen(["afplay", "/System/Library/Sounds/%s.aiff" % name])
+            if own:
+                subprocess.Popen(["afplay", own])
+            else:
+                name = {"done": "Glass", "failed": "Basso"}.get(kind, "Pop")
+                subprocess.Popen(["afplay", "/System/Library/Sounds/%s.aiff" % name])
         elif sys.platform == "win32":
             import winsound
-            winsound.MessageBeep(winsound.MB_OK if kind == "done" else winsound.MB_ICONHAND)
-    except Exception:  # noqa: BLE001 - a missing sound must never matter
+            if own:
+                winsound.PlaySound(own, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            else:
+                winsound.MessageBeep(winsound.MB_OK if kind == "done" else winsound.MB_ICONHAND)
+    except Exception:  # noqa: BLE001
         pass
 
 

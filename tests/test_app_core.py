@@ -428,3 +428,11 @@ def test_too_big_for_the_disk_fails_before_starting(fake, monkeypatch):
     j.bytes_total = 1_000
     with m.lock:
         assert not m._no_room(j)
+
+
+def test_own_sounds_ship_and_unknown_kinds_have_none():
+    from media_download import system
+    for kind in ("done", "failed"):
+        path = system.sound_file(kind)
+        assert path and os.path.getsize(path) > 10_000
+    assert system.sound_file("nonsense") is None

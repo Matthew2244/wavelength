@@ -21,6 +21,8 @@ args = [
     "--collect-data", "certifi", "--collect-all", "yt_dlp_ejs",
     # curl_cffi lets the engine look like a real browser to sites that turn others away.
     "--collect-all", "curl_cffi",
+    # The app's own finish and fail sounds (system.sound_file).
+    "--add-data", os.path.join("assets", "sounds") + os.pathsep + os.path.join("assets", "sounds"),
     "--hidden-import", "media_download.gui", "--hidden-import", "media_download.worker",
     "--hidden-import", "media_download.selftest",
 ]
