@@ -21,7 +21,7 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, dialogs, engine, geometry, sparkle, update, winsparkle, words
+from . import APP_NAME, __version__, describe, dialogs, engine, geometry, sparkle, update, winsparkle, words
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
@@ -572,7 +572,7 @@ class MainFrame(wx.Frame):
         def on(ev):
             if ev.get("ev") == "results":
                 res.extend(ev.get("results") or [])
-        run_task({"task": "search", "query": query, "site": site, "start": start, "count": count}, on, timeout=120)
+        run_task({"task": "search", "query": query, "site": site, "start": start, "count": count}, on, timeout=600)
         return res
 
     def on_search(self, _, query=None):
@@ -594,7 +594,7 @@ class MainFrame(wx.Frame):
         self.search_win.Raise()
 
     def _search_done(self, dlg, chosen, opened_with):
-        """Search closed: by Download Ticked (chosen) or Close, Escape, Command-W (empty)."""
+        """Search closed: by Download Checked (chosen) or Close, Escape, Command-W (empty)."""
         self.search_win = None
         self.cfg["app_search_site"] = dlg.site_key()
         engine.save_settings(self.cfg)
@@ -884,12 +884,12 @@ class MainFrame(wx.Frame):
             self.mgr.expand(job, entries, title)
             self.tell("Added all %s from %s." % (words.n(len(entries), "item"), title))
         elif ans == PQ.CHOOSE:
-            many = len(entries) > 50  # a podcast's 400 episodes: start empty, tick the few you want
-            tl = dialogs.TickList(
+            many = len(entries) > 50  # a podcast's 400 episodes: start empty, check the few you want
+            tl = dialogs.CheckList(
                 self, "Choose Items",
-                ("%s: %s, newest usually first. Nothing is ticked yet: tick the ones you want with Space."
-                 if many else "%s: %s. Everything starts ticked; untick what you don't want, or Untick All "
-                 "and tick the few you do.") % (title, words.n(len(entries), "item")), entries, ticked=not many)
+                ("%s: %s, newest usually first. Nothing is checked yet: check the ones you want with Space."
+                 if many else "%s: %s. Everything starts checked; uncheck what you don't want, or Uncheck All "
+                 "and check the few you do.") % (title, words.n(len(entries), "item")), entries, checked=not many)
             if tl.ShowModal() == wx.ID_OK and tl.chosen():
                 picked = tl.chosen()
                 self.mgr.expand(job, picked, title)
@@ -1181,7 +1181,19 @@ class MainFrame(wx.Frame):
                     res["about"] = ev
                 elif ev.get("ev") == "candidates":
                     res["candidates"] = ev.get("items") or []
-            run_task({"task": "find_description", "url": u, "title": title}, on, timeout=240)
+                    res["searched"] = ev.get("searched") or 0
+            run_task({"task": "find_description", "url": u, "title": title}, on, timeout=600)
+            return res
+
+        def run_more(t, start):
+            res = {}
+
+            def on(ev):
+                if ev.get("ev") == "candidates":
+                    res["candidates"] = ev.get("items") or []
+                    res["searched"] = ev.get("searched") or 0
+            run_task({"task": "find_versions", "title": t, "start": start, "count": describe.VERSIONS_PAGE},
+                     on, timeout=600)
             return res
 
         def make():
@@ -1214,7 +1226,7 @@ class MainFrame(wx.Frame):
                    "version_play": lambda e: wx.CallAfter(self.play_links, [e]),
                    "version_download": lambda e: self.add_links([e["url"]])}
         dlg = dialogs.DescribeDialog(self.player if self.player and self.player.IsActive() else self, url, title,
-                                     run_find, actions)
+                                     run_find, actions, run_more=run_more)
         dlg.ShowModal()
         dlg.Destroy()
 

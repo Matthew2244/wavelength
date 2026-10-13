@@ -220,7 +220,7 @@ def test_search_opens_once_and_closes_for_good(frame, monkeypatch):
     assert not [w for w in wx.GetTopLevelWindows() if isinstance(w, gui.dialogs.Search)]
 
 
-def test_search_download_ticked_adds_rows(frame, monkeypatch):
+def test_search_download_checked_adds_rows(frame, monkeypatch):
     added = []
     monkeypatch.setattr(gui, "announce", lambda t: None)
     monkeypatch.setattr(frame.mgr, "add", lambda j: added.append(j))
@@ -264,7 +264,7 @@ def test_search_again_keeps_ticks(frame, monkeypatch):
     dlg._show("piano", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One"}])
     dlg.list.Check(0)
     dlg._count()
-    frame.on_search(None, query="piano")  # Command-F with the same words: keep the ticks
+    frame.on_search(None, query="piano")  # Command-F with the same words: keep the checks
     assert searched == [] and dlg.list.IsChecked(0)
     frame.on_search(None, query="organ")  # new words: search
     assert searched == ["organ"]
@@ -320,7 +320,7 @@ def test_search_never_clears_a_link_typed_since(frame, monkeypatch):
 
 
 def test_search_pages_have_no_ceiling(frame, monkeypatch):
-    """Results come a page at a time, ticks survive each new page, and only a page with nothing
+    """Results come a page at a time, checks survive each new page, and only a page with nothing
     new ends it."""
     monkeypatch.setattr(gui, "announce", lambda t: None)
     monkeypatch.setattr(gui.dialogs, "announce", lambda t: None, raising=False)
@@ -346,3 +346,32 @@ def test_search_pages_have_no_ceiling(frame, monkeypatch):
     assert "every result" in dlg.status.GetLabel()
     dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
     _drain()
+
+
+def test_look_further_for_described_versions(frame, monkeypatch):
+    """Described versions are searched a page at a time, people's versions stay above Make,
+    and Look Further stops only when the search runs out."""
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    page = gui.describe.VERSIONS_PAGE
+    pages = {page + 1: {"candidates": [{"url": "https://y.example/b", "title": "B described"}], "searched": page},
+             2 * page + 1: {"candidates": [], "searched": 0}}
+    asked = []
+
+    def run_more(title, start):
+        asked.append(start)
+        return pages[start]
+    first = {"about": {"title": "Film", "can_make": True, "has_video": True},
+             "candidates": [{"url": "https://y.example/a", "title": "A described"}], "searched": page}
+    dlg = gui.dialogs.DescribeDialog(frame, "https://y.example/film", "Film", lambda u: first, {}, run_more=run_more)
+    _drain()
+    assert [o["kind"] for o in dlg.options] == ["version", "make"] and dlg.more_btn.IsEnabled()
+    monkeypatch.setattr(gui.dialogs.threading, "Thread",
+                        lambda target, daemon: type("T", (), {"start": staticmethod(target)})())
+    dlg.look_further()
+    _drain()
+    assert [o.get("title") for o in dlg.options] == ["A described", "B described", None]
+    dlg.look_further()
+    _drain()
+    assert asked == [page + 1, 2 * page + 1] and not dlg.more_btn.IsEnabled()
+    assert "end of the search" in dlg.status.GetLabel()
+    dlg.Destroy()

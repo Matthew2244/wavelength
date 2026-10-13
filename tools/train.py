@@ -78,7 +78,7 @@ def main():
         for name, j in list(jobs.items()):
             if j.state == "waiting_choice" and j.id in playlists:
                 d = playlists.pop(j.id)
-                # A playlist: take its first item, the way a person ticking one would.
+                # A playlist: take its first item, the way a person checking one would.
                 items = m.expand(j, d["entries"][:1], d["title"])
                 jobs[name] = items[0] if items else j
                 jobs[name].from_playlist = len(d["entries"])

@@ -255,7 +255,7 @@ on mainScreen()
 		try
 			set plAnswer to button returned of (display dialog ¬
 				"That link has a whole playlist attached." & return & return & ¬
-				"Pick the ones I want lets you tick individual episodes." ¬
+				"Pick the ones I want lets you select individual episodes." ¬
 				with title appTitle ¬
 				buttons {"Just this one", "Pick the ones I want", "All of it"} ¬
 				default button "Just this one")
@@ -310,7 +310,7 @@ on mainScreen()
 	return true
 end mainScreen
 
--- Tick the episodes you want. A multi-select list is the right control here:
+-- Select the episodes you want. A multi-select list is the right control here:
 -- it is one pass, it reads item by item under VoiceOver, and it beats typing a
 -- range of numbers at something you cannot see. Returns an --items value, or
 -- "" if nothing was chosen.
@@ -345,13 +345,13 @@ on pickEpisodes(quotedURL)
 	end if
 
 	set chosenItems to choose from list shownList with prompt ¬
-		"Tick the ones you want. " & (count of shownList) & " to choose from." ¬
+		"Select the ones you want. " & (count of shownList) & " to choose from." ¬
 		with multiple selections allowed ¬
 		OK button name "Download these" cancel button name "Back"
 	if chosenItems is false then return ""
 	if (count of chosenItems) is 0 then return ""
 
-	-- Rebuild the --items value from the leading number of each ticked line.
+	-- Rebuild the --items value from the leading number of each selected line.
 	set numbers to ""
 	repeat with anItem in chosenItems
 		set t to anItem as text

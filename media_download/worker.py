@@ -439,20 +439,42 @@ def do_find_description(yt_dlp, task):
          track_words=(track.get("format_note") or "described track") if track else "",
          has_video=any((f.get("vcodec") or "none") != "none" for f in (info or {}).get("formats") or []),
          can_make=bool(describe.claude_path()))
-    found = []
-    if title:
-        try:
-            ydl = _make_ydl(yt_dlp, ["--flat-playlist"] + tool_flags(), logger)
-            with ydl:
-                res = ydl.extract_info("ytsearch10:" + describe.search_query(title), download=False)
-            for e in (res or {}).get("entries") or []:
-                if e and describe.looks_described(e.get("title") or "") and e.get("id"):
-                    found.append({"url": "https://www.youtube.com/watch?v=%s" % e["id"], "title": e.get("title"),
-                                  "duration": e.get("duration"), "uploader": e.get("uploader") or e.get("channel")})
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(str(exc))
-    emit("candidates", items=describe.rank_candidates(title, found))
+    found, searched = _described_versions(yt_dlp, title, 1, describe.VERSIONS_PAGE, logger) if title else ([], 0)
+    emit("candidates", items=found, searched=searched)
     emit("end", ok=info is not None)
+
+
+def _described_versions(yt_dlp, title, start, count, logger):
+    """Described versions of `title` among YouTube's search results `start` to `start+count-1`.
+    Returns (candidates, how many results the page held); 0 means the search has run out."""
+    from .options import tool_flags
+    from . import describe
+    found, held = [], 0
+    end = start + count - 1
+    try:
+        ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "%d-%d" % (start, end)] + tool_flags(),
+                        logger)
+        with ydl:
+            res = ydl.extract_info("ytsearch%d:%s" % (end, describe.search_query(title)), download=False)
+        for e in (res or {}).get("entries") or []:
+            if not e:
+                continue
+            held += 1
+            if describe.looks_described(e.get("title") or "") and e.get("id"):
+                found.append({"url": "https://www.youtube.com/watch?v=%s" % e["id"], "title": e.get("title"),
+                              "duration": e.get("duration"), "uploader": e.get("uploader") or e.get("channel")})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(str(exc))
+    return describe.rank_candidates(title, found), held
+
+
+def do_find_versions(yt_dlp, task):
+    """Look Further: the next page of the described-versions search. No ceiling."""
+    logger = Logger()
+    found, held = _described_versions(yt_dlp, task.get("title") or "", int(task.get("start", 1)),
+                                      int(task.get("count", 50)), logger)
+    emit("candidates", items=found, searched=held)
+    emit("end", ok=True)
 
 
 def do_describe(yt_dlp, task):
@@ -542,7 +564,7 @@ def do_recognise(yt_dlp, task):
 
 
 TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
-         "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
+         "find_versions": do_find_versions, "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
          "describe": do_describe}
 
 

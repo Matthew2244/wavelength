@@ -36,18 +36,18 @@ class AnswerChoose:
         pass
 
 
-class TickTwo(dialogs.TickList):
+class CheckTwo(dialogs.CheckList):
     def ShowModal(self):
         self._set_all(False)
         self.list.Check(1)
         self.list.Check(3)
         self._count()
-        said.append(("dialog", "Ticked items 2 and 4: " + self.count.GetLabel()))
+        said.append(("dialog", "Checked items 2 and 4: " + self.count.GetLabel()))
         return wx.ID_OK
 
 
 dialogs.PlaylistQuestion = AnswerChoose
-dialogs.TickList = TickTwo
+dialogs.CheckList = CheckTwo
 app = wx.App(False)
 f = gui.MainFrame()
 f.cfg["to"] = os.path.join(work, "out")

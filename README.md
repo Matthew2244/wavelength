@@ -25,18 +25,18 @@ On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (
 ![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
 1. Paste a link into the Link field and press Return. Paste several at once and each gets its own row.
-2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Tick the results you want.
+2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Check the results you want.
 3. Choose a format before you add the link. "Best audio, as the site sends it" never converts anything. MP3, M4A, Opus, WAV and FLAC convert. Video saves an MP4 that plays everywhere unless you ask for higher than 1080.
 
 Each row says its status first, then the title: "Downloading, 45 percent, about 2 minutes left: Green Onions". A long title gets cut off at the end of a row, so the part you need comes first. Select a row and Details below says everything known about it, including where the file went or, if it failed, why, in a plain sentence.
 
-A link to a playlist or album asks whether you want all of it, some of it (tick the ones you want), or just the one item the link pointed at. Each item gets its own row, numbered, in a folder named after the set.
+A link to a playlist or album asks whether you want all of it, some of it (check the ones you want), or just the one item the link pointed at. Each item gets its own row, numbered, in a folder named after the set.
 
 **More Options** sets things for the next download only: just a section (from 1:30 to 3:45), one file per chapter, English subtitles, a text transcript, a browser's sign-in for members-only or age-checked videos, an exact stream chosen from a list, a file name, or any raw yt-dlp option.
 
 **Transcripts.** "Also save a text transcript" turns the captions into plain paragraphs you can read, search or send to a braille display. YouTube's automatic captions repeat every line two or three times as they scroll; the transcript has each line once, with a new paragraph at each pause. If something has no captions, it says so.
 
-**Podcasts.** Paste a podcast's RSS feed, or an Apple Podcasts show link, and you get its episodes to tick. A big set starts with nothing ticked, so picking three of 400 episodes doesn't mean unticking 397.
+**Podcasts.** Paste a podcast's RSS feed, or an Apple Podcasts show link, and you get its episodes to check. A big set starts with nothing checked, so picking three of 400 episodes doesn't mean unchecking 397.
 
 **When things go wrong, it sorts itself out where it can.** A dropped connection or a server hiccup tries again by itself, after 15 seconds and then a minute. When a site says "too many requests", every download from that site waits a few minutes, the row says when it will try again, and it carries on without you, so a long playlist can finish overnight. When a site wants you signed in, select the row and choose Retry Using a Browser's Sign-in: it borrows the sign-in from the browser you choose, and remembers which. Spotify, Apple Music and Netflix use copy protection (DRM), and the app says so plainly rather than looking broken.
 
@@ -267,7 +267,7 @@ with a dash looks like a flag to the argument parser.)
 ```
 
 In the app, a playlist link offers a third choice: **Pick the ones I want**,
-which shows every episode as a tick list. Ticking beats typing a range of
+which shows every episode in a list you select from. Selecting beats typing a range of
 numbers at something you cannot see, and it reads item by item under VoiceOver.
 `--list-items` is the same thing on the command line — numbers are useless until
 you can see what they refer to.

@@ -8,7 +8,7 @@ import threading
 
 import wx
 
-from . import engine, words
+from . import describe, engine, words
 from .options import SEARCH_SITES
 from .system import mac_accessibility_label
 
@@ -385,11 +385,11 @@ def entry_words(i: int, e: dict) -> str:
     return ", ".join(bits)
 
 
-class TickList(wx.Dialog):
-    """Tick the items you want. Reads item by item; Space ticks; the count is always stated."""
+class CheckList(wx.Dialog):
+    """Check the items you want. Reads item by item; Space checks; the count is always stated."""
 
-    def __init__(self, parent, title: str, intro: str, entries: list[dict], ok_label="Download Ticked",
-                 ticked=True):
+    def __init__(self, parent, title: str, intro: str, entries: list[dict], ok_label="Download Checked",
+                 checked=True):
         super().__init__(parent, title=title, size=(720, 560), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.entries = entries
         self.ok_label = ok_label
@@ -397,15 +397,15 @@ class TickList(wx.Dialog):
         s.Add(wx.StaticText(self, label=intro), 0, wx.ALL, 8)
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
         mac_accessibility_label(self.list, "Items")
-        if ticked:
+        if checked:
             for i in range(len(entries)):
                 self.list.Check(i)
         s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
         self.count = wx.StaticText(self, label="")
         s.Add(self.count, 0, wx.ALL, 6)
         row = wx.BoxSizer(wx.HORIZONTAL)
-        b_all = wx.Button(self, label="Tick All")
-        b_none = wx.Button(self, label="Untick All")
+        b_all = wx.Button(self, label="Check All")
+        b_none = wx.Button(self, label="Uncheck All")
         row.Add(b_all, 0, wx.RIGHT, 6)
         row.Add(b_none, 0)
         s.Add(row, 0, wx.ALL, 6)
@@ -427,10 +427,10 @@ class TickList(wx.Dialog):
 
     def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
-        self.count.SetLabel("%d of %d ticked." % (k, self.list.GetCount()))
-        if speak:  # VoiceOver re-reads the row before the tick lands, so say the result
+        self.count.SetLabel("%d of %d checked." % (k, self.list.GetCount()))
+        if speak:  # VoiceOver re-reads the row before the check lands, so say the result
             from .system import announce
-            announce("%d ticked." % k)
+            announce("%d checked." % k)
         self.ok.SetLabel("%s (%d)" % (self.ok_label, k))
         self.ok.Enable(k > 0)
         self.Layout()
@@ -479,7 +479,7 @@ class PlaylistQuestion(wx.Dialog):
 
 
 class Search(wx.Frame):
-    """Search a site by words and tick what to download, without visiting the site.
+    """Search a site by words and check what to download, without visiting the site.
 
     A window of its own, with its own menu bar, not a dialog. As a modal dialog it held the
     whole app's keyboard: with the player raised over it, Quit, Close and every shortcut did
@@ -542,8 +542,8 @@ class Search(wx.Frame):
         self.more_btn.Disable()
         brow.Add(self.more_btn, 0, wx.ALL, 6)
         self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.more())
-        self.ok = wx.Button(p, wx.ID_OK, "Download Ticked")
-        self.ok.SetToolTip("Adds the ticked results to the downloads list and closes Search (%s-Return)." % CMD)
+        self.ok = wx.Button(p, wx.ID_OK, "Download Checked")
+        self.ok.SetToolTip("Adds the checked results to the downloads list and closes Search (%s-Return)." % CMD)
         brow.Add(self.ok, 0, wx.ALL, 6)
         self.ok.Disable()
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
@@ -555,7 +555,7 @@ class Search(wx.Frame):
         if not play:
             self.list.Bind(wx.EVT_LISTBOX, lambda e: self._near_end())
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate)
-        self.ok.Bind(wx.EVT_BUTTON, lambda e: self.download_ticked())
+        self.ok.Bind(wx.EVT_BUTTON, lambda e: self.download_checked())
         self.cancel.Bind(wx.EVT_BUTTON, lambda e: self._finish([]))
         self.Bind(wx.EVT_CLOSE, lambda e: self._finish([]))
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
@@ -571,7 +571,7 @@ class Search(wx.Frame):
             self.Bind(wx.EVT_MENU, lambda e: fn(), item)
         f = wx.Menu()
         add(f, "&Search\tCtrl+F", lambda: (self.query.SetFocus(), self.query.SelectAll()))
-        add(f, "&Download Ticked\tCtrl+Return", self.download_ticked)
+        add(f, "&Download Checked\tCtrl+Return", self.download_checked)
         add(f, "&More Results\tCtrl+Shift+M", self.more)
         if self.play:
             add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
@@ -605,10 +605,10 @@ class Search(wx.Frame):
         else:
             event.Skip()
 
-    def download_ticked(self):
+    def download_checked(self):
         chosen = self.chosen()
         if not chosen:
-            self.status.SetLabel("Nothing ticked yet. Tick results with Space, then Download Ticked.")
+            self.status.SetLabel("Nothing checked yet. Check results with Space, then Download Checked.")
             from .system import announce
             announce(self.status.GetLabel())
             return
@@ -616,7 +616,7 @@ class Search(wx.Frame):
 
     def show_again(self, q: str):
         """Brought forward by the main window (Command-F, or words in the Link field). A new
-        query searches; the same one keeps the results and what's ticked."""
+        query searches; the same one keeps the results and what's checked."""
         self.Raise()
         if q and q != self.last_query:
             self.query.SetValue(q)
@@ -631,7 +631,7 @@ class Search(wx.Frame):
 
     def _finish(self, chosen):
         """Close for good. A modeless dialog's Cancel only hides it, which left an invisible
-        Search window behind; destroy it instead, then hand over what was ticked."""
+        Search window behind; destroy it instead, then hand over what was checked."""
         if getattr(self, "_finished", False):  # Command-W can arrive by menu and by accelerator
             return
         self._finished = True
@@ -705,7 +705,7 @@ class Search(wx.Frame):
         first_new = len(self.results)
         self.results.extend(fresh)
         for i, e in enumerate(fresh):
-            self.list.Append(entry_words(first_new + i + 1, e))  # appended: ticks so far stay ticked
+            self.list.Append(entry_words(first_new + i + 1, e))  # appended: checks so far stay checked
         # Only an empty page is the end. A short page usually is too, but a site can drop an entry
         # it can't list; and YouTube repeats some results from page to page (dropped above), so a
         # page of nothing but repeats isn't the end either: fetch the next one straight away.
@@ -720,7 +720,7 @@ class Search(wx.Frame):
             self.status.SetLabel("Nothing found on %s for %s." % (site, q))
             self.query.SetFocus()
         elif start == 1:
-            self.status.SetLabel("%s on %s for %s. Tick with Space, then Download Ticked. More come when you "
+            self.status.SetLabel("%s on %s for %s. Check with Space, then Download Checked. More come when you "
                                  "reach the end." % (words.n(len(self.results), "result"), site, q))
             self.list.SetFocus()
             self.list.SetSelection(0)
@@ -734,10 +734,10 @@ class Search(wx.Frame):
 
     def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
-        self.ok.SetLabel("Download Ticked (%d)" % k)
+        self.ok.SetLabel("Download Checked (%d)" % k)
         if speak:
             from .system import announce
-            announce("%d ticked." % k)
+            announce("%d checked." % k)
         self.ok.Enable(k > 0)
         self.panel.Layout()
 
@@ -788,11 +788,15 @@ class DescribeDialog(wx.Dialog):
     """Audio description for one video: its own described track, published described
     versions, or make one. Each option is a row; the buttons act on the selected row."""
 
-    def __init__(self, parent, url: str, title: str, run_find, actions: dict):
+    def __init__(self, parent, url: str, title: str, run_find, actions: dict, run_more=None):
         super().__init__(parent, title="Audio Description", size=(760, 460),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.url, self.title, self.actions = url, title, actions
+        self.run_more = run_more
         self.options: list[dict] = []
+        self.next_start = 1
+        self.more_left = False
+        self.looking = True
         s = wx.BoxSizer(wx.VERTICAL)
         self.status = wx.StaticText(self, label="Looking for audio description for %s..." % (title or url))
         s.Add(self.status, 0, wx.ALL, 10)
@@ -805,9 +809,13 @@ class DescribeDialog(wx.Dialog):
         self.play_btn.SetToolTip("Closes this window and plays the selected one in the player.")
         self.make_btn = wx.Button(self, label="Make Description")
         self.make_btn.SetToolTip("Claude reads frames from the video at each change of shot and writes what it "
-                                 "sees. Takes about a minute for a short video. Machine-made and unchecked.")
+                                 "sees, every moment of it. About a minute for a short video, much longer for a "
+                                 "film. Machine-made and unchecked.")
+        self.more_btn = wx.Button(self, label="Look Further")
+        self.more_btn.SetToolTip("Searches deeper for described versions made by people, %d search results at "
+                                 "a time, for as long as the site has more." % describe.VERSIONS_PAGE)
         close = wx.Button(self, wx.ID_CANCEL, "Close")
-        for b in (self.play_btn, self.dl_btn, self.make_btn):
+        for b in (self.play_btn, self.dl_btn, self.make_btn, self.more_btn):
             row.Add(b, 0, wx.RIGHT, 6)
             b.Disable()
         row.AddStretchSpacer()
@@ -820,6 +828,7 @@ class DescribeDialog(wx.Dialog):
         self.play_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("play"))
         self.dl_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("download"))
         self.make_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("make"))
+        self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.look_further())
         threading.Thread(target=lambda: wx.CallAfter(self._found, run_find(url)), daemon=True).start()
 
     def _found(self, res):
@@ -832,15 +841,15 @@ class DescribeDialog(wx.Dialog):
             opts.append({"kind": "track", "format": about["track"],
                          "words": "This video has its own described track (%s): real description, by a person."
                                   % about.get("track_words", "described")})
-        for c in res.get("candidates") or []:
-            opts.append({"kind": "version", "url": c["url"], "title": c.get("title"),
-                         "words": "A described version: %s%s%s" % (
-                             c.get("title"), ", " + words.duration(c["duration"]) if c.get("duration") else "",
-                             ", by " + c["uploader"] if c.get("uploader") else "")})
+        opts.extend(self._version_row(c) for c in res.get("candidates") or [])
+        self.next_start = describe.VERSIONS_PAGE + 1
+        self.more_left = bool(res.get("searched")) and bool(self.run_more)
+        self.looking = False
         if about.get("has_video", True):
             if about.get("can_make"):
                 opts.append({"kind": "make", "words": "Make a description: Claude reads the picture. Machine-made "
-                                                      "and unchecked; about a minute for a short video."})
+                                                      "and unchecked. About a minute for a short video; a long film "
+                                                      "takes much longer, since every moment is described."})
             else:
                 opts.append({"kind": "none", "words": "Making one needs the Claude command-line tool "
                                                       "(claude.com/code), which isn't on this computer."})
@@ -851,7 +860,8 @@ class DescribeDialog(wx.Dialog):
             msg = "%s for %s. Described versions are by people, so they come first." % (
                 words.n(found, "described option"), self.title)
         elif any(o["kind"] == "make" for o in opts):
-            msg = "Nobody seems to have described %s. You can make a description." % self.title
+            msg = ("No described version turned up for %s in the first %d search results. Look Further "
+                   "searches deeper, or you can make a description." % (self.title, describe.VERSIONS_PAGE))
         else:
             msg = "No audio description found for %s." % self.title
         self.status.SetLabel(msg)
@@ -861,6 +871,53 @@ class DescribeDialog(wx.Dialog):
         if opts:
             self.list.SetSelection(0)
             self.list.SetFocus()
+        self._buttons()
+        self.Layout()
+
+    @staticmethod
+    def _version_row(c):
+        return {"kind": "version", "url": c["url"], "title": c.get("title"),
+                "words": "A described version: %s%s%s" % (
+                    c.get("title"), ", " + words.duration(c["duration"]) if c.get("duration") else "",
+                    ", by " + c["uploader"] if c.get("uploader") else "")}
+
+    def look_further(self):
+        if self.looking or not self.more_left:
+            return
+        self.looking = True
+        self.more_btn.Disable()
+        start = self.next_start
+        self.status.SetLabel("Looking further, from search result %d..." % start)
+        from .system import announce
+        announce(self.status.GetLabel())
+        threading.Thread(target=lambda: wx.CallAfter(self._more_found, start, self.run_more(self.title, start)),
+                         daemon=True).start()
+
+    def _more_found(self, start, res):
+        if not self:
+            return
+        self.looking = False
+        self.next_start = start + describe.VERSIONS_PAGE
+        self.more_left = bool(res.get("searched"))
+        have = {o.get("url") for o in self.options}
+        fresh = [self._version_row(c) for c in res.get("candidates") or [] if c["url"] not in have]
+        at = next((i for i, o in enumerate(self.options) if o["kind"] in ("make", "none")), len(self.options))
+        self.options[at:at] = fresh  # people's versions stay above Make a description
+        self.list.Set([o["words"] for o in self.options])
+        end = start + describe.VERSIONS_PAGE - 1
+        if fresh:
+            msg = "Found %s more in search results %d to %d." % (words.n(len(fresh), "described version"), start, end)
+            self.list.SetSelection(at)
+        elif self.more_left:
+            msg = "None in search results %d to %d. Look Further goes on." % (start, end)
+            self.list.SetSelection(max(0, at - 1) if self.options else wx.NOT_FOUND)
+        else:
+            msg = "That's the end of the search. Nothing more."
+        self.status.SetLabel(msg)
+        self.status.Wrap(700)
+        from .system import announce
+        announce(msg)
+        self.list.SetFocus()
         self._buttons()
         self.Layout()
 
@@ -874,6 +931,7 @@ class DescribeDialog(wx.Dialog):
         self.play_btn.Enable(k in ("track", "version"))
         self.dl_btn.Enable(k in ("track", "version"))
         self.make_btn.Enable(k == "make")
+        self.more_btn.Enable(self.more_left and not self.looking)
 
     def _act(self, what):
         o = self._selected()

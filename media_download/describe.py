@@ -26,7 +26,7 @@ from . import engine
 MIN_GAP = 4.0     # seconds between described moments
 STILL_EVERY = 12  # also a moment this often in a long unchanging shot
 BATCH = 10        # frames per Claude call: enough for continuity
-LIMIT = 60        # most moments in one description
+VERSIONS_PAGE = 50  # search results read per look for described versions; Look Further reads more
 SUFFIX = " - audio description"
 
 HEADER = ("This audio description was made automatically by reading frames from the video. "
@@ -138,7 +138,7 @@ def sample_frames(video: str, folder: str, ffmpeg: str) -> list[tuple[str, float
     out = subprocess.run([ffmpeg, "-hide_banner", "-i", video, "-vf",
                           "select='eq(n\\,0)+gt(scene\\,0.25)+gte(t-prev_selected_t\\,%d)',scale=768:-2,showinfo"
                           % STILL_EVERY, "-vsync", "vfr", "-q:v", "4", os.path.join(folder, "f%04d.jpg")],
-                         capture_output=True, encoding="utf-8", errors="replace", timeout=1800,
+                         capture_output=True, encoding="utf-8", errors="replace", timeout=6 * 3600,
                          **engine.hidden_window())
     times = [float(m) for m in re.findall(r"pts_time:([0-9.]+)", out.stderr or "")]
     frames = sorted(f for f in os.listdir(folder) if f.endswith(".jpg"))
@@ -148,10 +148,7 @@ def sample_frames(video: str, folder: str, ffmpeg: str) -> list[tuple[str, float
         if when - last >= MIN_GAP:
             kept.append((name, when))
             last = when
-    if len(kept) > LIMIT:
-        step = len(kept) / float(LIMIT)
-        kept = [kept[int(i * step)] for i in range(LIMIT)]
-    return kept
+    return kept  # every moment, however long the video: no cap (Matthew, 2026-10-13)
 
 
 def describe_frames(frames, folder, title, claude, progress=lambda done, total: None) -> list[dict]:

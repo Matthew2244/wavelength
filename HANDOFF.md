@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.4.7 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.4.8 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.4.7, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.4.8, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -35,7 +35,7 @@ has a value (-1, any codec) the command would misread.
 ## How the app is built
 
 - `gui.py` the window; `dialogs.py` More Options, Settings, playlist question,
-  tick list, Search. `system.py` announcements (VoiceOver on the Mac, Prism on
+  check list, Search. `system.py` announcements (VoiceOver on the Mac, Prism on
   Windows), reveal/open, sounds, Pushover. It must import without wx: the
   Linux CI tests import it and don't install wx.
 - `manager.py` the download list and scheduler, no wx, fully testable.
@@ -107,10 +107,12 @@ Test the player muted (`app_volume` 0) at night.
 **Audio description** (`describe.py`; worker tasks `find_description` and
 `describe`; `dialogs.DescribeDialog`; reading in `player.py` with `speech.Reader`).
 Finds the video's own described track, then published described versions
-(YouTube search, kept only if they share a distinctive word with the title,
-`rank_candidates`), then offers to make one: a `describe` job in the list
+(YouTube search, 50 results a look (`VERSIONS_PAGE`), Look Further reads the
+next 50 with the `find_versions` task for as long as results come; kept only if
+they share a distinctive word with the title, `rank_candidates`), then offers to make one: a `describe` job in the list
 downloads a ≤480p copy (or uses the downloaded video), samples frames at shot
-changes plus every 12 s of an unchanging shot (≤60), and runs `claude -p
+changes plus every 12 s of an unchanging shot (every one, no cap: Matthew lifted
+the old 60 on 2026-10-13), and runs `claude -p
 --allowedTools Read` in batches of 10 with the frames' folder as cwd. Output:
 "<title> - audio description.srt/.txt" beside the downloads, both labelled
 machine-made; `descriptions.json` maps a link to its .srt for streaming. The
@@ -195,8 +197,8 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 4. **YouTube's best video is AV1 or VP9**, which QuickTime on many Macs can't
    play. Video prefers H.264 up to 1080; "Highest available, any codec" and
    1440/4K take whatever is best.
-5. **VoiceOver re-reads a check-list row before the tick lands**, saying
-   "unchecked" right after you tick it. The tick lists announce the new count.
+5. **VoiceOver re-reads a check-list row before the check lands**, saying
+   "unchecked" right after you check it. The check lists announce the new count.
 6. **Tab skips plain text**, so "Saving to" and "Next download" are also in the
    help text of the buttons beside them.
 7. **Message dialogs need a button titled exactly "Cancel"** for Escape on the
@@ -284,16 +286,26 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    on by itself, and `next_start` counts positions fetched, not results kept.
    Deep pages get slower, because the engine re-reads the earlier pages (SoundCloud results
    101 to 125: 16 s). Nothing else caps results: playlists, feeds and albums
-   expand whole. The `ytdl` command's `--list-items` still caps at 300.
-24. From the classic app, still true for the command: a GUI-launched process gets
+   expand whole, and the `ytdl` command's `--list-items` lists every item (it
+   used to stop at 300; CrashCourse's 1,705 all listed). **No caps on results
+   anywhere is a standing decision** (Matthew, 2026-10-13): where a search
+   can't be unlimited in one go, it pages.
+24. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
+   2026-10-13): Download Checked, Check All, Uncheck All, "3 checked". The
+   classic app's lists are selection lists, so it says "select" there.
+25. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.4.8** (2026-10-13): no caps left. Described versions: Encanto's trailer
+  found 8 in the first 50 results (the old 10 found fewer), and Look Further
+  ran on cleanly; `ytdl --list-items` listed all 1,705 of a channel; made
+  descriptions keep every moment. "Tick" is "check" everywhere.
 - **2.4.7** (2026-10-13): Search pages with no ceiling. Real searches on
   YouTube, SoundCloud and YouTube Music each returned results 101 to 125; an
-  empty page ends cleanly; the real window went past 100 results with ticks
+  empty page ends cleanly; the real window went past 100 results with checks
   kept.
 - **2.4.6** (2026-10-13): Stop now retires the run (`job.run += 1`): a quick
   Retry during a lookup used to let the killed lookup call the retry Failed
@@ -385,14 +397,14 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   Installed on the Studio and the MacBook (self-test OK there; the MacBook has
   no Homebrew tools, so it is the realistic first-run case).
 - VoiceOver on the installed app (2026-10-12): tab order and every name and help
-  tag, a download by keyboard, Search, the playlist question and tick list,
+  tag, a download by keyboard, Search, the playlist question and check list,
   Escape, Command-J, Command-D, Command-E.
 
 ## Not done
 
 - Audio description hasn't been heard by a person yet, and making one has only
-  been tried on short videos. A long film would take many minutes and many
-  Claude calls (60 moments at most).
+  been tried on short videos. With no cap on moments, a two-hour film is
+  hundreds of moments, so dozens of Claude calls and a long wait.
 - Windows can't play HLS, so YouTube video on Windows plays after downloading.
 
 - **Windows has not been tried by a person.** Speech there goes through Prism
