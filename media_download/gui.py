@@ -564,13 +564,15 @@ class MainFrame(wx.Frame):
 
     # -------------------------------------------------------- search
 
-    def run_search(self, query, site):
+    def run_search(self, query, site, start=1, count=dialogs.SEARCH_PAGE):
+        """One page of results, starting at result number `start`. There's no last page but the
+        site's own: Search asks for the next one whenever the person wants more."""
         res = []
 
         def on(ev):
             if ev.get("ev") == "results":
                 res.extend(ev.get("results") or [])
-        run_task({"task": "search", "query": query, "site": site, "count": 25}, on, timeout=120)
+        run_task({"task": "search", "query": query, "site": site, "start": start, "count": count}, on, timeout=120)
         return res
 
     def on_search(self, _, query=None):

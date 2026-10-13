@@ -298,14 +298,19 @@ def do_search(yt_dlp, task):
     from .options import SEARCH_SITES, tool_flags
     logger = Logger()
     prefix = dict((k, p) for k, _, p in SEARCH_SITES).get(task.get("site"), "ytsearch")
+    # One page at a time, with no ceiling: "start" is where this page begins (1 for the first),
+    # and Search asks for the next page whenever the person wants more.
     count = int(task.get("count", 25))
+    start = max(1, int(task.get("start", 1)))
+    end = start + count - 1
     if prefix.startswith("http"):
         import urllib.parse
         query = prefix % urllib.parse.quote_plus(task["query"])
     else:
-        query = "%s%d:%s" % (prefix, count, task["query"])
+        query = "%s%d:%s" % (prefix, end, task["query"])
     try:
-        ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "1-%d" % count] + tool_flags(), logger)
+        ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "%d-%d" % (start, end)] + tool_flags(),
+                        logger)
         with ydl:
             info = ydl.extract_info(query, download=False)
     except Exception as exc:  # noqa: BLE001

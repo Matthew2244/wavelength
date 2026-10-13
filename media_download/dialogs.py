@@ -373,6 +373,9 @@ class Settings(wx.Dialog):
         self.EndModal(wx.ID_OK)
 
 
+SEARCH_PAGE = 25  # results per page; pages keep coming until the site has no more
+
+
 def entry_words(i: int, e: dict) -> str:
     bits = ["%d. %s" % (i, e.get("title") or e.get("url"))]
     if e.get("duration"):
@@ -491,6 +494,10 @@ class Search(wx.Frame):
         self.on_done = on_done  # (window, chosen entries), when it closes
         self.results = []
         self.last_query = ""
+        self.searched = ("", "")  # (words, site) the results in the list belong to
+        self.next_start = 1
+        self.has_more = False
+        self.loading = False
         p = self.panel = wx.Panel(self)  # a panel gives a frame Tab between controls
         s = wx.BoxSizer(wx.VERTICAL)
         top = wx.BoxSizer(wx.HORIZONTAL)
@@ -525,9 +532,16 @@ class Search(wx.Frame):
             self.play_btn = wx.Button(p, label="Play Selected")
             self.play_btn.SetToolTip("Listen to the selected result without downloading it, to check it's the "
                                      "right one; press again to pause (%s-P). The search stays open." % CMD)
-            self.list.Bind(wx.EVT_LISTBOX, lambda e: self._preview_label())
+            self.list.Bind(wx.EVT_LISTBOX, lambda e: (self._preview_label(), self._near_end()))
             brow.Add(self.play_btn, 0, wx.ALL, 6)
             self.play_btn.Bind(wx.EVT_BUTTON, self.on_play)
+        self.more_btn = wx.Button(p, label="More Results")
+        self.more_btn.SetToolTip("Gets the next %d results. They also come by themselves when you reach the end "
+                                 "of the list. There's no limit but the site's own (%s-Shift-M)."
+                                 % (SEARCH_PAGE, CMD))
+        self.more_btn.Disable()
+        brow.Add(self.more_btn, 0, wx.ALL, 6)
+        self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.more())
         self.ok = wx.Button(p, wx.ID_OK, "Download Ticked")
         self.ok.SetToolTip("Adds the ticked results to the downloads list and closes Search (%s-Return)." % CMD)
         brow.Add(self.ok, 0, wx.ALL, 6)
@@ -538,6 +552,8 @@ class Search(wx.Frame):
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
         self.query.Bind(wx.EVT_TEXT_ENTER, self.on_search)
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
+        if not play:
+            self.list.Bind(wx.EVT_LISTBOX, lambda e: self._near_end())
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate)
         self.ok.Bind(wx.EVT_BUTTON, lambda e: self.download_ticked())
         self.cancel.Bind(wx.EVT_BUTTON, lambda e: self._finish([]))
@@ -556,6 +572,7 @@ class Search(wx.Frame):
         f = wx.Menu()
         add(f, "&Search\tCtrl+F", lambda: (self.query.SetFocus(), self.query.SelectAll()))
         add(f, "&Download Ticked\tCtrl+Return", self.download_ticked)
+        add(f, "&More Results\tCtrl+Shift+M", self.more)
         if self.play:
             add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
         f.AppendSeparator()
@@ -630,30 +647,88 @@ class Search(wx.Frame):
             self.query.SetFocus()
             return
         self.last_query = q
-        self.go.Disable()
+        site_key = self.site_key()
         site = SEARCH_SITES[self.site.GetSelection()][1]
+        self.searched = (q, site_key)
+        self.results = []
+        self.list.Set([])
+        self.has_more = False
+        self.repeats = 0
+        self.next_start = 1  # the site's position the next page begins at (repeats dropped don't count)
+        self._count()
         self.status.SetLabel("Searching %s for %s..." % (site, q))
+        self._fetch(q, site_key, site, 1)
+
+    def more(self):
+        """The next page of the same search. No ceiling: it stops only when the site has nothing more."""
+        q, site_key = self.searched
+        if not q or self.loading:
+            return
+        if not self.has_more:
+            self.status.SetLabel("That's every result %s has for %s." % (self._site_name(site_key), q))
+            from .system import announce
+            announce(self.status.GetLabel())
+            return
+        self.status.SetLabel("Getting more results...")
+        self._fetch(q, site_key, self._site_name(site_key), self.next_start)
+
+    def _near_end(self):
+        """Reaching the last row asks for more by itself, the way a feed does."""
+        i = self.list.GetSelection()
+        if self.has_more and not self.loading and i != wx.NOT_FOUND and i >= len(self.results) - 1:
+            self.more()
+
+    @staticmethod
+    def _site_name(key):
+        return next((name for k, name, _ in SEARCH_SITES if k == key), key)
+
+    def _fetch(self, q, site_key, site, start):
+        self.loading = True
+        self.go.Disable()
+        self.more_btn.Disable()
 
         def work():
-            res = self.run_search(q, self.site_key())
-            wx.CallAfter(self._show, q, site, res)
+            res = self.run_search(q, site_key, start)
+            wx.CallAfter(self._show, q, site_key, site, start, res)
         threading.Thread(target=work, daemon=True).start()
 
-    def _show(self, q, site, res):
+    def _show(self, q, site_key, site, start, res):
         if not self:
             return
+        if (q, site_key) != self.searched or start != self.next_start:
+            return  # a newer search started meanwhile; this page belongs to the old one
+        self.loading = False
         self.go.Enable()
-        self.results = res or []
-        self.list.Set([entry_words(i + 1, e) for i, e in enumerate(self.results)])
+        self.next_start = start + SEARCH_PAGE
+        seen = {e["url"] for e in self.results}
+        fresh = [e for e in (res or []) if e["url"] not in seen]
+        first_new = len(self.results)
+        self.results.extend(fresh)
+        for i, e in enumerate(fresh):
+            self.list.Append(entry_words(first_new + i + 1, e))  # appended: ticks so far stay ticked
+        # Only an empty page is the end. A short page usually is too, but a site can drop an entry
+        # it can't list; and YouTube repeats some results from page to page (dropped above), so a
+        # page of nothing but repeats isn't the end either: fetch the next one straight away.
+        self.has_more = bool(res)
+        self.more_btn.Enable(self.has_more)
+        self.repeats = 0 if fresh or not res else getattr(self, "repeats", 0) + 1
+        if res and not fresh and self.repeats < 3:
+            wx.CallAfter(self.more)
+            return
+        from .system import announce
         if not self.results:
             self.status.SetLabel("Nothing found on %s for %s." % (site, q))
             self.query.SetFocus()
-        else:
-            self.status.SetLabel("%s on %s for %s. Tick with Space, then Download Ticked."
-                                 % (words.n(len(self.results), "result"), site, q))
+        elif start == 1:
+            self.status.SetLabel("%s on %s for %s. Tick with Space, then Download Ticked. More come when you "
+                                 "reach the end." % (words.n(len(self.results), "result"), site, q))
             self.list.SetFocus()
             self.list.SetSelection(0)
-        from .system import announce
+        elif fresh:
+            self.status.SetLabel("%d more, %s in all." % (len(fresh), words.n(len(self.results), "result")))
+        else:
+            self.status.SetLabel("That's every result %s has for %s: %s." % (site, q,
+                                                                             words.n(len(self.results), "result")))
         announce(self.status.GetLabel())
         self._count()
 

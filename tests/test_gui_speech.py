@@ -227,8 +227,9 @@ def test_search_download_ticked_adds_rows(frame, monkeypatch):
     monkeypatch.setattr(frame, "folder_ready", lambda: True)
     frame.on_search(None)
     dlg = frame.search_win
-    dlg._show("q", "YouTube", [{"url": "https://y.example/1", "title": "One"},
-                               {"url": "https://y.example/2", "title": "Two"}])
+    dlg.searched = ("q", "youtube")
+    dlg._show("q", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One"},
+                                             {"url": "https://y.example/2", "title": "Two"}])
     dlg.list.Check(1)
     dlg._count()
     dlg.ok.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_OK))
@@ -259,13 +260,43 @@ def test_search_again_keeps_ticks(frame, monkeypatch):
     dlg = frame.search_win
     monkeypatch.setattr(dlg, "on_search", lambda e: searched.append(dlg.query.GetValue()))
     dlg.last_query = "piano"
-    dlg._show("piano", "YouTube", [{"url": "https://y.example/1", "title": "One"}])
+    dlg.searched = ("piano", "youtube")
+    dlg._show("piano", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One"}])
     dlg.list.Check(0)
     dlg._count()
     frame.on_search(None, query="piano")  # Command-F with the same words: keep the ticks
     assert searched == [] and dlg.list.IsChecked(0)
     frame.on_search(None, query="organ")  # new words: search
     assert searched == ["organ"]
+    dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
+    _drain()
+
+
+def test_search_page_of_repeats_is_not_the_end(frame, monkeypatch):
+    """YouTube repeats results across pages. A page of only repeats moves on by itself; the
+    next page starts after the positions fetched, not after the count kept."""
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    page = gui.dialogs.SEARCH_PAGE
+    pages = {1: ["a", "b"], page + 1: ["a", "b"], 2 * page + 1: ["c"], 3 * page + 1: []}
+    asked = []
+
+    def fake_fetch(q, site_key, site, start):
+        asked.append(start)
+        wx.CallAfter(dlg._show, q, site_key, site, start,
+                     [{"url": "https://y.example/" + u, "title": u} for u in pages[start]])
+    monkeypatch.setattr(dlg, "_fetch", fake_fetch)
+    dlg.query.SetValue("x")
+    dlg.on_search(None)
+    _drain()
+    dlg.more()
+    _drain()
+    assert asked == [1, page + 1, 2 * page + 1]
+    assert [e["title"] for e in dlg.results] == ["a", "b", "c"] and dlg.has_more
+    dlg.more()
+    _drain()
+    assert not dlg.has_more and "every result" in dlg.status.GetLabel()
     dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
     _drain()
 
@@ -279,9 +310,39 @@ def test_search_never_clears_a_link_typed_since(frame, monkeypatch):
     frame.on_search(None)
     dlg = frame.search_win
     frame.link.SetValue("https://example.com/new")
-    dlg._show("q", "YouTube", [{"url": "https://y.example/1", "title": "One"}])
+    dlg.searched = ("q", "youtube")
+    dlg._show("q", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One"}])
     dlg.list.Check(0)
     dlg._count()
     dlg.ok.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_OK))
     assert len(added) == 1 and frame.link.GetValue() == "https://example.com/new"
+    _drain()
+
+
+def test_search_pages_have_no_ceiling(frame, monkeypatch):
+    """Results come a page at a time, ticks survive each new page, and only a page with nothing
+    new ends it."""
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui.dialogs, "announce", lambda t: None, raising=False)
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    page = gui.dialogs.SEARCH_PAGE
+    asked = []
+
+    def fake_fetch(q, site_key, site, start):
+        asked.append(start)
+        total = page * 3 + 4  # the "site" has 79 results
+        res = [{"url": "https://y.example/%d" % n, "title": "R%d" % n} for n in range(start, min(total, start + page - 1) + 1)]
+        dlg._show(q, site_key, site, start, res)
+    monkeypatch.setattr(dlg, "_fetch", fake_fetch)
+    dlg.query.SetValue("organ")
+    dlg.on_search(None)
+    dlg.list.Check(3)
+    for _ in range(10):
+        dlg.more()
+    assert asked == [1, page + 1, 2 * page + 1, 3 * page + 1, 4 * page + 1]
+    assert len(dlg.results) == page * 3 + 4 and not dlg.has_more
+    assert dlg.list.IsChecked(3) and dlg.list.GetCount() == len(dlg.results)
+    assert "every result" in dlg.status.GetLabel()
+    dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
     _drain()

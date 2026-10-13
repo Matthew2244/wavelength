@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.4.6 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.4.7 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.4.6, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.4.7, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -275,12 +275,26 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Audio Description stays modal but closes before the player opens
    (`wx.CallAfter`). Command-1 is the downloads window, Command-2 the player,
    from anywhere. Any new window: its own menu bar, or modal and opening nothing.
-23. From the classic app, still true for the command: a GUI-launched process gets
+23. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
+   has no limits"). It used to stop at 25. Now it fetches a page of
+   `SEARCH_PAGE` (25) at a time with `--playlist-items start-end`, and the next
+   page comes from More Results (Command-Shift-M) or by itself on reaching the
+   last row. Only an **empty** page ends it: YouTube repeats results between
+   pages (a page often adds 15 to 24 new), so a page of nothing but repeats moves
+   on by itself, and `next_start` counts positions fetched, not results kept.
+   Deep pages get slower, because the engine re-reads the earlier pages (SoundCloud results
+   101 to 125: 16 s). Nothing else caps results: playlists, feeds and albums
+   expand whole. The `ytdl` command's `--list-items` still caps at 300.
+24. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.4.7** (2026-10-13): Search pages with no ceiling. Real searches on
+  YouTube, SoundCloud and YouTube Music each returned results 101 to 125; an
+  empty page ends cleanly; the real window went past 100 results with ticks
+  kept.
 - **2.4.6** (2026-10-13): Stop now retires the run (`job.run += 1`): a quick
   Retry during a lookup used to let the killed lookup call the retry Failed
   (CI caught it once; `test_a_killed_lookup_never_fails_its_retry` catches it
