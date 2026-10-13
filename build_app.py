@@ -25,7 +25,13 @@ args = [
 if sys.platform == "win32":
     # Prism: speech through NVDA, JAWS, Narrator and others. Its compiled part loads cffi's
     # backend from C, so nothing names it and the packager would leave it out.
+    # The compiled part (_prism_cffi.pyd) isn't a file type the packager collects on its own,
+    # so the whole native folder is copied in by hand.
+    import importlib.util
+    native = os.path.join(importlib.util.find_spec("prism").submodule_search_locations[0], "_native")
     args += ["--collect-all", "prism", "--hidden-import", "_cffi_backend"]
+    for f in os.listdir(native):
+        args += ["--add-binary", os.path.join(native, f) + os.pathsep + "prism/_native"]
 icon = os.path.join("assets", "icon.icns" if sys.platform == "darwin" else "icon.ico")
 if os.path.exists(icon):
     args += ["--icon", icon]

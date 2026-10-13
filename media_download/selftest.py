@@ -57,6 +57,11 @@ def run() -> int:
                 print("Windows speech backends: " + ", ".join(names))
             except Exception as exc:  # noqa: BLE001
                 problems.append("speech: %s" % exc)
+                base = getattr(sys, "_MEIPASS", "")
+                for root, _, files in os.walk(base):
+                    for f in files:
+                        if "prism" in f.lower() or "cffi" in f.lower():
+                            print("  bundled: " + os.path.join(root, f)[len(base):])
     status = "OK" if not problems else "FAILED: " + "; ".join(problems)
     print("%s %s %s" % (APP_NAME, __version__, status))
     sys.stdout.flush()
