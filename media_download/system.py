@@ -175,6 +175,48 @@ def reveal(paths: list[str]) -> None:
         subprocess.run(["xdg-open", os.path.dirname(paths[0])])
 
 
+def dock_badge(text: str) -> None:
+    """The number on the Dock icon ("3"), or none. Readable at a glance from any app, and
+    VoiceOver reads it in the Dock too."""
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+
+        def send(obj, sel, *args, restype=ctypes.c_void_p, argtypes=()):
+            f = objc.objc_msgSend
+            f.restype = restype
+            f.argtypes = [ctypes.c_void_p, ctypes.c_void_p, *argtypes]
+            return f(obj, objc.sel_registerName(sel.encode()), *args)
+        app = send(objc.objc_getClass(b"NSApplication"), "sharedApplication")
+        tile = send(app, "dockTile")
+        label = send(objc.objc_getClass(b"NSString"), "stringWithUTF8String:", text.encode(),
+                     argtypes=(ctypes.c_char_p,)) if text else None
+        send(tile, "setBadgeLabel:", label, restype=None, argtypes=(ctypes.c_void_p,))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def taskbar_progress(frame, fraction: float | None) -> None:
+    """Progress on the Windows taskbar button. None clears it."""
+    if sys.platform != "win32":
+        return
+    try:
+        bar = frame.MSWGetTaskBarButton()
+        if fraction is None:
+            bar.SetProgressState(0)  # no progress
+        else:
+            bar.SetProgressRange(1000)
+            bar.SetProgressValue(int(fraction * 1000))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def open_path(path: str) -> None:
     if sys.platform == "darwin":
         subprocess.Popen(["open", path])

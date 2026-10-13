@@ -19,6 +19,8 @@ SLUG = "Media-Download"
 args = [
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
     "--collect-data", "certifi", "--collect-all", "yt_dlp_ejs",
+    # curl_cffi lets the engine look like a real browser to sites that turn others away.
+    "--collect-all", "curl_cffi",
     "--hidden-import", "media_download.gui", "--hidden-import", "media_download.worker",
     "--hidden-import", "media_download.selftest",
 ]

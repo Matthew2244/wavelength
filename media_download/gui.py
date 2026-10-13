@@ -24,7 +24,8 @@ import wx.adv
 from . import APP_NAME, __version__, dialogs, engine, sparkle, update, words
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
-from .system import announce, mac_accessibility_label, open_path, play, pushover, reveal
+from .system import (announce, dock_badge, mac_accessibility_label, open_path, play, pushover, reveal,
+                     taskbar_progress)
 
 def M(label: str) -> str:
     """A label with its Alt-key letter on Windows. On the Mac a button's "&D" also answers
@@ -163,9 +164,21 @@ class MainFrame(wx.Frame):
         s.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         # the list
+        row = wx.BoxSizer(wx.HORIZONTAL)
         lab = wx.StaticText(p, label=M("Do&wnloads:"))
         self._texts.append(lab)
-        s.Add(lab, 0, wx.LEFT | wx.RIGHT, 10)
+        row.Add(lab, 1, wx.ALIGN_CENTER_VERTICAL)
+        flab = wx.StaticText(p, label=M("Filte&r:"))
+        self._texts.append(flab)
+        self.filter = wx.SearchCtrl(p, size=(260, -1))
+        self.filter.ShowCancelButton(True)
+        self.filter.SetDescriptiveText("Type to show only some")
+        self.filter.SetToolTip("Type part of a title, a site or a status, like Failed or Downloading, to show "
+                               "only those rows. Escape or the clear button shows everything again.")
+        mac_accessibility_label(self.filter, "Filter the downloads list")
+        row.Add(flab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        row.Add(self.filter, 0, wx.ALIGN_CENTER_VERTICAL)
+        s.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.list = wx.ListBox(p, style=wx.LB_SINGLE)
         mac_accessibility_label(self.list, "Downloads")
         self.list.SetToolTip("Select a download to read about it below. Return opens the file; "
@@ -217,6 +230,9 @@ class MainFrame(wx.Frame):
         self.folder_btn.Bind(wx.EVT_BUTTON, self.on_folder)
         self.more_btn.Bind(wx.EVT_BUTTON, self.on_more)
         self.list.Bind(wx.EVT_LISTBOX, lambda e: self.show_details())
+        self.filter.Bind(wx.EVT_TEXT, self.on_filter)
+        self.filter.Bind(wx.EVT_SEARCHCTRL_CANCEL_BTN, lambda e: self.filter.SetValue(""))
+        self.filter.Bind(wx.EVT_CHAR_HOOK, self.on_filter_key)
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open)
         self.list.Bind(wx.EVT_KEY_DOWN, self.on_list_key)
         self.open_btn.Bind(wx.EVT_BUTTON, self.on_open)
@@ -282,6 +298,7 @@ class MainFrame(wx.Frame):
         self._m(d, "&Stop\tCtrl+.", self.on_stop)
         self._m(d, "Stop &All\tCtrl+Shift+.", self.on_stop_all)
         self._m(d, "&Retry\tCtrl+Shift+R", self.on_retry)
+        self._m(d, "Retry Using a &Browser's Sign-in...", self.on_retry_signin)
         self._m(d, "Retry All &Failed", self.on_retry_failed)
         self._m(d, "Resume &Unfinished", self.on_resume)
         d.AppendSeparator()
@@ -294,6 +311,7 @@ class MainFrame(wx.Frame):
         self._m(v, "Go to &Link Field\tCtrl+L", lambda e: self._focus(self.link))
         self._m(v, "Go to &Downloads List\tCtrl+D", lambda e: self._focus(self.list))
         self._m(v, "Go to D&etails\tCtrl+E", lambda e: self._focus(self.details))
+        self._m(v, "&Filter the List\tCtrl+Shift+F", lambda e: self._focus(self.filter))
         self._m(v, "&What's Happening?\tCtrl+J", self.on_whats_happening)
         v.AppendSeparator()
         self._m(v, "&Bigger Text\tCtrl+=", lambda e: self._text_size(+2))
@@ -340,7 +358,8 @@ class MainFrame(wx.Frame):
                    max_height=[h for h, _ in words.HEIGHTS][self.height.GetSelection()],
                    format_id=o.get("format_id", ""), format_audio_only=bool(o.get("format_audio_only")),
                    start=o.get("start", ""), end=o.get("end", ""), chapters=bool(o.get("chapters")),
-                   subtitles=bool(o.get("subtitles")), cookies=o.get("cookies", ""), name=o.get("name", ""),
+                   subtitles=bool(o.get("subtitles")), transcript=bool(o.get("transcript")),
+                   cookies=o.get("cookies", ""), name=o.get("name", ""),
                    extra=o.get("extra", ""), cover_art=bool(self.cfg.get("app_cover_art", True)))
 
     def add_links(self, urls: list[str], source: str = "") -> int:
@@ -607,6 +626,9 @@ class MainFrame(wx.Frame):
             self._all_done(data)
         elif what == "engine":
             self.SetStatusText(data.get("text", ""))
+        elif what == "site_paused":
+            self.tell("%s asked for fewer downloads, so its downloads are paused until %s. They'll carry on "
+                      "by themselves." % (data["site"] or "A site", words.clock_time(data["until"])))
         if what in ("added", "removed", "moved", "finished", "changed"):
             self.refresh()
 
@@ -632,6 +654,8 @@ class MainFrame(wx.Frame):
             if len(done) == 1:
                 j = done[0]
                 bits.append(("Already here: %s." if j.state == "skipped" else "Done: %s.") % (j.title or j.url))
+                if j.note:
+                    bits.append(j.note)
             else:
                 bits.append("%s finished." % words.n(len(done), "download"))
         elif done and self.mgr.busy() and time.time() - self.last_tally >= 20:
@@ -702,9 +726,12 @@ class MainFrame(wx.Frame):
             self.mgr.expand(job, entries, title)
             self.tell("Added all %s from %s." % (words.n(len(entries), "item"), title))
         elif ans == PQ.CHOOSE:
-            tl = dialogs.TickList(self, "Choose Items", "%s: %s. Everything starts ticked; untick what you "
-                                  "don't want, or Untick All and tick the few you do." %
-                                  (title, words.n(len(entries), "item")), entries)
+            many = len(entries) > 50  # a podcast's 400 episodes: start empty, tick the few you want
+            tl = dialogs.TickList(
+                self, "Choose Items",
+                ("%s: %s, newest usually first. Nothing is ticked yet: tick the ones you want with Space."
+                 if many else "%s: %s. Everything starts ticked; untick what you don't want, or Untick All "
+                 "and tick the few you do.") % (title, words.n(len(entries), "item")), entries, ticked=not many)
             if tl.ShowModal() == wx.ID_OK and tl.chosen():
                 picked = tl.chosen()
                 self.mgr.expand(job, picked, title)
@@ -738,11 +765,13 @@ class MainFrame(wx.Frame):
     def refresh(self):
         """Redraw only what changed. Rewriting every row each second would make a
         screen reader re-read the list; changing one row's text does not."""
+        with self.mgr.lock:
+            jobs = [j for j in self.mgr.jobs if self._matches(j)]
+        if [j.id for j in jobs] != self.rows:
+            self.structure_changed = True  # a row came into or left the filter
         if self.structure_changed:
             self.structure_changed = False
             sel = self.selected()
-            with self.mgr.lock:
-                jobs = list(self.mgr.jobs)
             self.rows = [j.id for j in jobs]
             self.row_text = [words.row_text(j) for j in jobs]
             self.list.Set(self.row_text)
@@ -766,6 +795,33 @@ class MainFrame(wx.Frame):
             self.dirty.clear()
         self._update_buttons()
         self._update_title()
+
+    def _matches(self, job) -> bool:
+        text = self.filter.GetValue().strip().lower() if hasattr(self, "filter") else ""
+        if not text:
+            return True
+        hay = " ".join((words.row_text(job), job.site, job.url, job.uploader)).lower()
+        return all(w in hay for w in text.split())
+
+    def on_filter(self, _):
+        self.structure_changed = True
+        self.refresh()
+        if getattr(self, "_filter_call", None):
+            self._filter_call.Stop()
+        self._filter_call = wx.CallLater(600, self._say_filter)  # once typing pauses, not per letter
+
+    def _say_filter(self):
+        total = len(self.mgr.jobs)
+        if not self.filter.GetValue().strip():
+            self.tell("Showing all %s." % words.n(total, "download"))
+        else:
+            self.tell("Showing %d of %d." % (len(self.rows), total))
+
+    def on_filter_key(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE and self.filter.GetValue():
+            self.filter.SetValue("")
+        else:
+            event.Skip()
 
     def show_details(self, progress_only=False):
         job = self.selected()
@@ -798,14 +854,20 @@ class MainFrame(wx.Frame):
         with self.mgr.lock:
             active = [j for j in self.mgr.jobs if j.state in ("downloading", "converting")]
             waiting = sum(1 for j in self.mgr.jobs if j.state in ("waiting", "looking"))
+        badge = str(len(active) + waiting) if active or waiting else ""
+        if badge != getattr(self, "_badge", None):
+            self._badge = badge
+            dock_badge(badge)
         if not active and not waiting:
             self.SetTitle(APP_NAME + (" (update available)" if self.update_info else ""))
             self.gauge.SetValue(0)
+            taskbar_progress(self, None)
             return
         total = sum(j.bytes_total for j in active if j.bytes_total)
         done = sum(min(j.bytes_done, j.bytes_total) for j in active if j.bytes_total)
         frac = done / total if total else 0
         self.gauge.SetValue(int(frac * 1000))
+        taskbar_progress(self, frac)
         bits = []
         if active:
             bits.append("%d downloading" % len(active))
@@ -876,6 +938,33 @@ class MainFrame(wx.Frame):
         if job and job.state in ("failed", "stopped"):
             self.mgr.retry(job)
             self.tell("Trying again: %s." % (job.title or job.url))
+
+    def on_retry_signin(self, _):
+        """For members-only, age-checked or "not a bot" failures: borrow a browser's sign-in."""
+        job = self.selected()
+        if not job or job.state not in ("failed", "stopped"):
+            self.tell("Select a failed download first.")
+            return
+        names = [b for b in dialogs.BROWSERS if b[0]]
+        keys = [b[0] for b in names]
+        dlg = wx.SingleChoiceDialog(
+            self, "Which browser are you signed in with? Media Download borrows that sign-in for this "
+            "download only. Nothing is sent anywhere else.", "Retry Using a Browser's Sign-in",
+            [b[1] for b in names])
+        last = self.cfg.get("app_signin_browser") or ""
+        if last in keys:
+            dlg.SetSelection(keys.index(last))
+        go = dlg.ShowModal() == wx.ID_OK
+        choice = keys[dlg.GetSelection()] if go else None
+        dlg.Destroy()
+        if not choice:
+            return
+        self.cfg["app_signin_browser"] = choice
+        engine.save_settings(self.cfg)
+        job.cookies = choice
+        job.engine_retry = False
+        self.mgr.retry(job)
+        self.tell("Trying again with %s's sign-in: %s." % (choice.capitalize(), job.title or job.url))
 
     def on_retry_failed(self, _):
         with self.mgr.lock:

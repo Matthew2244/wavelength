@@ -49,7 +49,7 @@ def test_site_names():
 def test_failures_explained_in_plain_words():
     assert "members only" in words.explain_failure("ERROR: Join this channel to get access")
     assert "private" in words.explain_failure("ERROR: Private video")
-    assert "sign-in" in words.explain_failure("Sign in to confirm you're not a bot")
+    assert "Retry Using a Browser's Sign-in" in words.explain_failure("Sign in to confirm you're not a bot")
     assert "too many" in words.explain_failure("HTTP Error 429: Too Many Requests")
     assert words.explain_failure("ERROR: something odd").startswith("That failed. The engine said: something odd")
     assert words.explain_failure("HTTP Error 500: Internal Server Error (caused by <x>)", site="archive.org") \
@@ -141,7 +141,7 @@ def test_downloads_finish_and_report_files(fake):
     j = m.add(Job(url="https://a.com/one", dest="/tmp"))
     assert wait(lambda: j.state == "done")
     assert j.title == "Title of https://a.com/one"
-    assert j.files == ["/tmp/fake/one.m4a"]
+    assert [os.path.basename(f) for f in j.files] == ["one.m4a"]
     assert wait(lambda: any(w == "all_done" for _, w, _ in events))
 
 
@@ -312,3 +312,45 @@ def test_a_name_never_makes_a_folder():
 def test_sign_in_and_bad_options_explained():
     assert "signed in" in words.explain_failure("The web client only works when logged-in.", site="vimeo.com")
     assert "More Options" in words.explain_failure("BADOPTIONS: no such option: --x")
+
+
+def test_dropped_connection_retries_by_itself(fake, monkeypatch, tmp_path):
+    m, events = fake
+    monkeypatch.setenv("FAKE_STATE", str(tmp_path))
+    j = m.add(Job(url="https://net.com/flaky1", dest="/tmp"))
+    assert wait(lambda: j.state == "waiting" and j.not_before, 15)
+    assert "Waiting to try again" in words.row_text(j)
+    assert 10 < j.not_before - time.time() <= 15
+    with m.lock:
+        j.not_before = time.time()  # skip the 15-second wait
+    m.pump()
+    assert wait(lambda: j.state == "done", 20)
+    assert j.net_retries == 1
+
+
+def test_slow_down_pauses_the_whole_site(fake, monkeypatch, tmp_path):
+    m, events = fake
+    monkeypatch.setenv("FAKE_STATE", str(tmp_path))
+    j = m.add(Job(url="https://busy.com/busy1", dest="/tmp"))
+    assert wait(lambda: j.state == "waiting" and j.not_before, 15)
+    other = m.add(Job(url="https://busy.com/two", dest="/tmp"))
+    time.sleep(1.5)
+    assert other.state in ("waiting", "looking") and other.state != "downloading"
+    assert m.site_pause["busy.com"] > time.time() + 200
+    assert any(w == "site_paused" for _, w, _ in events)
+    assert "asked for fewer downloads" in words.details_text(j)
+    m.retry(j)  # by hand: goes now
+    assert wait(lambda: j.state == "done", 20)
+
+
+def test_drm_and_transcripts():
+    assert "DRM" in words.explain_failure("ERROR: [generic] The requested site is known to use DRM protection.")
+    srt = ("1\n00:00:00,000 --> 00:00:02,000\nhello there\n\n2\n00:00:02,000 --> 00:00:02,010\nhello there\n \n\n"
+           "3\n00:00:02,010 --> 00:00:04,000\nhello there\nhow are you\n\n"
+           "4\n00:00:09,000 --> 00:00:10,000\n<c>after a pause</c>\n")
+    assert words.srt_to_text(srt, "Song") == "Song\n\nhello there how are you\n\nafter a pause\n"
+
+
+def test_speed_limit_reaches_yt_dlp():
+    a = options.download_args(spec(rate_limit="1M"))
+    assert a[a.index("--limit-rate") + 1] == "1M"

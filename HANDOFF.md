@@ -74,6 +74,21 @@ Martin Riedl's signed static ffmpeg builds, deno's GitHub release (sha256
 checked); each must pass `codesign --verify` and run. Windows: yt-dlp's own
 FFmpeg-Builds and deno's release.
 
+**Trying again by itself** (`Manager._try_later`). Network trouble or a 5xx
+waits 15 s then 60 s (`net_retries`, at most 2). A 429 pauses the whole site
+(`site_pause`) for 5, 10, then 15 minutes and announces it once; jobs wait
+with `not_before`, a timer pumps when the earliest wait ends, and a hand
+Retry clears the site's pause. Only after these does the engine-update retry
+run, then failure.
+
+**Transcripts** (`words.srt_to_text`, `worker.make_transcripts`): captions
+fetched as for subtitles, each line kept once (YouTube's rolling captions repeat
+every line), paragraphs at pauses over 2.5 s or about 70 words; the .srt is
+deleted unless subtitles were also asked for; no captions means a note.
+
+**Apple Podcasts show links** go through the iTunes lookup API to the show's
+RSS feed (`worker.podcast_feed`); single episodes (`?i=`) go to the engine.
+
 **Playlists** are expanded into one row per item, numbered, into a folder named
 after the set. When the listing already holds a whole item (archive.org does),
 it's saved as an info file and the item downloads from that. Fetching the item
@@ -129,15 +144,23 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    overwrite each other's partial files.
 10. **yt-dlp reports only the main file.** Chapter files and subtitles are found
    beside it afterwards (same name start, written during this run).
-11. **On the Mac a window reads in the order its controls were created.** A
+11. **Only files that exist at the end are reported**: the cover image is
+   downloaded, embedded and deleted, and was once counted as a third file.
+12. **curl_cffi must be inside the app** (pinned to yt-dlp's version, 0.16.0) or
+   sites that check for a real browser turn the engine away; the self-test
+   asks the frozen worker how many browsers it can pass as.
+13. **On the Mac a window reads in the order its controls were created.** A
    field made before its label is heard before the label, and moving it in the
    tab order doesn't change that. `labelled()` takes the label made first.
-12. From the classic app, still true for the command: a GUI-launched process gets
+14. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- `tools/train.py`, 23 of 23 (2026-10-13, 2.2.0): the 19 below plus a
+  transcript, an NPR podcast feed, an Apple Podcasts show link and Spotify's
+  DRM refusal.
 - `tools/train.py`, 19 of 19 (2026-10-13): YouTube as best, MP3, FLAC, 720p
   H.264, a 5-second WAV cut, subtitles, chapters (9 files), youtu.be and YouTube
   Music links, an exact stream, an awkward file name; SoundCloud, Bandcamp,
@@ -146,7 +169,8 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   found five real bugs.
 - Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
   tallies in two minutes.
-- 28 unit and scheduler tests (one hammers Stop and Retry) (`tests/`, fake worker, offline); CI runs them on
+- 37 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
+  spoken sentences and needs wx) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,
   SoundCloud, archive.org FLAC, an archive.org playlist of 8 to MP3 (51 s at

@@ -40,6 +40,10 @@ def run() -> int:
                 problems.append("worker: %s" % (events[-3:] or "no output"))
         except Exception as exc:  # noqa: BLE001
             problems.append("worker: %s" % exc)
+        if getattr(sys, "frozen", False):
+            imp = [e for e in run_task({"task": "impersonate"}, timeout=60) if e.get("ev") == "impersonate"]
+            if not imp or not imp[0].get("targets"):
+                problems.append("impersonation: curl_cffi missing from the app")
         try:
             import yt_dlp_ejs  # noqa: F401  the YouTube challenge solver must be inside
         except Exception as exc:  # noqa: BLE001

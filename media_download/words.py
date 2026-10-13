@@ -194,6 +194,27 @@ def choosable(info: dict) -> list[dict]:
     return audio + video
 
 
+def is_rate_limited(text: str) -> bool:
+    t = (text or "").lower()
+    return "http error 429" in t or "too many requests" in t or "rate-limit" in t or "rate limit" in t
+
+
+def is_transient(text: str) -> bool:
+    """Network trouble that's likely gone in a minute: worth trying again by itself."""
+    t = (text or "").lower()
+    return any(k in t for k in ("timed out", "timeout", "connection reset", "connection aborted",
+                                "temporarily unavailable", "network is unreachable", "incompleteread",
+                                "remote end closed", "name resolution", "nodename nor servname",
+                                "eof occurred", "connection refused", "broken pipe")) \
+        or bool(re.search(r"http error 5\d\d", t))
+
+
+def clock_time(ts: float) -> str:
+    """'2:15 AM', for saying when something will happen."""
+    import time as _t
+    return _t.strftime("%I:%M %p", _t.localtime(ts)).lstrip("0")
+
+
 def worth_updating_for(text: str) -> bool:
     """Would a newer yt-dlp plausibly fix this failure? Private, removed and
     members-only fail the same on every version, so updating for them is waste."""
@@ -217,18 +238,25 @@ def explain_failure(text: str, cookies_used: bool = False, site: str | None = No
         if cookies_used:
             return ("%s refused it even with your browser's sign-in. Try a different browser "
                     "in More Options." % who)
-        return ("%s wants a signed-in browser for this one. Turn on \"Use my browser's sign-in\" "
-                "in More Options, then Retry." % who)
+        return ("%s wants a signed-in browser for this one. Choose Retry Using a Browser's Sign-in in the "
+                "Downloads menu." % who)
     if "http error 429" in lowered or "too many requests" in lowered:
         return ("%s says too many requests. Wait a few minutes, then Retry. Fewer downloads at once "
                 "in Settings helps too." % who)
+    if "drm" in lowered:
+        return ("That's protected by DRM, the copy protection that Spotify, Apple Music, Netflix and others use, "
+                "so it can't be downloaded. Nothing to fix on your side.")
+    if cookies_used and ("operation not permitted" in lowered or "full disk access" in lowered) \
+            and "safari" in lowered:
+        return ("Reading Safari's sign-in needs Full Disk Access for Media Download: System Settings, Privacy "
+                "and Security, Full Disk Access. Or choose another browser.")
     if "badoptions:" in lowered or "no such option" in lowered:
         return ("The extra yt-dlp options in More Options weren't understood. Check them, or clear them "
                 "and Retry.")
     if ("logged-in" in lowered or "login required" in lowered or "provide account credentials" in lowered
             or "sign in to view" in lowered or "requires authentication" in lowered):
-        return ("%s wants you signed in for this one. Choose your browser under \"Sign in using\" in More "
-                "Options, then Retry." % who)
+        return ("%s wants you signed in for this one. Choose Retry Using a Browser's Sign-in in the Downloads "
+                "menu." % who)
     m = re.search(r"http error (5\d\d)", lowered)
     if m:
         return ("%s had a problem on its end (error %s). Retry in a minute usually works."
@@ -302,6 +330,12 @@ def row_text(job) -> str:
         return "Already here: " + title
     if st == "failed":
         return "Failed: %s. %s" % (title, job.reason or "")
+    if st in ("waiting", "looking") and job.not_before:
+        import time as _t
+        left = job.not_before - _t.time()
+        when = "in a moment" if left < 5 else ("in about %s" % duration(round(left / 5) * 5) if left < 120
+                                              else "at %s" % clock_time(job.not_before))
+        return "Waiting to try again %s: %s" % (when, title)
     if st == "stopped":
         return "Stopped: " + title
     return "%s: %s" % (STATE_WORDS.get(st, st.capitalize()), title)
@@ -325,6 +359,10 @@ def details_text(job) -> str:
     lines.append("Status: " + row_text(job).split(": ", 1)[0] + ".")
     if job.state == "failed" and job.reason:
         lines.append(job.reason)
+    if job.state in ("waiting", "looking") and job.wait_reason:
+        lines.append(job.wait_reason)
+    if job.note:
+        lines.append(job.note)
     if job.uploader:
         lines.append("By: " + job.uploader)
     if job.length:
@@ -350,3 +388,57 @@ def details_text(job) -> str:
         lines.append("What the download engine said:")
         lines += job.log_tail[-6:]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- transcripts
+
+_TIME = re.compile(r"(\d+):(\d\d):(\d\d)[,.](\d+)\s*-->\s*(\d+):(\d\d):(\d\d)[,.](\d+)")
+
+
+def srt_to_text(srt: str, title: str = "", gap: float = 2.5, para_words: int = 70) -> str:
+    """Captions to readable paragraphs.
+
+    YouTube's automatic captions scroll: each line appears in two or three cues
+    in a row, so read straight through every line comes out two or three times,
+    like a stutter. A line is kept only when it isn't one of the last few kept.
+    A new paragraph starts at a pause longer than `gap` seconds, or after about
+    `para_words` words, so the text can be moved through by paragraph.
+    """
+    out_paras, para, recent = [], [], []
+    last_end, words_in_para = None, 0
+    for block in re.split(r"\n\s*\n", srt.replace("\r", "")):
+        lines = block.strip().split("\n")
+        start = end = None
+        text_lines = []
+        for ln in lines:
+            m = _TIME.search(ln)
+            if m:
+                g = [int(x) for x in m.groups()]
+                start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
+                end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
+            elif ln.strip().isdigit() and not text_lines and start is None:
+                continue
+            elif start is not None:
+                clean = re.sub(r"<[^>]+>", "", ln).strip()
+                clean = re.sub(r"\{\\[^}]*\}", "", clean)  # styling codes
+                if clean:
+                    text_lines.append(clean)
+        if start is None:
+            continue
+        new = [t for t in text_lines if t not in recent]
+        if not new:
+            last_end = max(last_end or 0, end or 0)
+            continue
+        if para and (last_end is not None and start - last_end > gap or words_in_para >= para_words):
+            out_paras.append(" ".join(para))
+            para, words_in_para = [], 0
+        for t in new:
+            para.append(t)
+            words_in_para += len(t.split())
+            recent.append(t)
+            del recent[:-4]
+        last_end = end
+    if para:
+        out_paras.append(" ".join(para))
+    head = [title, ""] if title else []
+    return "\n".join(head + ["\n\n".join(out_paras)]).strip() + "\n"

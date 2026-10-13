@@ -119,12 +119,14 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
         folder = (_safe_folder(spec["subfolder"]).replace("%", "%%") + "/") if spec.get("subfolder") else ""
         args += ["--split-chapters", "-o",
                  "chapter:" + folder + "%(title)s - %(section_number)02d %(section_title)s.%(ext)s"]
-    if spec.get("subtitles"):
+    if spec.get("subtitles") or spec.get("transcript"):
         # "en.*" matches every auto-translated track and earns an HTTP 429.
         args += ["--write-auto-subs", "--write-subs", "--sub-langs", "en,en-orig,en-US,en-GB",
                  "--convert-subs", "srt"]
     if spec.get("cookies"):
         args += ["--cookies-from-browser", spec["cookies"]]
+    if spec.get("rate_limit"):
+        args += ["--limit-rate", spec["rate_limit"]]
     if spec.get("extra"):
         args += shlex.split(spec["extra"])
     return args

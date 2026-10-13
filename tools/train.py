@@ -44,6 +44,11 @@ CASES = [
     ("archive-file", "https://archive.org/download/gd1977-05-08.shure57.stevenson.29303.flac16/"
                      "gd1977-05-08d01t01.flac", {"kind": "mp3"}, {"ext": (".mp3",)}),
     ("direct-mp3", "https://www.learningcontainer.com/wp-content/uploads/2020/02/Kalimba.mp3", {}, {"audio": True}),
+    ("yt-transcript", "https://www.youtube.com/watch?v=gcANcHGf6LQ", {"transcript": True, "kind": "m4a"},
+     {"extra_ext": ".txt", "no_ext": ".srt"}),
+    ("podcast-rss", "https://feeds.npr.org/510289/podcast.xml", {"kind": "best"}, {"playlist": True}),
+    ("apple-podcast", "https://podcasts.apple.com/us/podcast/planet-money/id290783428", {}, {"playlist_or_done": True}),
+    ("spotify-drm", "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC", {}, {"fails_with": "DRM"}),
     ("dead-link", "https://www.youtube.com/watch?v=xxxxxxxxxxx", {}, {"fails_with": "isn't available"}),
     ("not-media", "https://example.com/", {}, {"fails": True}),
     ("bad-extra-flag", ZOO, {"extra": "--no-such-flag"}, {"fails_with": "extra yt-dlp options"}),
@@ -67,10 +72,16 @@ def main():
     for name, url, opts, _ in cases:
         dest = os.path.join(work, "out", name)
         jobs[name] = m.add(Job(url=url, dest=dest, **opts))
+    playlists = {}
+    m.listener = lambda j, w, d=None: playlists.__setitem__(j.id, d) if w == "playlist" else None
     while m.busy() and time.time() - t0 < 900:
-        for j in jobs.values():
-            if j.state == "waiting_choice":
-                m.remove(j)
+        for name, j in list(jobs.items()):
+            if j.state == "waiting_choice" and j.id in playlists:
+                d = playlists.pop(j.id)
+                # A playlist: take its first item, the way a person ticking one would.
+                items = m.expand(j, d["entries"][:1], d["title"])
+                jobs[name] = items[0] if items else j
+                jobs[name].from_playlist = len(d["entries"])
         time.sleep(0.3)
     took = time.time() - t0
     bad = 0
@@ -106,11 +117,19 @@ def main():
                 folder = os.path.join(work, "out", name)
                 if not any(fn.endswith(want["extra_ext"]) for fn in os.listdir(folder) if os.path.isdir(folder)):
                     problems.append("no %s beside it" % want["extra_ext"])
+            if want.get("no_ext"):
+                folder = os.path.join(work, "out", name)
+                if any(fn.endswith(want["no_ext"]) for fn in os.listdir(folder)):
+                    problems.append("a %s was left behind" % want["no_ext"])
+            if want.get("playlist") and not getattr(j, "from_playlist", 0):
+                problems.append("wasn't treated as a playlist")
             if want.get("min_files") and len(files) < want["min_files"]:
                 problems.append("only %d files" % len(files))
             if want.get("name_has") and not any(want["name_has"] in os.path.basename(f) for f in files):
                 problems.append("named %s" % [os.path.basename(f) for f in files])
         bad += bool(problems)
+        if getattr(j, "from_playlist", 0) and not problems:
+            problems = []
         print("%-16s %-4s %s" % (name, "ok" if not problems else "FAIL",
                                  "; ".join(problems) if problems else words.row_text(j)[:90]))
     print("\n%d of %d as expected, %.0f s" % (len(cases) - bad, len(cases), took))

@@ -27,6 +27,7 @@ class Job:
     end: str = ""
     chapters: bool = False
     subtitles: bool = False
+    transcript: bool = False
     cookies: str = ""
     subfolder: str = ""
     index: int = 0
@@ -57,6 +58,10 @@ class Job:
     info_time: float = 0.0
     probed: bool = False
     engine_retry: bool = False
+    net_retries: int = 0
+    not_before: float = 0.0      # waiting to try again: not before this time
+    wait_reason: str = ""
+    note: str = ""               # something worth knowing about a finished download
     tmp: str = ""
     run: int = 0
     added: float = 0.0
@@ -88,11 +93,14 @@ class Job:
             bits.append("split by chapter")
         if self.subtitles:
             bits.append("with subtitles")
+        if self.transcript:
+            bits.append("with a text transcript")
         if self.cookies:
             bits.append("using %s sign-in" % self.cookies.capitalize())
         return ", ".join(bits)
 
     def reset_progress(self):
+        self.not_before, self.wait_reason, self.note = 0.0, "", ""
         self.percent = self.eta = self.speed = None
         self.bytes_done = self.bytes_total = 0
         self.part = self.part_count = 1
@@ -114,6 +122,6 @@ class Job:
     def spec(self) -> dict:
         """What a worker needs to run this download."""
         keys = ("url", "dest", "kind", "max_height", "format_id", "format_audio_only", "start", "end",
-                "chapters", "subtitles", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp",
+                "chapters", "subtitles", "transcript", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp",
                 "info_file", "info_time")
         return {k: getattr(self, k) for k in keys}

@@ -154,26 +154,83 @@ def do_download(yt_dlp, task):
     if code == 0:
         # Chapter files and subtitles are made beside the main file but never reported by
         # yt-dlp's final hook, so the row and Show in Finder knew only the whole file.
+        extra = []
         for path in list(state.get("files", [])):
             folder, base = os.path.split(path)
             stem = os.path.splitext(base)[0]
             try:
                 for name in sorted(os.listdir(folder)):
                     full = os.path.join(folder, name)
-                    if (full not in state["files"] and name.startswith(stem)
+                    if (full not in state["files"] and full not in extra and name.startswith(stem)
                             and os.path.getmtime(full) >= state["started"] - 1):
-                        state["files"].append(full)
-                        emit("file", path=full)
+                        extra.append(full)
             except OSError:
                 pass
+        if spec.get("transcript"):
+            extra = make_transcripts(extra, keep_srt=bool(spec.get("subtitles")))
+        for full in extra:
+            emit("file", path=full)
     emit("end", ok=(code == 0))
+
+
+def make_transcripts(files, keep_srt):
+    """A readable .txt beside each caption file. The .srt goes unless subtitles were asked for."""
+    from . import words
+    out = []
+    srts = [f for f in files if f.lower().endswith(".srt")]
+    for f in files:
+        if f not in srts:
+            out.append(f)
+    if not srts:
+        emit("log", text="NOTRANSCRIPT")
+    for srt in srts:
+        base = os.path.basename(srt)[:-4]
+        title = base.rsplit(".", 1)[0] if "." in base else base  # "Song.en" -> "Song"
+        txt = os.path.join(os.path.dirname(srt), title + " - transcript.txt")
+        try:
+            with open(srt, encoding="utf-8", errors="replace") as fh:
+                text = words.srt_to_text(fh.read(), title)
+            with open(txt, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            out.append(txt)
+        except OSError:
+            keep_srt = True
+        if keep_srt:
+            out.append(srt)
+        else:
+            try:
+                os.remove(srt)
+            except OSError:
+                pass
+    return out
+
+
+def podcast_feed(url: str) -> str | None:
+    """An Apple Podcasts show page, turned into the show's own RSS feed.
+
+    The engine reads single Apple Podcasts episodes but not a show page, and a show page is
+    what people copy. Apple's public directory (the iTunes lookup API, no account) gives the
+    feed, which the engine lists like any playlist.
+    """
+    import re
+    import urllib.request
+    m = re.match(r"https?://podcasts\.apple\.com/.*?/id(\d+)(?:[/?#]|$)", url)
+    if not m or re.search(r"[?&]i=\d+", url):
+        return None
+    try:
+        from .engine import fetch_json
+        data = fetch_json("https://itunes.apple.com/lookup?id=%s" % m.group(1))
+        return (data.get("results") or [{}])[0].get("feedUrl")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def do_probe(yt_dlp, task):
     """Title, length and chosen stream for one link, or the list of a playlist."""
     from .options import probe_args, tool_flags
     from . import engine, words
-    spec = task["spec"]
+    spec = dict(task["spec"])
+    spec["url"] = podcast_feed(spec["url"]) or spec["url"]
     logger = Logger()
     try:
         ydl = _make_ydl(yt_dlp, probe_args(spec) + tool_flags(), logger)
@@ -269,6 +326,17 @@ def do_search(yt_dlp, task):
     emit("end", ok=True)
 
 
+def do_impersonate_check(yt_dlp, task):
+    """How many browsers the engine can pass itself off as. Zero means curl_cffi is missing."""
+    try:
+        ydl = yt_dlp.YoutubeDL({"quiet": True})
+        n = len(list(ydl._get_available_impersonate_targets()))
+    except Exception:  # noqa: BLE001
+        n = 0
+    emit("impersonate", targets=n)
+    emit("end", ok=True)
+
+
 def do_recognise(yt_dlp, task):
     """Which extractor would take this link, offline. Skips the generic one, which takes anything."""
     from yt_dlp.extractor import gen_extractor_classes
@@ -284,7 +352,8 @@ def do_recognise(yt_dlp, task):
     emit("end", ok=True)
 
 
-TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise}
+TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
+         "impersonate": do_impersonate_check}
 
 
 def main() -> int:

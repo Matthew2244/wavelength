@@ -77,6 +77,8 @@ DEFAULTS = {
     "app_announce_progress": 0,   # seconds between spoken progress; 0 = off
     "app_clipboard": True,
     "app_search_site": "youtube",
+    "app_signin_browser": "",     # remembered for Retry Using a Browser's Sign-in
+    "app_rate_limit": "",         # "", "500K", "1M", "5M", "10M"
     "app_welcomed": False,
 }
 

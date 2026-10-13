@@ -81,6 +81,11 @@ class MoreOptions(wx.Dialog):
         self.subs = wx.CheckBox(self, label="Also save English subtitles (.srt)")
         self.subs.SetValue(bool(opts.get("subtitles")))
         s.Add(self.subs, 0, wx.ALL, 6)
+        self.transcript = wx.CheckBox(self, label="Also save a text transcript to read (.txt)")
+        self.transcript.SetValue(bool(opts.get("transcript")))
+        self.transcript.SetToolTip("The captions as plain paragraphs, without timings or repeats. For reading "
+                                   "a talk, lesson or podcast instead of listening, or with a braille display.")
+        s.Add(self.transcript, 0, wx.ALL, 6)
 
         _label = wx.StaticText(self, label="Sign in using:")
         self.browser = wx.Choice(self, choices=[b[1] for b in BROWSERS])
@@ -183,6 +188,7 @@ class MoreOptions(wx.Dialog):
         self.opts.update({
             "start": self.start.GetValue().strip(), "end": self.end.GetValue().strip(),
             "chapters": self.chapters.GetValue(), "subtitles": self.subs.GetValue(),
+            "transcript": self.transcript.GetValue(),
             "cookies": BROWSERS[self.browser.GetSelection()][0], "name": self.name.GetValue().strip(),
             "extra": self.extra.GetValue().strip(),
         })
@@ -199,6 +205,8 @@ def options_summary(opts: dict) -> str:
         bits.append("split by chapter")
     if opts.get("subtitles"):
         bits.append("subtitles")
+    if opts.get("transcript"):
+        bits.append("a text transcript")
     if opts.get("cookies"):
         bits.append("%s sign-in" % opts["cookies"].capitalize())
     if opts.get("name"):
@@ -237,6 +245,14 @@ class Settings(wx.Dialog):
         labelled(self, s, "Pieces fetched at once per download:", self.frags, _label,
                  "Long videos arrive in pieces; fetching several at once is faster on a quick connection.")
 
+        self.rate_vals = ["", "500K", "1M", "2M", "5M", "10M"]
+        _label = wx.StaticText(self, label="Limit download speed:")
+        self.rate = wx.Choice(self, choices=["No limit", "500 KB a second", "1 MB a second", "2 MB a second",
+                                             "5 MB a second", "10 MB a second"])
+        r = cfg.get("app_rate_limit") or ""
+        self.rate.SetSelection(self.rate_vals.index(r) if r in self.rate_vals else 0)
+        labelled(self, s, "Limit download speed:", self.rate, _label,
+                 "Per download. Leaves room for everyone else on a shared or slow connection.")
         self.cover = wx.CheckBox(self, label="Add cover art to audio files")
         self.cover.SetValue(bool(cfg.get("app_cover_art", True)))
         s.Add(self.cover, 0, wx.ALL, 6)
@@ -274,6 +290,7 @@ class Settings(wx.Dialog):
             "app_parallel": self.parallel_vals[self.parallel.GetSelection()],
             "app_per_site": self.site_vals[self.per_site.GetSelection()],
             "app_fragments": self.frag_vals[self.frags.GetSelection()],
+            "app_rate_limit": self.rate_vals[self.rate.GetSelection()],
             "app_cover_art": self.cover.GetValue(), "app_sounds": self.sounds.GetValue(),
             "app_announce_progress": self.say_vals[self.say.GetSelection()],
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),

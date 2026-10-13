@@ -1,5 +1,6 @@
 """Stands in for the real worker in tests: behaviour chosen by the link."""
 import json
+import os
 import sys
 import time
 
@@ -28,10 +29,22 @@ elif task["task"] == "download":
     for k in range(1, 5):
         emit("progress", done=k * 250, total=1000, speed=500, eta=1, part=1, parts=1)
         time.sleep(slow)
-    if "fail" in url:
+    flaky = os.path.join(os.environ.get("FAKE_STATE", "/tmp"), "flaky-" + url.rsplit("/", 1)[-1])
+    if "flaky" in url and not os.path.exists(flaky):
+        open(flaky, "w").close()  # fails the first time only
+        emit("log", text="ERROR: Unable to download: <urlopen error [Errno 54] Connection reset by peer>")
+        emit("end", ok=False)
+    elif "busy" in url and not os.path.exists(flaky):
+        open(flaky, "w").close()
+        emit("log", text="ERROR: [youtube] x: HTTP Error 429: Too Many Requests")
+        emit("end", ok=False)
+    elif "fail" in url:
         emit("log", text="ERROR: [generic] Unable to download webpage: HTTP Error 404: Not Found")
         emit("end", ok=False)
     else:
         emit("stage", text="Converting")
-        emit("file", path="/tmp/fake/%s.m4a" % url.rsplit("/", 1)[-1])
+        out = os.path.join(os.environ.get("FAKE_STATE", "/tmp"), "fake-out", "%s.m4a" % url.rsplit("/", 1)[-1])
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        open(out, "w").close()
+        emit("file", path=out)
         emit("end", ok=True)

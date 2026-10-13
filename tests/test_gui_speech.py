@@ -1,0 +1,67 @@
+"""What the window says when downloads finish. Needs wxPython, so it is skipped where wx isn't installed."""
+import os
+import sys
+
+import pytest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+wx = pytest.importorskip("wx")
+
+from media_download import gui  # noqa: E402
+from media_download.jobs import Job  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def frame(tmp_path_factory):
+    os.environ["MEDIA_DOWNLOAD_TEST_DIR"] = str(tmp_path_factory.mktemp("gui"))
+    gui.MainFrame.startup_checks = lambda self: None
+    app = wx.App(False)
+    f = gui.MainFrame()
+    f.timer.Stop()
+    yield f
+    f.Destroy()
+    app.Destroy()
+
+
+def finish(frame, monkeypatch, jobs, busy, batch_total):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "play", lambda k: None)
+    monkeypatch.setattr(frame.mgr, "busy", lambda: busy)
+    frame.mgr.batch_total = batch_total
+    frame.finished_buffer = list(jobs)
+    frame._speak_finished()
+    return said
+
+
+def job(state, title, **kw):
+    j = Job(url="https://x.com/" + title, dest="/tmp")
+    j.state, j.title = state, title
+    for k, v in kw.items():
+        setattr(j, k, v)
+    return j
+
+
+def test_one_finish_is_named_once(frame, monkeypatch):
+    assert finish(frame, monkeypatch, [job("done", "Song")], busy=True, batch_total=2) == ["Done: Song."]
+
+
+def test_a_note_is_said_with_its_finish(frame, monkeypatch):
+    j = job("done", "Song", note="It has no captions, so there's no transcript.")
+    assert finish(frame, monkeypatch, [j], busy=True, batch_total=2) == [
+        "Done: Song. It has no captions, so there's no transcript."]
+
+
+def test_two_finishes_counted(frame, monkeypatch):
+    said = finish(frame, monkeypatch, [job("done", "A"), job("done", "B")], busy=True, batch_total=3)
+    assert said == ["2 downloads finished."]
+
+
+def test_failure_always_named(frame, monkeypatch):
+    j = job("failed", "Clip", reason="That one is private.")
+    assert finish(frame, monkeypatch, [j], busy=True, batch_total=40) == ["Failed: Clip. That one is private."]
+
+
+def test_end_of_batch_left_to_the_summary(frame, monkeypatch):
+    assert finish(frame, monkeypatch, [job("done", "A")], busy=False, batch_total=3) == []

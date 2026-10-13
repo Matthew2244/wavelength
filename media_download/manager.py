@@ -94,6 +94,10 @@ class Manager:
         self.batch_started = None
         self.batch_counts = {"done": 0, "failed": 0}
         self.batch_total = 0
+        self.site_pause: dict[str, float] = {}
+        self.wake_timer = None
+        self.wake_when = None
+        self.notices: list = []
 
     # ------------------------------------------------------------ limits
 
@@ -196,6 +200,8 @@ class Manager:
             if job.state in ACTIVE:
                 return
             job.reset_progress()
+            job.net_retries = 0
+            self.site_pause.pop(job.site, None)  # asked for by hand: don't keep making them wait
             job.state = "waiting" if job.probed else "looking"
             job.finished = 0.0
             if self.batch_started is None:
@@ -226,7 +232,7 @@ class Manager:
         made = []
         for k, e in enumerate(entries):
             spec = {f: getattr(job, f) for f in ("dest", "kind", "max_height", "start", "end", "chapters",
-                                                  "subtitles", "cookies", "extra", "cover_art")}
+                                                  "subtitles", "transcript", "cookies", "extra", "cover_art")}
             item = Job(url=e["url"], subfolder=folder, index=(e.get("number") or k + 1) if numbered else 0,
                        **spec)
             item.title = e.get("title") or ""
@@ -244,6 +250,10 @@ class Manager:
 
     def pump(self) -> None:
         """Start whatever the limits allow."""
+        with self.lock:
+            notices, self.notices = self.notices, []
+        for kind, site, until in notices:
+            self.listener(None, kind, {"site": site, "until": until})
         start_probe, start_dl = [], []
         with self.lock:
             running = [j for j in self.jobs if j.state in ("downloading", "converting")]
@@ -254,7 +264,13 @@ class Manager:
                 if j.state == "downloading":
                     per_site[j.site] = per_site.get(j.site, 0) + 1
             free = self.parallel() - len(running)
+            now = time.time()
+            wake = []
             for j in self.jobs:
+                hold = max(j.not_before, self.site_pause.get(j.site, 0)) if j.state in ("looking", "waiting") else 0
+                if hold > now:
+                    wake.append(hold)
+                    continue
                 if j.state == "looking" and j.id not in self.procs and self.probing < PROBE_AT_ONCE:
                     self.probing += 1
                     j.run += 1
@@ -268,12 +284,61 @@ class Manager:
                     j.run += 1
                     self.procs[j.id] = (j.run, None)
                     start_dl.append((j, j.run))
+            if wake:
+                self._wake_at(min(wake))
         for j, run in start_probe:
             threading.Thread(target=self._run_probe, args=(j, run), daemon=True).start()
         for j, run in start_dl:
             self.listener(j, "changed")
             threading.Thread(target=self._run_download, args=(j, run), daemon=True).start()
         self._check_all_done()
+
+    def _wake_at(self, when: float) -> None:
+        """Pump again when the earliest wait is over (lock held)."""
+        if self.wake_timer and self.wake_when and self.wake_when <= when:
+            return
+        if self.wake_timer:
+            self.wake_timer.cancel()
+        self.wake_when = when
+        self.wake_timer = threading.Timer(max(0.1, when - time.time() + 0.2), self._woken)
+        self.wake_timer.daemon = True
+        self.wake_timer.start()
+
+    def _woken(self):
+        with self.lock:
+            self.wake_timer = self.wake_when = None
+        self.pump()
+        with self.lock:
+            due = [j for j in self.jobs if j.state in ("waiting", "looking")]
+        for j in due:
+            self.listener(j, "changed")
+
+    def _try_later(self, job: Job, text: str) -> bool:
+        """Network trouble or a "slow down": wait and try again by itself. True if it will (lock held).
+
+        A connection that drops or a server error waits 15 seconds, then a minute. A site that
+        says too many requests (429) pauses every download from that site for 5, then 10, then
+        15 minutes: hammering it again is how a short pause becomes a long block.
+        """
+        now = time.time()
+        if words.is_rate_limited(text) and job.net_retries < 3:
+            job.net_retries += 1
+            until = now + 300 * job.net_retries
+            first = self.site_pause.get(job.site, 0) < now
+            self.site_pause[job.site] = max(self.site_pause.get(job.site, 0), until)
+            job.not_before = self.site_pause[job.site]
+            job.wait_reason = ("%s asked for fewer downloads, so everything from it is paused. Trying again at %s."
+                               % (job.site or "The site", words.clock_time(job.not_before)))
+            if first:
+                self.notices.append(("site_paused", job.site, job.not_before))
+            return True
+        if words.is_transient(text) and job.net_retries < 2:
+            delay = (15, 60)[job.net_retries]
+            job.net_retries += 1
+            job.not_before = now + delay
+            job.wait_reason = "Lost the connection, or the site had a problem. Trying again by itself."
+            return True
+        return False
 
     def _check_all_done(self):
         with self.lock:
@@ -341,6 +406,8 @@ class Manager:
                     elif ok:
                         job.state = "waiting"
                         job.probed = True
+                    elif self._try_later(job, "\n".join(log)):
+                        job.state = "looking"  # look it up again once the wait is over
                     else:
                         job.state = "failed"
                         job.log_tail = log[-12:]
@@ -356,7 +423,9 @@ class Manager:
 
     def _run_download(self, job: Job, run: int) -> None:
         log, files, ok, already = [], [], False, False
-        task = {"task": "download", "spec": job.spec(),
+        spec = job.spec()
+        spec["rate_limit"] = self.settings.get("app_rate_limit") or ""
+        task = {"task": "download", "spec": spec,
                 "fragments": int(self.settings.get("app_fragments") or 4)}
         try:
             proc = self._spawn(job, task, run)
@@ -400,7 +469,8 @@ class Manager:
                 mine = job.run == run
                 if job.state in ACTIVE and mine:
                     job.finished = time.time()
-                    job.files = files
+                    # Only what's really there: a cover image is downloaded, embedded, then deleted.
+                    job.files = [f for f in dict.fromkeys(files) if os.path.exists(f)]
                     job.log_tail = log[-12:]
                     if job.info_file:
                         try:
@@ -409,6 +479,8 @@ class Manager:
                             pass
                         job.info_file = ""
                     if ok:
+                        if any("NOTRANSCRIPT" in ln for ln in log):
+                            job.note = "It has no captions, so there's no transcript."
                         self._drop_temp(job)
                         job.state = "skipped" if already and not files else "done"
                         job.stage = ""
@@ -419,6 +491,10 @@ class Manager:
                             except OSError:
                                 pass
                         self.batch_counts["done"] += 1
+                    elif self._try_later(job, "\n".join(log)):
+                        job.state = "waiting"
+                        job.stage = ""
+                        job.files = []
                     else:
                         text = "\n".join(log)
                         if (self.settings.get("auto_update", True) and not job.engine_retry
