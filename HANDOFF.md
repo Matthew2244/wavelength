@@ -251,7 +251,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   found five real bugs.
 - Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
   tallies in two minutes.
-- 47 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
+- 46 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
   spoken sentences and needs wx) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,
