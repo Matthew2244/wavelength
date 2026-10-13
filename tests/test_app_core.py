@@ -514,3 +514,18 @@ def test_job_takes_exact_date_over_approximate():
     j.take_when({"uploaded_ts": 1, "approx": True})  # a later guess never replaces a real date
     assert j.upload_date == "20231114"
     assert "Uploaded November 14, 2023." in words.details_text(j)
+
+
+def test_every_sound_set_is_complete():
+    """Each set in Settings has every sound, for the Mac (MP3) and Windows (WAV), and its credits."""
+    from media_download import system
+    root = os.path.join(ROOT, "assets", "sounds")
+    credits = open(os.path.join(root, "CREDITS.md")).read().lower()
+    for key, _ in system.THEMES:
+        if key == "system":
+            continue
+        for kind, _, _ in system.SOUNDS:
+            for ext in (".mp3", ".wav"):
+                path = os.path.join(root, key, kind + ext)
+                assert os.path.getsize(path) > 1000, path
+        assert key in credits, key

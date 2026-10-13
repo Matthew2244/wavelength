@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.5.0 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.5.1 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.5.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.5.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -257,8 +257,13 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    with no label before it (the progress bar).
 21. **The app's sounds are files, in themes**: `assets/sounds/<theme>/<event>.mp3`
    (Mac, afplay, with `-v` for Settings' volume) and `.wav` (Windows, winsound).
-   Themes `rhodes` (default), `kalimba`, `soft` (Kenney Interface Sounds, CC0,
-   `CREDITS.md` and `soft/LICENSE-kenney.txt`), plus `system` (macOS sounds).
+   Themes `rhodes` (default), `kalimba`, `pizzicato`, `steel`, `sax`, `retro`
+   (Kenney Music Jingles, CC0) and `soft` (Kenney Interface Sounds, CC0), each
+   Kenney set with its `LICENSE-kenney.txt`, all in `CREDITS.md`; plus `system`
+   (macOS sounds). **Only CC0 or Matthew's own sounds go in**: the repo is
+   public, so every file in it is redistributed. Epidemic Sound was offered on
+   2026-10-13 (a friend's account) and declined for that reason; Matthew chose
+   more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
    Eleven events, listed in `system.SOUNDS` with their words and system fallback:
    done, failed, item_done, added, stopped, waiting, results, no_more, copied,
    update, queue_end. `system.cue(kind)` plays one from any window through the
@@ -334,6 +339,9 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **2.5.1** (2026-10-13): four more sound sets from Kenney's Music Jingles
+  (pizzicato, steel, sax, retro). Matthew heard the first three and called them
+  great; the new four have auditions in iCloud, not yet heard.
 - **2.5.0** (2026-10-13): upload dates and views on every result, Order in
   Search, right-click menus everywhere (VO-Shift-M verified on the built app),
   three sound sets of eleven sounds, Settings, Sounds. Real lookups: a YouTube

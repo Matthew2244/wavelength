@@ -450,7 +450,8 @@ SOUNDS = [
     ("queue_end", "The player reached the end", "Submarine"),
 ]
 SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
-THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("soft", "Soft clicks"),
+THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("pizzicato", "Pizzicato strings"),
+          ("steel", "Steel drums"), ("sax", "Saxophone"), ("retro", "8-bit retro"), ("soft", "Soft clicks"),
           ("system", "The system's own sounds")]
 
 
