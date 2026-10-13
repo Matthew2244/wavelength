@@ -57,6 +57,7 @@ class Job:
     info_time: float = 0.0
     probed: bool = False
     engine_retry: bool = False
+    run: int = 0
     added: float = 0.0
     finished: float = 0.0
 

@@ -85,7 +85,9 @@ class Manager:
         self.listener = listener or (lambda job, what, data=None: None)
         self.jobs: list[Job] = []
         self.lock = threading.RLock()
-        self.procs: dict[int, subprocess.Popen] = {}
+        # job id -> (run number, process or None while starting). A job's run number goes up
+        # each time it starts, so a stopped run finishing late can never touch the next run.
+        self.procs: dict[int, tuple] = {}
         self.probing = 0
         self.dirty = False
         self.updating_engine = False
@@ -159,7 +161,8 @@ class Manager:
 
     def stop(self, job: Job, quiet: bool = False) -> None:
         with self.lock:
-            proc = self.procs.pop(job.id, None)
+            entry = self.procs.pop(job.id, None)
+            proc = entry[1] if entry else None
             if job.state in ACTIVE or job.state == "waiting":
                 job.state = "stopped"
                 job.stage = ""
@@ -245,20 +248,22 @@ class Manager:
             for j in self.jobs:
                 if j.state == "looking" and j.id not in self.procs and self.probing < PROBE_AT_ONCE:
                     self.probing += 1
-                    self.procs[j.id] = None  # reserved
-                    start_probe.append(j)
+                    j.run += 1
+                    self.procs[j.id] = (j.run, None)  # reserved
+                    start_probe.append((j, j.run))
                 elif j.state == "waiting" and free > 0 and per_site.get(j.site, 0) < self.per_site():
                     free -= 1
                     per_site[j.site] = per_site.get(j.site, 0) + 1
                     j.state = "downloading"
                     j.percent = None
-                    self.procs[j.id] = None
-                    start_dl.append(j)
-        for j in start_probe:
-            threading.Thread(target=self._run_probe, args=(j,), daemon=True).start()
-        for j in start_dl:
+                    j.run += 1
+                    self.procs[j.id] = (j.run, None)
+                    start_dl.append((j, j.run))
+        for j, run in start_probe:
+            threading.Thread(target=self._run_probe, args=(j, run), daemon=True).start()
+        for j, run in start_dl:
             self.listener(j, "changed")
-            threading.Thread(target=self._run_download, args=(j,), daemon=True).start()
+            threading.Thread(target=self._run_download, args=(j, run), daemon=True).start()
         self._check_all_done()
 
     def _check_all_done(self):
@@ -270,16 +275,20 @@ class Manager:
             self.batch_started = None
         self.listener(None, "all_done", {"took": took, **counts})
 
-    def _spawn(self, job: Job, task: dict):
+    def _spawn(self, job: Job, task: dict, run: int):
         with self.lock:
-            if self.procs.get(job.id, "gone") is not None:
-                return None  # stopped or removed before it started
-            if job.state not in ACTIVE:
-                self.procs.pop(job.id, None)
-                return None
+            if self.procs.get(job.id) != (run, None) or job.run != run or job.state not in ACTIVE:
+                self._release(job, run)
+                return None  # stopped, removed or restarted before it started
             proc = _popen(task)
-            self.procs[job.id] = proc
+            self.procs[job.id] = (run, proc)
             return proc
+
+    def _release(self, job: Job, run: int) -> None:
+        """Forget this run's process, but only if it is still this run's (lock held)."""
+        entry = self.procs.get(job.id)
+        if entry and entry[0] == run:
+            del self.procs[job.id]
 
     def _events(self, job: Job, proc):
         for line in proc.stdout:
@@ -289,15 +298,15 @@ class Manager:
                 continue
         proc.wait()
 
-    def _run_probe(self, job: Job) -> None:
+    def _run_probe(self, job: Job, run: int) -> None:
         playlist, ok, log = None, False, []
         try:
-            proc = self._spawn(job, {"task": "probe", "spec": job.spec()})
+            proc = self._spawn(job, {"task": "probe", "spec": job.spec()}, run)
             if proc is None:
                 return
             for ev in self._events(job, proc):
                 e = ev.get("ev")
-                if e == "info":
+                if e == "info" and job.run == run:
                     with self.lock:
                         job.title = ev.get("title") or job.title
                         job.length = ev.get("duration") or 0
@@ -315,8 +324,8 @@ class Manager:
         finally:
             with self.lock:
                 self.probing -= 1
-                stopped = job.state != "looking"
-                self.procs.pop(job.id, None)
+                stopped = job.state != "looking" or job.run != run
+                self._release(job, run)
                 if not stopped:
                     if playlist is not None:
                         job.state = "waiting_choice"
@@ -336,17 +345,19 @@ class Manager:
             self.listener(job, "changed" if stopped or ok else "finished")
         self.pump()
 
-    def _run_download(self, job: Job) -> None:
+    def _run_download(self, job: Job, run: int) -> None:
         log, files, ok, already = [], [], False, False
         task = {"task": "download", "spec": job.spec(),
                 "fragments": int(self.settings.get("app_fragments") or 4)}
         try:
-            proc = self._spawn(job, task)
+            proc = self._spawn(job, task, run)
             if proc is None:
                 return
             for ev in self._events(job, proc):
                 e = ev.get("ev")
                 with self.lock:
+                    if job.run != run:
+                        break  # stopped and started again: this run's news is stale
                     if e == "progress":
                         job.state = "downloading"
                         job.bytes_done = ev.get("done") or 0
@@ -376,8 +387,9 @@ class Manager:
         finally:
             retry_engine = False
             with self.lock:
-                self.procs.pop(job.id, None)
-                if job.state in ACTIVE:
+                self._release(job, run)
+                mine = job.run == run
+                if job.state in ACTIVE and mine:
                     job.finished = time.time()
                     job.files = files
                     job.log_tail = log[-12:]
@@ -415,7 +427,8 @@ class Manager:
         if retry_engine:
             self._update_engine_then_retry(job)
             return
-        self.listener(job, "finished")
+        if mine:
+            self.listener(job, "finished")
         self.pump()
 
     def _update_engine_then_retry(self, job: Job) -> None:
@@ -493,7 +506,7 @@ class Manager:
 
     def shutdown(self) -> None:
         with self.lock:
-            procs = [p for p in self.procs.values() if p]
+            procs = [e[1] for e in self.procs.values() if e and e[1]]
             for j in self.jobs:
                 if j.state in ACTIVE or j.state == "waiting":
                     j.state = "stopped"

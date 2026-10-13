@@ -596,7 +596,11 @@ class MainFrame(wx.Frame):
         done = [j for j in jobs if j.state in ("done", "skipped")]
         failed = [j for j in jobs if j.state == "failed"]
         big = self.mgr.batch_total > 3
+        # When the whole batch is over, "All downloads finished" says it; don't say it twice.
+        summary_coming = not self.mgr.busy() and self.mgr.batch_total > 1
         bits = []
+        if summary_coming:
+            done = []
         if done and not big:
             if len(done) == 1:
                 j = done[0]
@@ -609,7 +613,7 @@ class MainFrame(wx.Frame):
             bits.append("%d of %d done." % (c["done"], self.mgr.batch_total))
         if len(failed) == 1:
             bits.append("Failed: %s. %s" % (failed[0].title or failed[0].url, failed[0].reason))
-        elif failed:
+        elif failed and not summary_coming:
             bits.append("%s failed." % words.n(len(failed), "download"))
         if bits:
             self.tell(" ".join(bits))

@@ -106,7 +106,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
-- 21 unit and scheduler tests (`tests/`, fake worker, offline); CI runs them on
+- 22 unit and scheduler tests (one hammers Stop and Retry) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,
   SoundCloud, archive.org FLAC, an archive.org playlist of 8 to MP3 (51 s at

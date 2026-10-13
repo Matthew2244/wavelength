@@ -224,3 +224,16 @@ def test_playlist_items_named_from_the_listing():
     t = options.output_template({"subfolder": "Barton Hall", "index": 2, "item_title": "Lazy Lightning>Supplication"})
     assert t.startswith("Barton Hall/002 - Lazy Lightning")
     assert t.endswith(".%(ext)s")
+
+
+def test_stop_and_retry_hammered_never_strands_a_download(fake):
+    """A stopped run finishing late must never touch the next run (a race CI found)."""
+    m, _ = fake
+    jobs = [m.add(Job(url="https://s%d.com/slow" % i, dest="/tmp")) for i in range(4)]
+    for _ in range(6):
+        for j in jobs:
+            wait(lambda: j.state in ("downloading", "converting", "done"), 5)
+            m.stop(j)
+            m.retry(j)
+    assert wait(lambda: all(j.state == "done" for j in jobs), 40), [j.state for j in jobs]
+    assert not m.procs
