@@ -196,3 +196,92 @@ def test_sounds_never_play_on_top_of_each_other(frame, monkeypatch):
     frame._sound("done")
     assert played == ["failed"]
     assert len(later) == 1 and 1000 <= later[0][0] <= 1400 and later[0][2] == ("done",)
+
+
+# ---- Search is an ordinary window, so it can never hold the whole app's keyboard
+
+def _drain():
+    for _ in range(5):
+        wx.GetApp().ProcessPendingEvents()
+        wx.Yield()
+
+
+def test_search_opens_once_and_closes_for_good(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    frame.link.SetValue("")
+    frame.on_search(None)
+    first = frame.search_win
+    assert isinstance(first, wx.Frame) and first.GetMenuBar()  # its own menus, never borrowed
+    frame.on_search(None)  # Command-F again brings the same one forward
+    assert frame.search_win is first
+    first.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))  # Close, Escape, Command-W
+    assert frame.search_win is None
+    _drain()
+    assert not [w for w in wx.GetTopLevelWindows() if isinstance(w, gui.dialogs.Search)]
+
+
+def test_search_download_ticked_adds_rows(frame, monkeypatch):
+    added = []
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(frame.mgr, "add", lambda j: added.append(j))
+    monkeypatch.setattr(frame, "folder_ready", lambda: True)
+    frame.on_search(None)
+    dlg = frame.search_win
+    dlg._show("q", "YouTube", [{"url": "https://y.example/1", "title": "One"},
+                               {"url": "https://y.example/2", "title": "Two"}])
+    dlg.list.Check(1)
+    dlg._count()
+    dlg.ok.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_OK))
+    assert [j.title for j in added] == ["Two"]
+    assert frame.search_win is None
+    _drain()
+
+
+def test_key_words():
+    c = "Command" if sys.platform == "darwin" else "Control"
+    assert gui.key_words("Ctrl+Shift+.") == c + "-Shift-Period"
+    assert gui.key_words("Ctrl+W") == c + "-W"
+    assert gui.key_words("Ctrl+=") == c + "-Plus"
+
+
+def test_shortcut_list_comes_from_the_menus(frame):
+    frame.show_shortcuts()
+    text = frame.details.GetValue()
+    c = "Command" if sys.platform == "darwin" else "Control"
+    for want in (c + "-W: Close Window", c + "-P: Play", c + "-Period: Stop", c + "-2: Go to the Player"):
+        assert want in text, want
+
+
+def test_search_again_keeps_ticks(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    searched = []
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    monkeypatch.setattr(dlg, "on_search", lambda e: searched.append(dlg.query.GetValue()))
+    dlg.last_query = "piano"
+    dlg._show("piano", "YouTube", [{"url": "https://y.example/1", "title": "One"}])
+    dlg.list.Check(0)
+    dlg._count()
+    frame.on_search(None, query="piano")  # Command-F with the same words: keep the ticks
+    assert searched == [] and dlg.list.IsChecked(0)
+    frame.on_search(None, query="organ")  # new words: search
+    assert searched == ["organ"]
+    dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
+    _drain()
+
+
+def test_search_never_clears_a_link_typed_since(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    added = []
+    monkeypatch.setattr(frame.mgr, "add", lambda j: added.append(j))
+    monkeypatch.setattr(frame, "folder_ready", lambda: True)
+    frame.link.SetValue("some words")
+    frame.on_search(None)
+    dlg = frame.search_win
+    frame.link.SetValue("https://example.com/new")
+    dlg._show("q", "YouTube", [{"url": "https://y.example/1", "title": "One"}])
+    dlg.list.Check(0)
+    dlg._count()
+    dlg.ok.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_OK))
+    assert len(added) == 1 and frame.link.GetValue() == "https://example.com/new"
+    _drain()

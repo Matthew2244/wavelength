@@ -281,6 +281,15 @@ class PlayerFrame(wx.Frame):
         add("Download This\tCtrl+S", self.download_this)
         add("Show the File\tCtrl+R", self.show_file)
         add("Close Player\tCtrl+W", self.Close)
+        add("Go to the Downloads Window\tCtrl+1", self.to_main)
+        m.AppendSeparator()
+        # Quit, Settings and About belong to the app, not the window: on the Mac they live in the
+        # app menu, which takes them from whichever window is in front. Without them here,
+        # Command-Q did nothing while the player was in front.
+        add("&Quit\tCtrl+Q", lambda: self.main.Close(), wx.ID_EXIT)
+        if sys.platform == "darwin":
+            add("Settings...\tCtrl+,", lambda: self.main.on_settings(None), wx.ID_PREFERENCES)
+            add("About", lambda: self.main.on_about(None), wx.ID_ABOUT)
         bar.Append(m, "&Playback")
         self.SetMenuBar(bar)
 
@@ -889,7 +898,12 @@ class PlayerFrame(wx.Frame):
         self.Hide()
         if event.CanVeto():
             event.Veto()
-        self.main.Raise()
+        # Back to Search if it's open (a preview started there), else the downloads window.
+        back = getattr(self.main, "search_win", None) or self.main
+        back.Raise()
+
+    def to_main(self):
+        self.main.on_to_main()
 
     def shutdown(self):
         """Before the app quits: stop, then let AVFoundation's last notices arrive while the

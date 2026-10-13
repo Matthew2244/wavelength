@@ -262,11 +262,31 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    spaces them 1.4 s apart so a failure and the end of a batch don't play on
    top of each other. If the files are missing, the system's Glass and Basso
    play instead.
-22. From the classic app, still true for the command: a GUI-launched process gets
+22. **Never open a window over a modal one, and never make a window that
+   borrows another's menu bar.** Search used to be a modal dialog; Play Selected
+   raised the player over it, the modal kept the whole app's keyboard, and
+   Command-Q, Command-W, the close button and every shortcut did nothing while
+   Search sat unseen behind (Matthew, 2026-10-13). As a modeless *dialog* on the
+   Mac it would have borrowed the last menu bar shown: Command-Delete in the
+   results removing a download from the main list, Command-W closing the player.
+   So Search is a `wx.Frame` with its own menus (File, Edit, View), and every
+   window carries Quit, Settings and About so Command-Q works from any of them.
+   Audio Description stays modal but closes before the player opens
+   (`wx.CallAfter`). Command-1 is the downloads window, Command-2 the player,
+   from anywhere. Any new window: its own menu bar, or modal and opening nothing.
+23. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
+
+- **2.4.5** (2026-10-13): the stuck-window fix above. A real off-screen window
+  with Search open and the player playing quits on Command-Q in 3 s with no
+  window left; Command-W in Search closes only Search; Quit from the player's
+  menu quits. An independent keyboard, NVDA, mouse and first-run read found the
+  borrowed-menu and Audio Description faults, both fixed. Keyboard Shortcuts in
+  Help is now read from the menus, so it can't fall behind them (it was missing
+  more than a dozen).
 
 - **2.4.4** (2026-10-13): an independent read of the whole app for Windows and
   Mac faults found 14, all fixed with tests where wx allows: a "Just That One"

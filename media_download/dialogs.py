@@ -475,65 +475,161 @@ class PlaylistQuestion(wx.Dialog):
         (b_one if can_single else b_choose).SetFocus()
 
 
-class Search(wx.Dialog):
-    """Search a site by words and tick what to download, without visiting the site."""
+class Search(wx.Frame):
+    """Search a site by words and tick what to download, without visiting the site.
 
-    def __init__(self, parent, query: str, site: str, run_search, play=None, player=None):
-        super().__init__(parent, title="Search", size=(760, 600), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+    A window of its own, with its own menu bar, not a dialog. As a modal dialog it held the
+    whole app's keyboard: with the player raised over it, Quit, Close and every shortcut did
+    nothing. As a modeless dialog on the Mac it borrowed whichever menu bar was up last, so
+    Command-Delete in the results could remove a download from the main list, and Command-W
+    after a preview closed the player instead. Its own menus settle both."""
+
+    def __init__(self, parent, query: str, site: str, run_search, play=None, player=None, on_done=None):
+        super().__init__(parent, title="Search", size=(760, 600))
+        self.main = parent
         self.run_search = run_search
+        self.on_done = on_done  # (window, chosen entries), when it closes
         self.results = []
+        self.last_query = ""
+        p = self.panel = wx.Panel(self)  # a panel gives a frame Tab between controls
         s = wx.BoxSizer(wx.VERTICAL)
         top = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(self, label="Search for:")
-        self.query = wx.TextCtrl(self, value=query, style=wx.TE_PROCESS_ENTER)
+        lab = wx.StaticText(p, label="Search for:")
+        self.query = wx.TextCtrl(p, value=query, style=wx.TE_PROCESS_ENTER)
         mac_accessibility_label(self.query, "Search for")
         top.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.query, 1, wx.RIGHT, 6)
-        self.site = wx.Choice(self, choices=[name for _, name, _ in SEARCH_SITES])
+        on_lab = wx.StaticText(p, label="on")
+        self.site = wx.Choice(p, choices=[name for _, name, _ in SEARCH_SITES])
         keys = [k for k, _, _ in SEARCH_SITES]
         self.site.SetSelection(keys.index(site) if site in keys else 0)
         mac_accessibility_label(self.site, "Search on")
-        top.Add(wx.StaticText(self, label="on"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        top.Add(on_lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.site, 0, wx.RIGHT, 6)
-        self.go = wx.Button(self, label="Search")
+        self.go = wx.Button(p, label="Search")
         top.Add(self.go, 0)
         s.Add(top, 0, wx.EXPAND | wx.ALL, 8)
-        self.status = wx.StaticText(self, label="Type words and press Return.")
+        self.status = wx.StaticText(p, label="Type words and press Return.")
         s.Add(self.status, 0, wx.ALL, 6)
-        self.list = wx.CheckListBox(self, choices=[])
+        self.list = wx.CheckListBox(p, choices=[])
         mac_accessibility_label(self.list, "Results")
         s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
-        brow, self.ok, _ = buttons(self, "Download Ticked", "Close")
-        self.ok.Disable()
+        brow = wx.BoxSizer(wx.HORIZONTAL)
+        brow.AddStretchSpacer()
+        self.cancel = wx.Button(p, wx.ID_CANCEL, "Close")
+        self.cancel.SetToolTip("Closes Search without downloading (Escape, or %s-W)." % CMD)
+        brow.Add(self.cancel, 0, wx.ALL, 6)
         self.play = play
         self.get_player = player or (lambda: None)
         if play:
-            self.play_btn = wx.Button(self, label="Play Selected")
+            self.play_btn = wx.Button(p, label="Play Selected")
             self.play_btn.SetToolTip("Listen to the selected result without downloading it, to check it's the "
-                                     "right one; press again to pause (%s-P). The search stays open."
-                                     % ("Command" if sys.platform == "darwin" else "Control"))
-            self.SetAcceleratorTable(wx.AcceleratorTable([(wx.ACCEL_CTRL, ord("P"), self.play_btn.GetId())]))
+                                     "right one; press again to pause (%s-P). The search stays open." % CMD)
             self.list.Bind(wx.EVT_LISTBOX, lambda e: self._preview_label())
-            brow.Insert(1, self.play_btn, 0, wx.ALL, 6)
+            brow.Add(self.play_btn, 0, wx.ALL, 6)
             self.play_btn.Bind(wx.EVT_BUTTON, self.on_play)
+        self.ok = wx.Button(p, wx.ID_OK, "Download Ticked")
+        self.ok.SetToolTip("Adds the ticked results to the downloads list and closes Search (%s-Return)." % CMD)
+        brow.Add(self.ok, 0, wx.ALL, 6)
+        self.ok.Disable()
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
-        self.SetSizer(s)
+        p.SetSizer(s)
+        self._menus()
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
         self.query.Bind(wx.EVT_TEXT_ENTER, self.on_search)
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate)
+        self.ok.Bind(wx.EVT_BUTTON, lambda e: self.download_ticked())
+        self.cancel.Bind(wx.EVT_BUTTON, lambda e: self._finish([]))
+        self.Bind(wx.EVT_CLOSE, lambda e: self._finish([]))
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
         self.query.SetFocus()
         if query.strip():
             wx.CallAfter(self.on_search, None)
 
+    def _menus(self):
+        bar = wx.MenuBar()
+
+        def add(menu, label, fn, wid=wx.ID_ANY):
+            item = menu.Append(wid, label)
+            self.Bind(wx.EVT_MENU, lambda e: fn(), item)
+        f = wx.Menu()
+        add(f, "&Search\tCtrl+F", lambda: (self.query.SetFocus(), self.query.SelectAll()))
+        add(f, "&Download Ticked\tCtrl+Return", self.download_ticked)
+        if self.play:
+            add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
+        f.AppendSeparator()
+        add(f, "Close Searc&h\tCtrl+W", lambda: self._finish([]))
+        add(f, "&Quit\tCtrl+Q", lambda: self.main.Close(), wx.ID_EXIT)
+        if sys.platform == "darwin":
+            add(f, "Settings...\tCtrl+,", lambda: self.main.on_settings(None), wx.ID_PREFERENCES)
+            add(f, "About", lambda: self.main.on_about(None), wx.ID_ABOUT)
+        ed = wx.Menu()  # on the Mac, Command-V in a field needs a Paste item to answer it
+        ed.Append(wx.ID_UNDO, "&Undo\tCtrl+Z")
+        ed.AppendSeparator()
+        ed.Append(wx.ID_CUT, "Cu&t\tCtrl+X")
+        ed.Append(wx.ID_COPY, "&Copy\tCtrl+C")
+        ed.Append(wx.ID_PASTE, "&Paste\tCtrl+V")
+        ed.Append(wx.ID_SELECTALL, "Select &All\tCtrl+A")
+        v = wx.Menu()
+        add(v, "Go to the Search &Field\tCtrl+L", lambda: self.query.SetFocus())
+        add(v, "Go to the &Results\tCtrl+D", lambda: self.list.SetFocus())
+        v.AppendSeparator()
+        add(v, "Go to the D&ownloads Window\tCtrl+1", self.main.on_to_main)
+        add(v, "Go to the &Player\tCtrl+2", self.main.on_to_player)
+        bar.Append(f, "&File")
+        bar.Append(ed, "&Edit")
+        bar.Append(v, "&View")
+        self.SetMenuBar(bar)
+
+    def on_key(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE and not event.HasAnyModifiers():
+            self._finish([])
+        else:
+            event.Skip()
+
+    def download_ticked(self):
+        chosen = self.chosen()
+        if not chosen:
+            self.status.SetLabel("Nothing ticked yet. Tick results with Space, then Download Ticked.")
+            from .system import announce
+            announce(self.status.GetLabel())
+            return
+        self._finish(chosen)
+
+    def show_again(self, q: str):
+        """Brought forward by the main window (Command-F, or words in the Link field). A new
+        query searches; the same one keeps the results and what's ticked."""
+        self.Raise()
+        if q and q != self.last_query:
+            self.query.SetValue(q)
+            self.on_search(None)
+        elif self.results:
+            self.list.SetFocus()
+        else:
+            self.query.SetFocus()
+
     def site_key(self):
         return SEARCH_SITES[self.site.GetSelection()][0]
+
+    def _finish(self, chosen):
+        """Close for good. A modeless dialog's Cancel only hides it, which left an invisible
+        Search window behind; destroy it instead, then hand over what was ticked."""
+        if getattr(self, "_finished", False):  # Command-W can arrive by menu and by accelerator
+            return
+        self._finished = True
+        done, self.on_done = self.on_done, None
+        self.Hide()
+        if done:
+            done(self, chosen)
+        wx.CallAfter(lambda: self and self.Destroy())
 
     def on_search(self, _):
         q = self.query.GetValue().strip()
         if not q:
             self.query.SetFocus()
             return
+        self.last_query = q
         self.go.Disable()
         site = SEARCH_SITES[self.site.GetSelection()][1]
         self.status.SetLabel("Searching %s for %s..." % (site, q))
@@ -568,7 +664,7 @@ class Search(wx.Dialog):
             from .system import announce
             announce("%d ticked." % k)
         self.ok.Enable(k > 0)
-        self.Layout()
+        self.panel.Layout()
 
     def on_activate(self, _):
         i = self.list.GetSelection()
@@ -588,13 +684,16 @@ class Search(wx.Dialog):
         return None
 
     def _preview_label(self):
+        if not self:
+            return
         pl = self._previewing()
         self.play_btn.SetLabel("Pause Preview" if pl and pl.loaded and pl.playing() else "Play Selected")
-        self.Layout()
+        self.panel.Layout()
 
     def on_play(self, _):
-        """Play the selected result; press again to pause. The Search window keeps the keyboard
-        while it's open, so the player's own keys can't reach it: this button stands in."""
+        """Play the selected result; press again to pause. The player opens behind Search and
+        the keyboard stays here, so you can go on through the results; this button stands in for
+        the player's own Space."""
         i = self.list.GetSelection()
         if i == wx.NOT_FOUND or i >= len(self.results):
             self.status.SetLabel("Select a result first, then Play Selected.")
@@ -604,6 +703,8 @@ class Search(wx.Dialog):
             pl.toggle()
         else:
             self.play([self.results[i]])
+            self.Raise()
+            self.list.SetFocus()
             self.status.SetLabel("Getting %s ready to play." % (self.results[i].get("title") or "it"))
         wx.CallLater(400, self._preview_label)
 
@@ -626,6 +727,7 @@ class DescribeDialog(wx.Dialog):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(self, label="Play")
         self.dl_btn = wx.Button(self, label="Download")
+        self.play_btn.SetToolTip("Closes this window and plays the selected one in the player.")
         self.make_btn = wx.Button(self, label="Make Description")
         self.make_btn.SetToolTip("Claude reads frames from the video at each change of shot and writes what it "
                                  "sees. Takes about a minute for a short video. Machine-made and unchecked.")
@@ -707,9 +809,7 @@ class DescribeDialog(wx.Dialog):
             self.EndModal(wx.ID_OK)
         elif o["kind"] == "track":
             self.actions["track_" + what](o["format"])
-            if what == "download":
-                self.EndModal(wx.ID_OK)
+            self.EndModal(wx.ID_OK)
         elif o["kind"] == "version":
             self.actions["version_" + what]({"url": o["url"], "title": o["title"]})
-            if what == "download":
-                self.EndModal(wx.ID_OK)
+            self.EndModal(wx.ID_OK)

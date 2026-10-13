@@ -98,6 +98,7 @@ class MainFrame(wx.Frame):
         self.asking = False
         self.update_info = None
         self.player = None
+        self.search_win = None
         self.mgr = Manager(self.cfg, self._from_manager)
 
         self.panel = wx.Panel(self)
@@ -297,6 +298,7 @@ class MainFrame(wx.Frame):
         f.AppendSeparator()
         if sys.platform != "darwin":
             self._m(f, "&Settings...\tCtrl+,", self.on_settings)
+        self._m(f, "Close &Window\tCtrl+W", self.on_close_window)
         self._m(f, "&Quit\tCtrl+Q", lambda e: self.Close(), wx.ID_EXIT)
 
         ed = wx.Menu()
@@ -336,6 +338,7 @@ class MainFrame(wx.Frame):
         self._m(v, "Go to &Downloads List\tCtrl+D", lambda e: self._focus(self.list))
         self._m(v, "Go to D&etails\tCtrl+E", lambda e: self._focus(self.details))
         self._m(v, "&Filter the List\tCtrl+Shift+F", lambda e: self._focus(self.filter))
+        self._m(v, "Go to the &Player\tCtrl+2", self.on_to_player)
         self._m(v, "&What's Happening?\tCtrl+J", self.on_whats_happening)
         v.AppendSeparator()
         self._m(v, "&Bigger Text\tCtrl+=", lambda e: self._text_size(+2))
@@ -358,10 +361,35 @@ class MainFrame(wx.Frame):
         bar.Append(h, "&Help")
         self.SetMenuBar(bar)
 
+    def on_close_window(self, _=None):
+        """Command-W closes the window in front. On the Mac a window with no menu bar of its own
+        (Search) borrows this one, so this must not quit the app from there."""
+        top = None
+        focus = wx.Window.FindFocus()
+        if focus:
+            top = wx.GetTopLevelParent(focus)
+        top = top or wx.GetActiveWindow()
+        if top and top is not self and isinstance(top, wx.TopLevelWindow):
+            top.Close()
+        else:
+            self.Close()
+
     def _m(self, menu, label, handler, wid=wx.ID_ANY):
         item = menu.Append(wid, label)
         self.Bind(wx.EVT_MENU, handler, item)
         return item
+
+    def on_to_main(self, _=None):
+        self.Raise()
+        self.list.SetFocus()
+
+    def on_to_player(self, _=None):
+        if self.player is None or not self.player.IsShown():
+            self.tell("The player isn't open. Play something first: %s-P plays the selected download."
+                      % ("Command" if sys.platform == "darwin" else "Control"))
+            return
+        self.player.Raise()
+        self.player.play_btn.SetFocus()
 
     def _focus(self, ctrl):
         ctrl.SetFocus()
@@ -546,17 +574,33 @@ class MainFrame(wx.Frame):
         return res
 
     def on_search(self, _, query=None):
+        """Open Search, or bring it forward if it's already open. It's an ordinary window, not a
+        modal one: a modal Search held the keyboard for the whole app, so with the player raised
+        over it (Play Selected) Quit, Close and every shortcut did nothing, and the Search window
+        sat unseen behind the others."""
         q = query if query is not None else (self.link.GetValue().strip()
                                               if not words.links_in(self.link.GetValue()) else "")
-        dlg = dialogs.Search(self, q, self.cfg.get("app_search_site", "youtube"), self.run_search,
-                             play=lambda entries: self.play_links(entries), player=lambda: self.player)
-        go = dlg.ShowModal() == wx.ID_OK
-        chosen = dlg.chosen() if go else []
+        if self.search_win:
+            self.search_win.show_again(q)
+            return
+        opened_with = self.link.GetValue()
+        self.search_win = dialogs.Search(self, q, self.cfg.get("app_search_site", "youtube"), self.run_search,
+                                         play=lambda entries: self.play_links(entries, focus=False),
+                                         player=lambda: self.player,
+                                         on_done=lambda dlg, chosen: self._search_done(dlg, chosen, opened_with))
+        self.search_win.Show()
+        self.search_win.Raise()
+
+    def _search_done(self, dlg, chosen, opened_with):
+        """Search closed: by Download Ticked (chosen) or Close, Escape, Command-W (empty)."""
+        self.search_win = None
         self.cfg["app_search_site"] = dlg.site_key()
         engine.save_settings(self.cfg)
-        dlg.Destroy()
+        self.Raise()
         if chosen and self.folder_ready():  # the same checks as a pasted link gets
-            if query is not None or not words.links_in(self.link.GetValue()):
+            # Clear the words that started the search, but never a link typed in since: the
+            # main window stays usable while Search is open.
+            if self.link.GetValue() == opened_with and not words.links_in(opened_with):
                 self.link.SetValue("")
             with self.mgr.lock:
                 pending = {(j.url, j.kind, j.start, j.end, j.format_id) for j in self.mgr.jobs
@@ -579,10 +623,14 @@ class MainFrame(wx.Frame):
             self._show_opts()
             self.structure_changed = True
             self.refresh()
-            self.tell(("Added %s from the search." % words.n(len(chosen), "download") if chosen else
+            self.list.SetFocus()
+            # After VoiceOver has read the row the focus landed on, or one cuts the other off.
+            wx.CallLater(600, self.tell, ("Added %s from the search." % words.n(len(chosen), "download") if chosen else
                        "Nothing new added from the search.") +
                       (" %d %s already in the list." % (already, "was" if already == 1 else "were")
                        if already else ""))
+        else:
+            self.link.SetFocus()
 
     # -------------------------------------------------------- choices
 
@@ -1027,7 +1075,7 @@ class MainFrame(wx.Frame):
 
     # -------------------------------------------------------- playing
 
-    def open_player(self, items, start=0):
+    def open_player(self, items, start=0, focus=True):
         from .player import PlayerFrame
         if self.player is None:
             self.player = PlayerFrame(self)
@@ -1037,19 +1085,23 @@ class MainFrame(wx.Frame):
                     f.SetPointSize(self.text_pt)
                     c.SetFont(f)
         self.player.set_queue(items, start)
-        self.player.Show()
-        self.player.Raise()
-        self.player.play_btn.SetFocus()
+        if focus:
+            self.player.Show()
+        elif not self.player.IsShown():
+            self.player.ShowWithoutActivating()  # a preview from Search: the keyboard stays there
+        if focus:
+            self.player.Raise()
+            self.player.play_btn.SetFocus()
 
     def _want(self) -> str:
         return "video" if [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()] == "video" else "audio"
 
-    def play_links(self, entries):
+    def play_links(self, entries, focus=True):
         """Play links without downloading: [{"url", "title"?, ...}]."""
         items = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
                   "want": self._want()} for e in entries]
         if items:
-            self.open_player(items)
+            self.open_player(items, focus=focus)
 
     def on_play_link(self):
         text = self.link.GetValue().strip()
@@ -1142,8 +1194,12 @@ class MainFrame(wx.Frame):
             self.tell("Making audio description for %s. It's in the downloads list; when it's done, Play "
                       "reads it as the video plays." % (title or "it"))
 
+        # Playing closes the Audio Description window first and opens the player after it has
+        # gone (CallAfter): a player raised over a modal window gets no keys, and the modal
+        # holds the whole app's keyboard, Quit included.
         def track_play(fmt):
-            self.open_player([{"url": url, "title": title + " (described)", "want": "audio", "format": fmt}])
+            wx.CallAfter(self.open_player,
+                         [{"url": url, "title": title + " (described)", "want": "audio", "format": fmt}])
 
         def track_download(fmt):
             job = self._job_from_ui(url)
@@ -1153,7 +1209,7 @@ class MainFrame(wx.Frame):
             self.tell("Downloading the described track.")
 
         actions = {"make": make, "track_play": track_play, "track_download": track_download,
-                   "version_play": lambda e: self.play_links([e]),
+                   "version_play": lambda e: wx.CallAfter(self.play_links, [e]),
                    "version_download": lambda e: self.add_links([e["url"]])}
         dlg = dialogs.DescribeDialog(self.player if self.player and self.player.IsActive() else self, url, title,
                                      run_find, actions)
@@ -1392,22 +1448,29 @@ class MainFrame(wx.Frame):
         webbrowser.open(HELP_URL)
 
     def show_shortcuts(self):
-        c = "Command" if sys.platform == "darwin" else "Control"
-        lines = [
-            "Return in the Link field: download the link, or search if it's words.",
-            "%s-F: search." % c,
-            "%s-Shift-V: download every link on the clipboard." % c,
-            "%s-O: download the links in a text file." % c,
-            "%s-L: go to the Link field. %s-D: the Downloads list. %s-E: the details." % (c, c, c),
-            "%s-J: what's happening, spoken." % c,
-            "In the list: Return opens the file, Delete removes the row.",
-            "%s-R: show the file in %s. %s-Period: stop. %s-Shift-R: retry." % (c, FOLDER_APP, c, c),
-            "%s-Shift-Up and Down: move a download up or down the queue." % c,
-            "%s-Shift-K: clear finished downloads from the list." % c,
-            "%s-Plus and Minus: text size. %s-0: back to normal." % (c, c),
-            "%s-Comma: Settings." % c,
-        ]
-        self.details.SetValue("Keyboard shortcuts\n\n" + "\n".join(lines))
+        """Read from the menus themselves, so the list can't fall behind them (it had: Play,
+        Remove, Close Window and a dozen more were missing)."""
+        lines = ["Return in the Link field: download the link, or search if it's words.",
+                 "In the list: Return opens the file, Delete removes the row.", ""]
+        bar = self.GetMenuBar()
+        for i in range(bar.GetMenuCount()):
+            found = []
+            for item in bar.GetMenu(i).GetMenuItems():
+                if item.GetId() in (wx.ID_UNDO, wx.ID_CUT, wx.ID_COPY, wx.ID_PASTE, wx.ID_SELECTALL):
+                    continue  # the same in every app; not worth hearing
+                acc = item.GetAccel()
+                if acc and acc.IsOk():
+                    name = item.GetItemLabelText().rstrip(".")
+                    found.append("%s: %s%s" % (key_words(acc.ToString()), name, "" if name.endswith("?") else "."))
+            if found:
+                lines.append(bar.GetMenuLabelText(i) + " menu")
+                lines.extend(found)
+                lines.append("")
+        lines.append("In the player: Space plays and pauses, Left and Right skip, Shift with them a minute, "
+                     "T says the time, C captions, D audio description, [ and ] speed, Escape closes. "
+                     "%s goes back to the downloads window, and %s from there to the player."
+                     % (key_words("Ctrl+1"), key_words("Ctrl+2")))
+        self.details.SetValue("Keyboard shortcuts\n\n" + "\n".join(lines).strip())
         self.details.SetFocus()
         self.details.SetInsertionPoint(0)
 
@@ -1583,6 +1646,12 @@ class MainFrame(wx.Frame):
             if not go:
                 event.Veto()
                 return
+        if self.search_win:
+            self.search_win.on_done = None
+            self.cfg["app_search_site"] = self.search_win.site_key()
+            engine.save_settings(self.cfg)
+            self.search_win.Destroy()
+            self.search_win = None
         geometry.save(self, self.ui, "window")
         self.timer.Stop()
         keep_awake(False)
@@ -1599,6 +1668,23 @@ class MainFrame(wx.Frame):
         come back next time, stopped, like any quit)."""
         self.force_close = True
         self.Close()
+
+
+def key_words(accel: str) -> str:
+    """wx's "Ctrl+Shift+." as a person says it: "Command-Shift-Period" on the Mac."""
+    names = {"CTRL": "Command" if sys.platform == "darwin" else "Control", "RAWCTRL": "Control",
+             "SHIFT": "Shift", "ALT": "Option" if sys.platform == "darwin" else "Alt",
+             "RETURN": "Return" if sys.platform == "darwin" else "Enter",
+             "ENTER": "Return" if sys.platform == "darwin" else "Enter",
+             "BACK": "Delete" if sys.platform == "darwin" else "Backspace",
+             "BACKSPACE": "Delete" if sys.platform == "darwin" else "Backspace", "DELETE": "Forward Delete"
+             if sys.platform == "darwin" else "Delete", "UP": "Up Arrow", "DOWN": "Down Arrow",
+             "LEFT": "Left Arrow", "RIGHT": "Right Arrow", ".": "Period", ",": "Comma",
+             "=": "Plus", "-": "Minus"}
+    parts = accel.split("+")
+    if accel.endswith("++"):
+        parts = parts[:-2] + ["+"]
+    return "-".join(names.get(p.upper(), p.upper() if len(p) == 1 else p) for p in parts if p)
 
 
 class App(wx.App):
