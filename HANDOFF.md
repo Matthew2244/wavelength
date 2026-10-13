@@ -113,11 +113,22 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   all cores against 171 s one at a time, 0 failures), a dead link explained.
 - The frozen app's worker and engine probe; engine update from PyPI in a
   sandbox, including loading the newer engine over an older bundled one.
+- Get Helper Tools for real (sandbox, 6 s, ~95 MB): ffmpeg 9.0.2, ffprobe,
+  deno 2.9.7, each signature-checked; then a YouTube video downloaded with
+  only those, Homebrew hidden.
+- v2.0.0: CI green on all eight jobs, Windows app built and self-tested on
+  CI, Mac app signed, notarized, stapled, Gatekeeper "Notarized Developer ID".
+  Installed on the Studio and the MacBook (self-test OK there; the MacBook has
+  no Homebrew tools, so it is the realistic first-run case).
 - VoiceOver on the installed app (2026-10-12): tab order and every name and help
   tag, a download by keyboard, Search, the playlist question and tick list,
   Escape, Command-J, Command-D, Command-E.
 
 ## Not done
+
+- The self-updater is MIDI Tempo Fix's, unchanged apart from names, but has
+  not yet replaced this app with a newer release. The first real test is
+  2.0.1: install it through Help, Check for App Updates on both Macs.
 
 - **Windows has not been tried by a person**, and on Windows nothing is spoken
   yet; messages go to the status bar. NVDA's controller client, or UI
