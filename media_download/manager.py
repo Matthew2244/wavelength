@@ -250,6 +250,7 @@ class Manager:
                 item.item_title = item.title
             item.length = e.get("duration") or 0
             item.uploader = e.get("uploader") or ""
+            item.take_when(e)
             item.probed = True  # the playlist listing already said what it is
             if e.get("info_file"):
                 item.info_file, item.info_time = e["info_file"], time.time()
@@ -413,6 +414,7 @@ class Manager:
                         job.title = ev.get("title") or job.title
                         job.length = ev.get("duration") or 0
                         job.uploader = ev.get("uploader") or ""
+                        job.take_when(ev)
                         job.info_file = ev.get("info_file") or ""
                         job.info_time = time.time()
                         job.bytes_total = ev.get("size") or 0
@@ -586,7 +588,8 @@ class Manager:
 
     def save(self) -> None:
         with self.lock:
-            data = [j.to_dict() for j in self.jobs if j.state != "waiting_choice"][-500:]
+            # Every row, however many: a 1,700-item playlist must all come back after a restart.
+            data = [j.to_dict() for j in self.jobs if j.state != "waiting_choice"]
             self.dirty = False
         try:
             os.makedirs(os.path.dirname(engine.QUEUE_FILE), exist_ok=True)

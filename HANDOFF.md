@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.4.8 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.5.0 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.4.8, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.5.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -255,10 +255,24 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    and Alt-W went to Filter. Controls are created label-then-control even
    where the layout puts them elsewhere; `system.windows_name` names anything
    with no label before it (the progress bar).
-21. **The app's sounds are files**, `assets/sounds/done.*` and `fail.*`: a Rhodes
-   electric piano pair, rising for done and falling for failed, chosen by
-   Matthew by ear on 2026-10-13 from four families (masters, candidates and
-   the audition in iCloud, `Media Download Sounds`). MP3 on the Mac (afplay),
+21. **The app's sounds are files, in themes**: `assets/sounds/<theme>/<event>.mp3`
+   (Mac, afplay, with `-v` for Settings' volume) and `.wav` (Windows, winsound).
+   Themes `rhodes` (default), `kalimba`, `soft` (Kenney Interface Sounds, CC0,
+   `CREDITS.md` and `soft/LICENSE-kenney.txt`), plus `system` (macOS sounds).
+   Eleven events, listed in `system.SOUNDS` with their words and system fallback:
+   done, failed, item_done, added, stopped, waiting, results, no_more, copied,
+   update, queue_end. `system.cue(kind)` plays one from any window through the
+   main window's `_sound`, which applies Settings (on/off, the set, volume,
+   `app_sounds_off`). The short ones play at once (item_done at most every 2 s);
+   the long ones queue 1.4 s apart. Rhodes done/failed are the pair Matthew chose
+   by ear on 2026-10-13 from four families (masters, candidates and
+   the audition in iCloud, `Media Download Sounds`); they are held chords, not
+   figures. The nine other Rhodes sounds are single notes pulled out of those
+   chords and re-pitched (at most a fifth); kalimba is built from hark's kalimba
+   notes. **Matthew hasn't heard the new ones yet**: auditions are in iCloud,
+   `Media Download Sounds/themes/`, one file per set, each name spoken before
+   its sound. The build scripts were in the session scratchpad and are gone; rebuild the same
+   way if he wants changes. MP3 on the Mac (afplay),
    WAV on Windows (winsound). Each is 10 ms of silence, a 3 ms fade-in, a
    150 ms fade-out and a 40 ms tail, leveled to -1.5 dBFS: the raw files
    started at full level and ended still sounding, which clicks. `_sound()`
@@ -277,7 +291,28 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Audio Description stays modal but closes before the player opens
    (`wx.CallAfter`). Command-1 is the downloads window, Command-2 the player,
    from anywhere. Any new window: its own menu bar, or modal and opening nothing.
-23. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
+23. **Right-click menus** (`menus.py`): `menus.attach(ctrl, build)` on every list.
+   build() returns items for the selected row; disabled items are left out, not
+   dimmed (by ear, "dimmed" lines only get in the way). A wx list on the Mac
+   offers VoiceOver **no actions**, so VO-Shift-M did nothing:
+   `system.mac_menu_action` adds AXShowMenu to the table view's class through the
+   Objective-C runtime (verified: System Events lists the action and performing
+   it opens the menu). Command-K opens the same menu in each window, and Windows
+   gets Shift-F10 or the Menu key free. `MEDIA_DOWNLOAD_TEST_MENU_LOG=FILE` makes
+   a menu write its items to FILE instead of opening, for tests driven over
+   accessibility against the built app (`open -g -n --env ...`). A plain
+   `python -m media_download` window shows no windows to accessibility at all;
+   test those things on the built app.
+24. **Upload dates** (`worker.when`, `words.uploaded`, `words.views`). `tool_flags`
+   passes `--extractor-args youtubetab:approximate_date`, so YouTube lists and
+   search carry a time worked back from "2 years ago": marked `approx` and read
+   "uploaded about 2 years ago". SoundCloud and podcast feeds give exact dates;
+   a probe gives an exact `upload_date`. YouTube Music's song search gives nothing
+   (no date, no length): Look Up Exact Date and Details (Command-I, or the row's
+   menu) probes one result and rewrites its row. YouTube's own "sort by upload
+   date" (`sp=CAI%3D`) is ignored now, so Search's Order sorts what's loaded.
+   The saved download list no longer stops at 500 rows.
+25. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
    has no limits"). It used to stop at 25. Now it fetches a page of
    `SEARCH_PAGE` (25) at a time with `--playlist-items start-end`, and the next
    page comes from More Results (Command-Shift-M) or by itself on reaching the
@@ -290,15 +325,19 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    used to stop at 300; CrashCourse's 1,705 all listed). **No caps on results
    anywhere is a standing decision** (Matthew, 2026-10-13): where a search
    can't be unlimited in one go, it pages.
-24. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
+26. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
    2026-10-13): Download Checked, Check All, Uncheck All, "3 checked". The
    classic app's lists are selection lists, so it says "select" there.
-25. From the classic app, still true for the command: a GUI-launched process gets
+27. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.5.0** (2026-10-13): upload dates and views on every result, Order in
+  Search, right-click menus everywhere (VO-Shift-M verified on the built app),
+  three sound sets of eleven sounds, Settings, Sounds. Real lookups: a YouTube
+  Music song with no date came back "10 seconds, uploaded February 4, 2015".
 - **2.4.8** (2026-10-13): no caps left. Described versions: Encanto's trailer
   found 8 in the first 50 results (the old 10 found fewer), and Look Further
   ran on cleanly; `ytdl --list-items` listed all 1,705 of a channel; made

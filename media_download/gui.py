@@ -21,7 +21,8 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, describe, dialogs, engine, geometry, sparkle, update, winsparkle, words
+from . import APP_NAME, __version__, describe, dialogs, engine, geometry, menus, sparkle, update, winsparkle, words
+from . import system
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
@@ -100,6 +101,7 @@ class MainFrame(wx.Frame):
         self.player = None
         self.search_win = None
         self.mgr = Manager(self.cfg, self._from_manager)
+        system.cue_handler = lambda kind: wx.CallAfter(self._sound, kind)  # for windows that aren't this one
 
         self.panel = wx.Panel(self)
         p = self.panel
@@ -253,6 +255,7 @@ class MainFrame(wx.Frame):
         self.filter.Bind(wx.EVT_CHAR_HOOK, self.on_filter_key)
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open)
         self.list.Bind(wx.EVT_KEY_DOWN, self.on_list_key)
+        menus.attach(self.list, self.list_menu)
         self.open_btn.Bind(wx.EVT_BUTTON, self.on_open)
         self.show_btn.Bind(wx.EVT_BUTTON, self.on_show)
         self.stop_btn.Bind(wx.EVT_BUTTON, self.on_stop)
@@ -332,6 +335,8 @@ class MainFrame(wx.Frame):
         self._m(d, "Move Do&wn\tCtrl+Shift+Down", lambda e: self.on_move(+1))
         self._m(d, "Remo&ve from List\tCtrl+Back", self.on_remove)
         self._m(d, "&Clear Finished\tCtrl+Shift+K", self.on_clear)
+        d.AppendSeparator()
+        self._m(d, "Actions for the Selected Download...\tCtrl+K", lambda e: self.list._context_menu())
 
         v = wx.Menu()
         self._m(v, "Go to &Link Field\tCtrl+L", lambda e: self._focus(self.link))
@@ -484,6 +489,7 @@ class MainFrame(wx.Frame):
         if dupes:  # one sentence, not two in a row cutting each other off
             text += " %d %s already in the list." % (len(dupes), "was" if len(dupes) == 1 else "were")
         self.tell(text)
+        self._sound("added")
         return len(urls)
 
     def add_from_text(self, text: str, source: str = ""):
@@ -604,28 +610,11 @@ class MainFrame(wx.Frame):
             # main window stays usable while Search is open.
             if self.link.GetValue() == opened_with and not words.links_in(opened_with):
                 self.link.SetValue("")
-            with self.mgr.lock:
-                pending = {(j.url, j.kind, j.start, j.end, j.format_id) for j in self.mgr.jobs
-                           if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
-            fresh = []
-            for e in chosen:
-                job = self._job_from_ui(e["url"])
-                key = (job.url, job.kind, job.start, job.end, job.format_id)
-                if key in pending:
-                    continue
-                pending.add(key)
-                job.title = e.get("title") or ""
-                job.length = e.get("duration") or 0
-                job.uploader = e.get("uploader") or ""
-                self.mgr.add(job)
-                fresh.append(e)
-            already = len(chosen) - len(fresh)
+            fresh, already = self.add_entries(chosen)
             chosen = fresh
-            self.next_opts = {}
-            self._show_opts()
-            self.structure_changed = True
-            self.refresh()
             self.list.SetFocus()
+            if chosen:
+                self._sound("added")
             # After VoiceOver has read the row the focus landed on, or one cuts the other off.
             wx.CallLater(600, self.tell, ("Added %s from the search." % words.n(len(chosen), "download") if chosen else
                        "Nothing new added from the search.") +
@@ -633,6 +622,47 @@ class MainFrame(wx.Frame):
                        if already else ""))
         else:
             self.link.SetFocus()
+
+    def add_entries(self, entries):
+        """Results or list items (dicts with url, title...) into the list, in the format chosen in
+        the window, skipping any already waiting or downloading. Returns (added, how many skipped)."""
+        with self.mgr.lock:
+            pending = {(j.url, j.kind, j.start, j.end, j.format_id) for j in self.mgr.jobs
+                       if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
+        fresh = []
+        for e in entries:
+            job = self._job_from_ui(e["url"])
+            key = (job.url, job.kind, job.start, job.end, job.format_id)
+            if key in pending:
+                continue
+            pending.add(key)
+            job.title = e.get("title") or ""
+            job.length = e.get("duration") or 0
+            job.uploader = e.get("uploader") or ""
+            job.take_when(e)
+            self.mgr.add(job)
+            fresh.append(e)
+        if fresh:
+            self.next_opts = {}
+            self._show_opts()
+            self.structure_changed = True
+            self.refresh()
+        return fresh, len(entries) - len(fresh)
+
+    def download_now(self, entry):
+        """Right-click, Download This One Now, from Search or a list: added at once, the window stays."""
+        if not self.folder_ready():
+            return
+        fresh, _ = self.add_entries([entry])
+        if fresh:
+            self._sound("added")
+            announce("Added: %s." % (entry.get("title") or "it"))
+        else:
+            announce("That one's already in the list.")
+
+    def look_up(self, url, done):
+        """The full details of one result, off the main thread; done(info) back on it."""
+        threading.Thread(target=lambda: wx.CallAfter(done, self.probe_now(url)), daemon=True).start()
 
     # -------------------------------------------------------- choices
 
@@ -745,6 +775,7 @@ class MainFrame(wx.Frame):
         elif what == "engine":
             self.SetStatusText(data.get("text", ""))
         elif what == "site_paused":
+            self._sound("waiting")
             self.tell("%s asked for fewer downloads, so its downloads are paused until %s. They'll carry on "
                       "by themselves." % (data["site"] or "A site", words.clock_time(data["until"])))
         if what in ("added", "removed", "moved", "finished", "changed"):
@@ -815,19 +846,38 @@ class MainFrame(wx.Frame):
             self.tell(self._with_milestone(" ".join(bits)))
         if failed and self.mgr.busy():
             self._sound("failed")
+        elif done and self.mgr.busy():
+            self._sound("item_done")
+        if any(j.state in ("waiting", "looking") and j.wait_reason for j in jobs):
+            self._sound("waiting")  # the row says why and when; the sound says it happened
+
+    # The short ones play at once; the others queue so two are never heard on top of each other.
+    SHORT_SOUNDS = ("added", "copied", "item_done", "results", "no_more", "waiting", "stopped")
 
     def _sound(self, kind: str) -> None:
-        """Play one of the app's sounds, never on top of the last: each lasts about a second, and
-        a failure straight followed by the end of the batch was two sounds at once, neither clear."""
-        if not self.cfg.get("app_sounds", True):
+        """Play one of the app's sounds, if sounds and this one are switched on. The long ones
+        (finished, failed, update, end of the queue) never play on top of each other: a failure
+        straight followed by the end of the batch was two sounds at once, neither clear."""
+        if not self.cfg.get("app_sounds", True) or kind in (self.cfg.get("app_sounds_off") or []):
             return
+        theme = self.cfg.get("app_sound_theme", "rhodes")
+        vol = float(self.cfg.get("app_sound_volume", 1.0) or 1.0)
         now = time.time()
+        if kind in self.SHORT_SOUNDS:
+            if kind == "item_done" and now - getattr(self, "last_item_sound", 0) < 2.0:
+                return  # a big batch finishing fast: a sound every two seconds at most
+            if kind == "item_done":
+                self.last_item_sound = now
+            if self.next_sound_at - now > 1.0:
+                return  # a long sound is playing; a blip on top would only blur it
+            play(kind, theme, vol)
+            return
         wait = self.next_sound_at - now
         self.next_sound_at = max(now, self.next_sound_at) + 1.4
         if wait > 0:
-            wx.CallLater(int(wait * 1000), play, kind)
+            wx.CallLater(int(wait * 1000), play, kind, theme, vol)
         else:
-            play(kind)
+            play(kind, theme, vol)
 
     def _all_done(self, data):
         done, failed, took = data.get("done", 0), data.get("failed", 0), data.get("took", 0)
@@ -1101,7 +1151,7 @@ class MainFrame(wx.Frame):
     def play_links(self, entries, focus=True):
         """Play links without downloading: [{"url", "title"?, ...}]."""
         items = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
-                  "want": self._want()} for e in entries]
+                  "want": self._want(), **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views") if e.get(k)}} for e in entries]
         if items:
             self.open_player(items, focus=focus)
 
@@ -1123,7 +1173,9 @@ class MainFrame(wx.Frame):
         if not path:
             return None
         return {"path": path, "title": job.title or os.path.basename(path), "uploader": job.uploader,
-                "url": job.url, "duration": job.length if not (job.start or job.end) else 0}
+                "url": job.url, "duration": job.length if not (job.start or job.end) else 0,
+                "uploaded": job.upload_date, "uploaded_ts": job.upload_ts, "approx": job.upload_approx,
+                "views": job.views}
 
     def on_play(self):
         job = self.selected()
@@ -1266,10 +1318,13 @@ class MainFrame(wx.Frame):
         job = self.selected()
         if job and (job.state in ACTIVE or job.state == "waiting"):
             self.mgr.stop(job)
+            self._sound("stopped")
             self.tell("Stopped: %s. Retry carries on from where it stopped." % words.job_name(job))
 
     def on_stop_all(self, _):
         k = self.mgr.stop_all()
+        if k:
+            self._sound("stopped")
         self.tell("Stopped %s." % words.n(k, "download") if k else "Nothing is downloading.")
 
     def on_retry(self, _):
@@ -1372,13 +1427,72 @@ class MainFrame(wx.Frame):
         self.refresh()
         self.tell("Moved %s." % ("up" if delta < 0 else "down"))
 
+    def list_menu(self):
+        """The downloads list's right-click menu, for the selected row."""
+        job = self.selected()
+        if not job:
+            return [menus.item("Download Links from the Clipboard", lambda: self.on_paste_links(None),
+                               keys="Ctrl+Shift+V"),
+                    menus.item("Search...", lambda: self.on_search(None), keys="Ctrl+F")]
+        has_file = bool(job.files) and job.state in ("done", "skipped")
+        active = job.state in ("downloading", "converting", "looking", "waiting")
+        again = [menus.item(label, lambda k=k: self.download_again(job, k)) for k, label in words.FORMAT_LABELS]
+        return [
+            menus.item("Play", self.on_play, has_file, "Ctrl+P"),
+            menus.item("Open File", lambda: self.on_open(None), has_file, "Ctrl+Down"),
+            menus.item("Show in %s" % FOLDER_APP, lambda: self.on_show(None), has_file, "Ctrl+R"),
+            menus.item("Play the Link Without Downloading", lambda: self.play_links([{
+                "url": job.url, "title": job.title, "uploader": job.uploader, "uploaded": job.upload_date,
+                "uploaded_ts": job.upload_ts, "approx": job.upload_approx}]), job.url.startswith("http")),
+            menus.item("Audio Description...", self.on_describe, keys="Ctrl+Shift+A"),
+            menus.SEP,
+            menus.item("Stop", lambda: self.on_stop(None), active, "Ctrl+."),
+            menus.item("Retry", lambda: self.on_retry(None), job.state in ("failed", "stopped"), "Ctrl+Shift+R"),
+            menus.item("Retry Using a Browser's Sign-in...", lambda: self.on_retry_signin(None),
+                       job.state in ("failed", "stopped")),
+            menus.item("Download Again As", again, job.url.startswith("http")),
+            menus.SEP,
+            menus.item("Open the Web Page", lambda: self.open_page(job.url), job.url.startswith("http")),
+            menus.item("Copy Link", lambda: self.on_copy_link(None), True, "Ctrl+Shift+C"),
+            menus.item("Copy Title", lambda: self.copy(job.title or words.job_name(job), "Title copied.")),
+            menus.item("Read the Details", lambda: self._focus(self.details), keys="Ctrl+E"),
+            menus.SEP,
+            menus.item("Move Up", lambda: self.on_move(-1), True, "Ctrl+Shift+Up"),
+            menus.item("Move Down", lambda: self.on_move(+1), True, "Ctrl+Shift+Down"),
+            menus.item("Remove from List", lambda: self.on_remove(None), True, "Ctrl+Back"),
+        ]
+
+    def download_again(self, job, kind: str):
+        """The same link once more, in another format: a WAV of something saved as MP3, say."""
+        if not self.folder_ready():
+            return
+        new = self._job_from_ui(job.url)
+        new.kind = kind
+        new.title, new.uploader, new.length = job.title, job.uploader, job.length
+        new.upload_date, new.upload_ts, new.upload_approx, new.views = (job.upload_date, job.upload_ts,
+                                                                      job.upload_approx, job.views)
+        self.mgr.add(new)
+        self.structure_changed = True
+        self.refresh()
+        self.tell("Added %s again, as %s." % (job.title or "it", words.FORMAT_SHORT.get(kind, kind)))
+        self._sound("added")
+
+    def open_page(self, url: str):
+        if menus.open_web(url):
+            self.tell("Opening the web page.")
+        else:
+            self.tell("That one has no web page.")
+
+    def copy(self, text: str, said: str = "Copied."):
+        if menus.copy_text(text):
+            self.last_clip = text  # don't offer it straight back as a link to download
+            self.tell(said)
+            self._sound("copied")
+
     def on_copy_link(self, _):
         job = self.selected()
-        if job and wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(job.url))
-            wx.TheClipboard.Close()
-            self.last_clip = job.url  # don't offer it straight back
-            self.tell("Link copied.")
+        if job:
+            self.copy(job.url, "Link copied.")
 
     def on_whats_happening(self, _):
         c = self.mgr.counts()
@@ -1465,7 +1579,10 @@ class MainFrame(wx.Frame):
         """Read from the menus themselves, so the list can't fall behind them (it had: Play,
         Remove, Close Window and a dozen more were missing)."""
         lines = ["Return in the Link field: download the link, or search if it's words.",
-                 "In the list: Return opens the file, Delete removes the row.", ""]
+                 "In the list: Return opens the file, Delete removes the row.",
+                 "On any list, its right-click menu: %s-K, or %s." % (
+                     "Command" if sys.platform == "darwin" else "Control",
+                     "VO-Shift-M with VoiceOver" if sys.platform == "darwin" else "Shift-F10 or the Menu key"), ""]
         bar = self.GetMenuBar()
         for i in range(bar.GetMenuCount()):
             found = []
@@ -1579,6 +1696,7 @@ class MainFrame(wx.Frame):
     def _announce_update(self, info):
         self.update_info = info
         self._update_title()
+        self._sound("update")
         self.SetStatusText("Version %s is available. Help, Check for App Updates installs it." % info["version"])
 
     def on_check_updates(self, _):

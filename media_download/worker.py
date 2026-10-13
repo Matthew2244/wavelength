@@ -257,7 +257,7 @@ def do_probe(yt_dlp, task):
             if not url:
                 continue
             item = {"url": url, "title": e.get("title") or url, "duration": e.get("duration"),
-                    "uploader": e.get("uploader") or e.get("channel") or ""}
+                    "uploader": e.get("uploader") or e.get("channel") or "", **when(e)}
             if e.get("_type", "video") == "video" and (e.get("formats") or e.get("ext")):
                 # Some sites (archive.org) list each item complete, with its file. Keep that,
                 # so the download needn't fetch the whole file again just to identify it,
@@ -287,11 +287,30 @@ def do_probe(yt_dlp, task):
     est = sum((f.get("filesize") or f.get("filesize_approx") or 0) for f in chosen)
     emit("info", title=info.get("title") or "", duration=info.get("duration") or 0,
          uploader=info.get("uploader") or info.get("channel") or info.get("artist") or "",
-         site=info.get("extractor_key") or "", info_file=path, size=est,
+         site=info.get("extractor_key") or "", info_file=path, size=est, **when(info),
          formats=[{"id": str(f.get("format_id")), "words": words.describe_format(f),
                    "audio_only": not (f.get("vcodec") and f.get("vcodec") != "none")}
                   for f in words.choosable(info)])
     emit("end", ok=True)
+
+
+def when(e: dict) -> dict:
+    """When something was uploaded, and how many have watched or listened, as plainly as the site
+    gives it: an exact date where there is one; else a timestamp, which is approximate for a
+    YouTube listing (worked back from its "2 years ago")."""
+    out = {}
+    exact = e.get("upload_date") or e.get("release_date")
+    ts = e.get("timestamp") or e.get("release_timestamp")
+    if exact:
+        out["uploaded"] = str(exact)
+    elif ts:
+        out["uploaded_ts"] = int(ts)
+        listing = e.get("_type") == "url" or "formats" not in e
+        if listing and (e.get("ie_key") == "Youtube" or "youtube.com" in (e.get("url") or "")):
+            out["approx"] = True
+    if e.get("view_count"):
+        out["views"] = int(e["view_count"])
+    return out
 
 
 def do_search(yt_dlp, task):
@@ -328,7 +347,8 @@ def do_search(yt_dlp, task):
             url = "https://www.youtube.com/watch?v=%s" % e["id"]
         if url:
             results.append({"url": url, "title": e.get("title") or url, "duration": e.get("duration"),
-                            "uploader": e.get("uploader") or e.get("channel") or ""})
+                            "uploader": e.get("uploader") or e.get("channel") or "",
+                            "channel_url": e.get("channel_url") or e.get("uploader_url") or "", **when(e)})
     emit("results", results=results)
     emit("end", ok=True)
 
@@ -412,10 +432,11 @@ def do_stream(yt_dlp, task):
             break
     emit("stream", url=play_url, title=info.get("title") or "", uploader=info.get("uploader") or
          info.get("channel") or "", duration=info.get("duration") or 0, is_live=bool(info.get("is_live")),
+         **when(info),
          page=info.get("webpage_url") or task["url"], want=got,
          odd_headers=sorted(k for k in headers if k.lower() not in ("user-agent", "accept", "accept-language",
                                                                     "sec-fetch-mode")),
-         cues=cues[:20000])
+         cues=cues)
     emit("end", ok=True)
 
 
@@ -462,7 +483,8 @@ def _described_versions(yt_dlp, title, start, count, logger):
             held += 1
             if describe.looks_described(e.get("title") or "") and e.get("id"):
                 found.append({"url": "https://www.youtube.com/watch?v=%s" % e["id"], "title": e.get("title"),
-                              "duration": e.get("duration"), "uploader": e.get("uploader") or e.get("channel")})
+                              "duration": e.get("duration"), "uploader": e.get("uploader") or e.get("channel"),
+                              **when(e)})
     except Exception as exc:  # noqa: BLE001
         logger.warning(str(exc))
     return describe.rank_candidates(title, found), held

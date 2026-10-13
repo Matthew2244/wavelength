@@ -149,6 +149,91 @@ def _objc_send():
     return ctypes, send
 
 
+_menu_views: dict = {}    # NSView pointer -> function that opens that control's context menu
+_menu_classes: set = set()
+_menu_imps: list = []     # the ctypes callbacks must outlive the Objective-C methods using them
+
+
+def mac_menu_action(ctrl, open_menu) -> None:
+    """Let VoiceOver open a control's right-click menu (VO-Shift-M, its "show menu" action).
+
+    A wx list on the Mac offers VoiceOver no actions at all, so VO-Shift-M had nothing to do.
+    This gives the list's table view the standard AXShowMenu action, answered by open_menu.
+    Done once per Objective-C class, then looked up per view; a failure leaves the control as
+    it was (the right click and Command-K still work)."""
+    if sys.platform != "darwin":
+        return
+    try:
+        import ctypes
+        import ctypes.util
+        ctypes_, send = _objc_send()
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        for fn, res, args in (("object_getClass", ctypes.c_void_p, [ctypes.c_void_p]),
+                              ("class_getSuperclass", ctypes.c_void_p, [ctypes.c_void_p]),
+                              ("class_getMethodImplementation", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_void_p]),
+                              ("class_replaceMethod", ctypes.c_void_p,
+                               [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]),
+                              ("sel_registerName", ctypes.c_void_p, [ctypes.c_char_p]),
+                              ("objc_getClass", ctypes.c_void_p, [ctypes.c_char_p])):
+            getattr(objc, fn).restype = res
+            getattr(objc, fn).argtypes = args
+        view = ctrl.GetHandle()
+        if send(view, "respondsToSelector:", objc.sel_registerName(b"documentView"),
+                restype=ctypes.c_bool, argtypes=(ctypes.c_void_p,)):
+            view = send(view, "documentView") or view
+        _menu_views[view] = open_menu
+        cls = objc.object_getClass(view)
+        if cls in _menu_classes:
+            return
+        _menu_classes.add(cls)
+        sup = objc.class_getSuperclass(cls)
+        sel = objc.sel_registerName
+
+        def show(self_):
+            cb = _menu_views.get(self_)
+            if cb:
+                import wx
+                wx.CallAfter(cb)
+                return True
+            return False
+
+        name_str = send(objc.objc_getClass(b"NSString"), "stringWithUTF8String:", b"AXShowMenu",
+                        argtypes=(ctypes.c_char_p,))
+        send(name_str, "retain")
+
+        PERFORM = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        perform = PERFORM(lambda self_, _cmd: show(self_))
+
+        NAMES = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        sup_names = NAMES(objc.class_getMethodImplementation(sup, sel(b"accessibilityActionNames")))
+
+        def names_imp(self_, _cmd):
+            arr = sup_names(self_, _cmd)
+            if self_ not in _menu_views:
+                return arr
+            if not arr:
+                arr = send(objc.objc_getClass(b"NSArray"), "array")
+            return send(arr, "arrayByAddingObject:", name_str, argtypes=(ctypes.c_void_p,))
+        names = NAMES(names_imp)
+
+        ACT = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        sup_act = ACT(objc.class_getMethodImplementation(sup, sel(b"accessibilityPerformAction:")))
+
+        def act_imp(self_, _cmd, name):
+            text = send(name, "UTF8String", restype=ctypes.c_char_p) if name else b""
+            if text == b"AXShowMenu" and show(self_):
+                return
+            sup_act(self_, _cmd, name)
+        act = ACT(act_imp)
+
+        _menu_imps.extend([perform, names, act, sup_names, sup_act])
+        objc.class_replaceMethod(cls, sel(b"accessibilityPerformShowMenu"), ctypes.cast(perform, ctypes.c_void_p), b"c@:")
+        objc.class_replaceMethod(cls, sel(b"accessibilityActionNames"), ctypes.cast(names, ctypes.c_void_p), b"@@:")
+        objc.class_replaceMethod(cls, sel(b"accessibilityPerformAction:"), ctypes.cast(act, ctypes.c_void_p), b"v@:@")
+    except Exception:  # noqa: BLE001 - never stop the app over this
+        pass
+
+
 def mac_focus(ctrl) -> bool:
     """Give a control keyboard focus the Mac's way. A wx slider takes it from the Mac but not
     from wx's SetFocus, and wx doesn't notice either way, so ask the window directly."""
@@ -348,33 +433,77 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
-def sound_file(kind: str) -> str | None:
-    """The app's own sound for 'done' or 'failed', inside the app or beside the source."""
-    name = {"done": "done", "failed": "fail"}.get(kind)
-    if not name:
-        return None
+# Every sound the app makes: the name used in code, what it means in words (the Settings list
+# reads these), and the system sound used if a theme's file is ever missing. The direction
+# convention from Matthew's other tools: rising for good or begun, falling for failed or stopped.
+SOUNDS = [
+    ("done", "Downloads finished", "Glass"),
+    ("failed", "A download failed", "Basso"),
+    ("item_done", "One download finished, others still going", "Tink"),
+    ("added", "Added to the list", "Pop"),
+    ("stopped", "Stopped", "Bottle"),
+    ("waiting", "Trying again by itself", "Morse"),
+    ("results", "Search results arrived", "Purr"),
+    ("no_more", "Nothing found, or no more results", "Funk"),
+    ("copied", "Copied", "Tink"),
+    ("update", "An update is ready", "Hero"),
+    ("queue_end", "The player reached the end", "Submarine"),
+]
+SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
+THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("soft", "Soft clicks"),
+          ("system", "The system's own sounds")]
+
+
+cue_handler = None  # the main window's _sound, set when it opens: settings, spacing and theme apply
+
+
+def cue(kind: str) -> None:
+    """Play a sound from any window (Search, the player), through the main window's rules."""
+    if cue_handler:
+        try:
+            cue_handler(kind)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _sounds_dir() -> str:
     base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(base, "assets", "sounds", name + (".wav" if sys.platform == "win32" else ".mp3"))
-    return path if os.path.exists(path) else None
+    return os.path.join(base, "assets", "sounds")
 
 
-def play(kind: str) -> None:
-    """'done' (rising) or 'failed' (falling): the app's own sounds, chosen by ear, falling back to
-    the system's Glass and Basso if a file is ever missing. A missing sound must never matter."""
+def sound_file(kind: str, theme: str = "rhodes") -> str | None:
+    """A theme's file for this sound, inside the app or beside the source; None means use the
+    system sound. A theme missing one sound borrows Rhodes's before falling back."""
+    if theme == "system" or kind not in SOUND_WORDS:
+        return None
+    ext = ".wav" if sys.platform == "win32" else ".mp3"
+    for t in (theme, "rhodes"):
+        path = os.path.join(_sounds_dir(), t, kind + ext)
+        if os.path.exists(path):
+            return path
+    legacy = {"done": "done", "failed": "fail"}.get(kind)  # before themes: assets/sounds/done.mp3
+    path = os.path.join(_sounds_dir(), legacy + ext) if legacy else ""
+    return path if path and os.path.exists(path) else None
+
+
+def play(kind: str, theme: str = "rhodes", volume: float = 1.0) -> None:
+    """Play one of the app's sounds. A missing file falls back to a system sound, and a sound
+    that can't play is never an error: a missing sound must never matter."""
     try:
-        own = sound_file(kind)
+        own = sound_file(kind, theme)
+        system_name = next((f for k, _, f in SOUNDS if k == kind), "Pop")
         if sys.platform == "darwin":
-            if own:
-                subprocess.Popen(["afplay", own])
-            else:
-                name = {"done": "Glass", "failed": "Basso"}.get(kind, "Pop")
-                subprocess.Popen(["afplay", "/System/Library/Sounds/%s.aiff" % name])
+            path = own or "/System/Library/Sounds/%s.aiff" % system_name
+            cmd = ["afplay", path]
+            if volume < 0.999:
+                cmd[1:1] = ["-v", "%.2f" % max(0.0, volume)]
+            subprocess.Popen(cmd)
         elif sys.platform == "win32":
             import winsound
             if own:
                 winsound.PlaySound(own, winsound.SND_FILENAME | winsound.SND_ASYNC)
             else:
-                winsound.MessageBeep(winsound.MB_OK if kind == "done" else winsound.MB_ICONHAND)
+                winsound.MessageBeep(winsound.MB_ICONHAND if kind in ("failed", "no_more") else winsound.MB_OK)
     except Exception:  # noqa: BLE001
         pass
 

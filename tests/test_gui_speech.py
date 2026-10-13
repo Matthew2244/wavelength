@@ -30,7 +30,7 @@ def finish(frame, monkeypatch, jobs, busy, batch_total, counts=None):
         "done": sum(j.state in ("done", "skipped") for j in jobs),
         "failed": sum(j.state == "failed" for j in jobs)}
     monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
-    monkeypatch.setattr(gui, "play", lambda k: None)
+    monkeypatch.setattr(gui, "play", lambda k, *a: None)
     monkeypatch.setattr(frame.mgr, "busy", lambda: busy)
     frame.mgr.batch_total = batch_total
     frame.finished_buffer = list(jobs)
@@ -189,13 +189,13 @@ def test_welcome_uses_the_first_name(frame, monkeypatch):
 
 def test_sounds_never_play_on_top_of_each_other(frame, monkeypatch):
     played, later = [], []
-    monkeypatch.setattr(gui, "play", lambda k: played.append(k))
+    monkeypatch.setattr(gui, "play", lambda k, *a: played.append(k))
     monkeypatch.setattr(gui.wx, "CallLater", lambda ms, fn, *a: later.append((ms, fn, a)))
     frame.next_sound_at = 0.0
     frame._sound("failed")
     frame._sound("done")
     assert played == ["failed"]
-    assert len(later) == 1 and 1000 <= later[0][0] <= 1400 and later[0][2] == ("done",)
+    assert len(later) == 1 and 1000 <= later[0][0] <= 1400 and later[0][2][0] == "done"
 
 
 # ---- Search is an ordinary window, so it can never hold the whole app's keyboard
@@ -375,3 +375,65 @@ def test_look_further_for_described_versions(frame, monkeypatch):
     assert asked == [page + 1, 2 * page + 1] and not dlg.more_btn.IsEnabled()
     assert "end of the search" in dlg.status.GetLabel()
     dlg.Destroy()
+
+
+def test_list_menu_says_only_what_fits_the_row(frame):
+    from media_download import menus
+    j = Job(url="https://soundcloud.com/x/y", dest="/tmp")
+    j.state, j.title = "failed", "A failed one"
+    frame.mgr.jobs.append(j)
+    frame.structure_changed = True
+    frame.refresh()
+    frame.list.SetSelection(frame.list.GetCount() - 1)
+    said = menus.labels(frame.list_menu())
+    assert "Retry" in said and "Copy Link" in said and "Open the Web Page" in said
+    assert "Play" not in said and "Stop" not in said and "Open File" not in said
+    frame.mgr.jobs.remove(j)
+    frame.structure_changed = True
+    frame.refresh()
+
+
+def test_search_row_menu(frame, monkeypatch):
+    from media_download import menus
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    dlg.searched = ("q", "youtube")
+    dlg._show("q", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One", "uploader": "Kraft Music",
+                                              "channel_url": "https://www.youtube.com/@kraftmusic"}])
+    dlg.list.SetSelection(0)
+    said = menus.labels(gui.dialogs.entry_menu(dlg, dlg.list, dlg.results, frame, play=lambda: None))
+    for want in ("Play or Pause", "Check", "Download This One Now", "Look Up Exact Date and Details",
+                 "Everything from Kraft Music...", "Search for Kraft Music", "Copy Link",
+                 "Check from Here to the End"):
+        assert want in said, want
+    added = []
+    monkeypatch.setattr(frame, "folder_ready", lambda: True)
+    monkeypatch.setattr(frame.mgr, "add", lambda job: added.append(job))
+    frame.download_now(dlg.results[0])
+    assert [j.title for j in added] == ["One"] and frame.search_win is dlg  # Search stays open
+    dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
+    _drain()
+
+
+def test_search_order_keeps_checks(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    dlg.searched = ("q", "youtube")
+    dlg._show("q", "youtube", "YouTube", 1, [
+        {"url": "u/old", "title": "Old", "uploaded": "20100101", "views": 50, "duration": 300},
+        {"url": "u/none", "title": "Undated"},
+        {"url": "u/new", "title": "New", "uploaded": "20250101", "views": 9, "duration": 60}])
+    dlg.list.Check(0)  # Old
+    names = lambda: [e["title"] for e in dlg.results]  # noqa: E731
+    for how, want in (("newest", ["New", "Old", "Undated"]), ("oldest", ["Old", "New", "Undated"]),
+                      ("views", ["Old", "New", "Undated"]), ("shortest", ["New", "Old", "Undated"]),
+                      ("site", ["Old", "Undated", "New"])):
+        dlg.order.SetSelection([k for k, _ in gui.dialogs.ORDERS].index(how))
+        dlg.reorder(speak=True)
+        assert names() == want, how
+        assert [dlg.results[i]["title"] for i in dlg.list.GetCheckedItems()] == ["Old"]
+        assert dlg.list.GetString(0).startswith("1. " + want[0])
+    dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
+    _drain()

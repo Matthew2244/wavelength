@@ -42,6 +42,10 @@ class Job:
     title: str = ""
     site: str = ""
     uploader: str = ""
+    upload_date: str = ""        # YYYYMMDD, exact
+    upload_ts: float = 0.0       # or a time, approximate when upload_approx (YouTube lists)
+    upload_approx: bool = False
+    views: int = 0
     length: float = 0.0
     state: str = "waiting"
     stage: str = ""
@@ -115,6 +119,15 @@ class Job:
         self.reason = ""
         self.log_tail = []
         self.files = []
+
+    def take_when(self, d: dict) -> None:
+        """Upload date and views from a listing or lookup (worker.when); an exact date wins."""
+        if d.get("uploaded"):
+            self.upload_date, self.upload_ts, self.upload_approx = str(d["uploaded"]), 0.0, False
+        elif d.get("uploaded_ts") and not self.upload_date:
+            self.upload_ts, self.upload_approx = float(d["uploaded_ts"]), bool(d.get("approx"))
+        if d.get("views"):
+            self.views = int(d["views"])
 
     def to_dict(self) -> dict:
         return asdict(self)

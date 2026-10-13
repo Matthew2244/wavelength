@@ -41,6 +41,66 @@ def first_name() -> str:
         return ""
 
 
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September",
+          "October", "November", "December")
+
+
+def _get(d, key):
+    return d.get(key) if isinstance(d, dict) else getattr(d, key, None)
+
+
+def uploaded(d, now: float | None = None) -> str:
+    """'uploaded March 4, 2024', or 'uploaded about 2 years ago' when the site only gave that
+    (YouTube's lists). Takes a result dict or a Job. Empty when nothing is known."""
+    import time
+    now = now or time.time()
+    exact = _get(d, "uploaded") or _get(d, "upload_date")
+    if exact and re.fullmatch(r"\d{8}", str(exact)):
+        y, m, day = int(str(exact)[:4]), int(str(exact)[4:6]), int(str(exact)[6:])
+        today = time.localtime(now)
+        if (y, m, day) == (today.tm_year, today.tm_mon, today.tm_mday):
+            return "uploaded today"
+        yest = time.localtime(now - 86400)
+        if (y, m, day) == (yest.tm_year, yest.tm_mon, yest.tm_mday):
+            return "uploaded yesterday"
+        return "uploaded %s %d, %d" % (MONTHS[m - 1], day, y)
+    ts = _get(d, "uploaded_ts") or _get(d, "upload_ts")
+    if not ts:
+        return ""
+    ts = float(ts)
+    if ts > now + 3600:
+        t = time.localtime(ts)
+        return "coming %s %d, %d" % (MONTHS[t.tm_mon - 1], t.tm_mday, t.tm_year)
+    if not (_get(d, "approx") or _get(d, "upload_approx")):
+        t = time.localtime(ts)
+        return uploaded({"uploaded": "%04d%02d%02d" % (t.tm_year, t.tm_mon, t.tm_mday)}, now)
+    days = (now - ts) / 86400
+    if days < 1:
+        return "uploaded today"
+    for limit, size_, unit in ((7, 1, "day"), (30, 7, "week"), (365, 30.44, "month"), (10 ** 9, 365.25, "year")):
+        if days < limit:
+            k = max(1, int(round(days / size_)))
+            return "uploaded %s%s" % ("" if unit == "day" else "about ", n(k, unit) + " ago")
+    return ""
+
+
+def views(count) -> str:
+    """'402 thousand views', said the way a person would say it."""
+    try:
+        c = int(count or 0)
+    except (TypeError, ValueError):
+        return ""
+    if c <= 0:
+        return ""
+    if c < 10_000:  # exact while it's still short to say
+        return "{:,} view{}".format(c, "" if c == 1 else "s")
+    if c < 1_000_000:
+        return "%d thousand views" % round(c / 1000)
+    if c < 1_000_000_000:
+        return "%s million views" % ("%.1f" % (c / 1e6)).rstrip("0").rstrip(".")
+    return "%s billion views" % ("%.1f" % (c / 1e9)).rstrip("0").rstrip(".")
+
+
 def duration(seconds) -> str:
     """'3 minutes 20 seconds', '1 hour 4 minutes'. Empty when unknown."""
     try:
@@ -424,6 +484,12 @@ def details_text(job) -> str:
         lines.append(job.note)
     if job.uploader:
         lines.append("By: " + job.uploader)
+    when = uploaded(job)
+    if when:
+        lines.append(when[0].upper() + when[1:] + ".")
+    seen = views(job.views)
+    if seen:
+        lines.append(seen[0].upper() + seen[1:] + ".")
     if job.length:
         lines.append("Length: " + duration(job.length))
     lines.append("Format: " + job.format_words())
@@ -435,10 +501,8 @@ def details_text(job) -> str:
         sp = speed(job.speed)
         if sp:
             lines.append("Speed: " + sp + ".")
-    for f in job.files[:20]:
+    for f in job.files:  # every one: no caps
         lines.append("Saved as: " + f)
-    if len(job.files) > 20:
-        lines.append("And %s more." % n(len(job.files) - 20, "file"))
     if not job.files:
         lines.append("Saving to: " + pretty_folder(job.folder()))
     lines.append("Link: " + job.url)

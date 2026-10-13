@@ -484,3 +484,33 @@ def test_a_killed_lookup_never_fails_its_retry(fake, monkeypatch):
     monkeypatch.setattr(m, "pump", pump)
     m.pump()
     assert wait(lambda: j.state == "done", 20), (j.state, j.reason)
+
+
+def test_upload_dates_said_plainly():
+    import time as _t
+    now = _t.mktime((2026, 10, 13, 12, 0, 0, 0, 0, -1))
+    assert words.uploaded({"uploaded": "20240304"}, now) == "uploaded March 4, 2024"
+    assert words.uploaded({"uploaded": "20261013"}, now) == "uploaded today"
+    assert words.uploaded({"uploaded": "20261012"}, now) == "uploaded yesterday"
+    day = 86400
+    assert words.uploaded({"uploaded_ts": now - 2 * 365 * day, "approx": True}, now) == "uploaded about 2 years ago"
+    assert words.uploaded({"uploaded_ts": now - 3 * day, "approx": True}, now) == "uploaded 3 days ago"
+    assert words.uploaded({"uploaded_ts": now - 21 * day, "approx": True}, now) == "uploaded about 3 weeks ago"
+    assert words.uploaded({"uploaded_ts": now - 60 * day}, now).startswith("uploaded August 1")  # exact
+    assert words.uploaded({}, now) == ""
+    assert words.views(402321) == "402 thousand views"
+    assert words.views(1) == "1 view"
+    assert words.views(1234) == "1,234 views"
+    assert words.views(1_250_000) == "1.2 million views" or words.views(1_250_000) == "1.3 million views"
+    assert words.views(3_000_000) == "3 million views"
+
+
+def test_job_takes_exact_date_over_approximate():
+    j = Job(url="https://x.com/a", dest="/tmp")
+    j.take_when({"uploaded_ts": 1700000000, "approx": True, "views": 5})
+    assert j.upload_approx and j.views == 5
+    j.take_when({"uploaded": "20231114"})
+    assert j.upload_date == "20231114" and not j.upload_approx
+    j.take_when({"uploaded_ts": 1, "approx": True})  # a later guess never replaces a real date
+    assert j.upload_date == "20231114"
+    assert "Uploaded November 14, 2023." in words.details_text(j)

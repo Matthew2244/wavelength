@@ -91,7 +91,10 @@ def output_template(spec: dict) -> str:
 
 
 def tool_flags(fragments: int = 4) -> list[str]:
-    flags = ["--concurrent-fragments", str(max(1, int(fragments)))]
+    flags = ["--concurrent-fragments", str(max(1, int(fragments))),
+             # YouTube's lists and search results then carry a date (from "2 years ago"), so every
+             # result can say when it was uploaded.
+             "--extractor-args", "youtubetab:approximate_date"]
     ff = engine.find_tool("ffmpeg")
     if ff:
         flags += ["--ffmpeg-location", os.path.dirname(ff)]
@@ -173,6 +176,7 @@ def probe_args(spec: dict) -> list[str]:
     return args
 
 
-SEARCH_SITES = [("youtube", "YouTube", "ytsearch"), ("soundcloud", "SoundCloud", "scsearch"),
+SEARCH_SITES = [("youtube", "YouTube", "ytsearch"),
+                ("soundcloud", "SoundCloud", "scsearch"),
                 # yt-dlp has no "ytmsearch:"; its YouTube Music search page, songs section, works.
                 ("youtube_music", "YouTube Music", "https://music.youtube.com/search?q=%s#songs")]

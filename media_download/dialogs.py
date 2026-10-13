@@ -10,6 +10,7 @@ import wx
 
 from . import describe, engine, words
 from .options import SEARCH_SITES
+from . import menus
 from .system import mac_accessibility_label
 
 BROWSERS = [("", "Don't use a browser's sign-in"), ("chrome", "Chrome"), ("safari", "Safari"),
@@ -285,9 +286,6 @@ class Settings(wx.Dialog):
         self.cover = wx.CheckBox(self, label="Add cover art to audio files")
         self.cover.SetValue(bool(cfg.get("app_cover_art", True)))
         s.Add(self.cover, 0, wx.ALL, 6)
-        self.sounds = wx.CheckBox(self, label="Play a sound when downloads finish or fail")
-        self.sounds.SetValue(bool(cfg.get("app_sounds", True)))
-        s.Add(self.sounds, 0, wx.ALL, 6)
         self.say_vals = [0, 10, 30, 60]
         _label = wx.StaticText(self, label="Speak progress while downloading:")
         self.say = wx.Choice(self, choices=["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"])
@@ -295,6 +293,37 @@ class Settings(wx.Dialog):
         self.say.SetSelection(self.say_vals.index(v) if v in self.say_vals else 0)
         labelled(self, s, "Speak progress while downloading:", self.say, _label,
                  "For screen readers. Finishes and failures are always spoken.")
+        heading(self, s, "Sounds")
+        from .system import SOUNDS, THEMES
+        self.sounds = wx.CheckBox(self, label="Play sounds")
+        self.sounds.SetValue(bool(cfg.get("app_sounds", True)))
+        self.sounds.SetToolTip("A sound for each thing that happens: finished, failed, added, copied, search "
+                               "results and more. Choose Sounds picks which.")
+        s.Add(self.sounds, 0, wx.ALL, 6)
+        self.theme_vals = [k for k, _ in THEMES]
+        _label = wx.StaticText(self, label="Sound set:")
+        self.theme = wx.Choice(self, choices=[w for _, w in THEMES])
+        t = cfg.get("app_sound_theme", "rhodes")
+        self.theme.SetSelection(self.theme_vals.index(t) if t in self.theme_vals else 0)
+        labelled(self, s, "Sound set:", self.theme, _label,
+                 "Each set has a sound for everything the app does. Changing it plays its Finished sound.")
+        self.theme.Bind(wx.EVT_CHOICE, lambda e: self._preview("done"))
+        self.vol_vals = [1.0, 0.75, 0.5, 0.25]
+        self.volume = None
+        if sys.platform == "darwin":  # Windows plays sounds at the system's own level
+            _label = wx.StaticText(self, label="Sound volume:")
+            self.volume = wx.Choice(self, choices=["Full", "Three quarters", "Half", "Quarter"])
+            v = float(cfg.get("app_sound_volume", 1.0) or 1.0)
+            self.volume.SetSelection(min(range(4), key=lambda k: abs(self.vol_vals[k] - v)))
+            labelled(self, s, "Sound volume:", self.volume, _label, "How loud the app's sounds are, under the "
+                     "system volume. Changing it plays a sound at the new level.")
+            self.volume.Bind(wx.EVT_CHOICE, lambda e: self._preview("item_done"))
+        self.sounds_off = list(cfg.get("app_sounds_off") or [])
+        pick = wx.Button(self, label="Choose Sounds...")
+        pick.SetToolTip("Lists every sound with a checkbox: checked plays, unchecked stays quiet. You can hear "
+                        "each one there.")
+        pick.Bind(wx.EVT_BUTTON, self.on_pick_sounds)
+        s.Add(pick, 0, wx.ALL, 6)
         heading(self, s, "Player")
         self.skip_vals = [5, 10, 15, 30, 60]
         _label = wx.StaticText(self, label="Skip back and forward by:")
@@ -354,8 +383,27 @@ class Settings(wx.Dialog):
         ok.Bind(wx.EVT_BUTTON, self.on_ok)
         self.parallel.SetFocus()
 
+    def _theme_now(self):
+        return self.theme_vals[self.theme.GetSelection()]
+
+    def _vol_now(self):
+        return self.vol_vals[self.volume.GetSelection()] if self.volume else 1.0
+
+    def _preview(self, kind):
+        """Announce, then play: VoiceOver has just read the new choice; let it finish first."""
+        from .system import play
+        wx.CallLater(700, play, kind, self._theme_now(), self._vol_now())
+
+    def on_pick_sounds(self, _):
+        dlg = SoundPicker(self, self.sounds_off, self._theme_now, self._vol_now)
+        if dlg.ShowModal() == wx.ID_OK:
+            self.sounds_off = dlg.off()
+        dlg.Destroy()
+
     def on_ok(self, _):
         self.cfg.update({
+            "app_sound_theme": self._theme_now(), "app_sound_volume": self._vol_now(),
+            "app_sounds_off": self.sounds_off,
             "app_parallel": self.parallel_vals[self.parallel.GetSelection()],
             "app_per_site": self.site_vals[self.per_site.GetSelection()],
             "app_fragments": self.frag_vals[self.frags.GetSelection()],
@@ -375,6 +423,46 @@ class Settings(wx.Dialog):
 
 SEARCH_PAGE = 25  # results per page; pages keep coming until the site has no more
 
+# How Search can order what it has loaded. YouTube's own "sort by upload date" no longer works
+# (asked for, it answers in its usual order), so the app sorts the results it has.
+ORDERS = [("site", "As the site ranks them"), ("newest", "Newest first"), ("oldest", "Oldest first"),
+          ("views", "Most viewed first"), ("longest", "Longest first"), ("shortest", "Shortest first")]
+
+
+def _when_key(e):
+    """A sortable upload time; unknown is None."""
+    import time as _t
+    d = e.get("uploaded")
+    if d and len(str(d)) == 8:
+        try:
+            return _t.mktime(_t.strptime(str(d), "%Y%m%d"))
+        except ValueError:
+            return None
+    return float(e["uploaded_ts"]) if e.get("uploaded_ts") else None
+
+
+def sort_value(e, how):
+    """What `how` sorts on for one result; None when the site didn't say."""
+    if how in ("newest", "oldest"):
+        return _when_key(e)
+    if how == "views":
+        return e.get("views") or None
+    if how in ("longest", "shortest"):
+        return e.get("duration") or None
+    return e.get("_rank", 0)
+
+
+def order_results(results, how):
+    """Sorted copy; anything the site didn't say (no date, no views) goes last, in site order."""
+    rank = lambda e: e.get("_rank", 0)  # noqa: E731
+    if how == "site":
+        return sorted(results, key=rank)
+    pick = lambda e: sort_value(e, how)  # noqa: E731
+    known = [e for e in results if pick(e) is not None]
+    unknown = sorted((e for e in results if pick(e) is None), key=rank)
+    known.sort(key=lambda e: (pick(e), -rank(e)), reverse=how in ("newest", "views", "longest"))
+    return known + unknown
+
 
 def entry_words(i: int, e: dict) -> str:
     bits = ["%d. %s" % (i, e.get("title") or e.get("url"))]
@@ -382,7 +470,160 @@ def entry_words(i: int, e: dict) -> str:
         bits.append(words.duration(e["duration"]))
     if e.get("uploader"):
         bits.append("by " + e["uploader"])
+    for extra in (words.uploaded(e), words.views(e.get("views"))):
+        if extra:
+            bits.append(extra)
     return ", ".join(bits)
+
+
+def entry_menu(win, lst, entries, main, play=None):
+    """The right-click menu for a row of results or list items (Search, a playlist's items).
+    `win` must have _count(); `main` is the main window, for adding, copying and looking up."""
+    i = lst.GetSelection()
+    if i == wx.NOT_FOUND or i >= len(entries):
+        return [menus.item("Check All", lambda: _check_range(win, lst, 0, lst.GetCount(), True)),
+                menus.item("Uncheck All", lambda: _check_range(win, lst, 0, lst.GetCount(), False))]
+    e = entries[i]
+    url = e.get("url") or ""
+    on = lst.IsChecked(i)
+    who = e.get("uploader") or ""
+    items = []
+    if play:
+        items.append(menus.item("Play or Pause", play, True, "Ctrl+P"))
+    items += [
+        menus.item("Uncheck" if on else "Check", lambda: (lst.Check(i, not on), win._count(speak=True)),
+                   keys="Space"),
+        menus.item("Download This One Now", lambda: main.download_now(e)),
+        menus.item("Look Up Exact Date and Details", lambda: look_up_row(win, lst, entries, i, main), True, "Ctrl+I"),
+    ]
+    if e.get("channel_url"):
+        items.append(menus.item("Everything from %s..." % (who or "This Channel"),
+                                lambda: main.add_links([e["channel_url"]])))
+    if who and hasattr(win, "search_for"):
+        items.append(menus.item("Search for %s" % who, lambda: win.search_for(who)))
+    items += [
+        menus.SEP,
+        menus.item("Open the Web Page", lambda: main.open_page(url), url.startswith("http")),
+        menus.item("Copy Link", lambda: main.copy(url, "Link copied."), bool(url)),
+        menus.item("Copy Title", lambda: main.copy(e.get("title") or url, "Title copied.")),
+        menus.SEP,
+        menus.item("Check All", lambda: _check_range(win, lst, 0, lst.GetCount(), True)),
+        menus.item("Uncheck All", lambda: _check_range(win, lst, 0, lst.GetCount(), False)),
+        menus.item("Check from Here to the End", lambda: _check_range(win, lst, i, lst.GetCount(), True)),
+        menus.item("Check from the Start to Here", lambda: _check_range(win, lst, 0, i + 1, True)),
+    ]
+    return items
+
+
+def _check_range(win, lst, a, b, on):
+    for k in range(a, b):
+        lst.Check(k, on)
+    win._count(speak=True)
+
+
+def look_up_row(win, lst, entries, i, main):
+    """Ask the site for everything about one row (an exact date where the list only had "about 2
+    years ago", the length and date YouTube Music's song search leaves out), update the row, say it."""
+    e = entries[i]
+    from .system import announce
+    announce("Looking up %s." % (e.get("title") or "it"))
+
+    def done(info):
+        if not win or i >= len(entries) or entries[i] is not e:
+            return
+        if info.get("error"):
+            announce(info["error"])
+            return
+        for k in ("uploaded", "uploaded_ts", "approx", "views", "duration", "uploader"):
+            if info.get(k):
+                e[k] = info[k]
+        if info.get("uploaded"):
+            e.pop("uploaded_ts", None)
+            e.pop("approx", None)
+        checked = lst.IsChecked(i)
+        lst.SetString(i, entry_words(i + 1, e))
+        lst.Check(i, checked)  # some systems clear the check when the text changes
+        bits = [x for x in (words.uploaded(e), words.views(e.get("views")),
+                            words.duration(e.get("duration")) if e.get("duration") else "",
+                            "by " + e["uploader"] if e.get("uploader") else "") if x]
+        said = ", ".join(bits) or "Nothing more is known about it."
+        announce(said[0].upper() + said[1:] + ".")
+    main.look_up(e.get("url") or "", done)
+
+
+class SoundPicker(wx.Dialog):
+    """Every sound the app makes, each with a checkbox (checked plays). Return or Play Selected
+    plays the selected one; Hear Them All says each name, then plays it."""
+
+    def __init__(self, parent, off: list, theme, volume):
+        super().__init__(parent, title="Choose Sounds", size=(560, 480),
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        from .system import SOUNDS
+        self.keys = [k for k, _, _ in SOUNDS]
+        self.theme, self.volume = theme, volume
+        s = wx.BoxSizer(wx.VERTICAL)
+        s.Add(wx.StaticText(self, label="Checked sounds play; unchecked ones stay quiet. Return plays the "
+                                        "selected one."), 0, wx.ALL, 8)
+        self.list = wx.CheckListBox(self, choices=[w for _, w, _ in SOUNDS])
+        mac_accessibility_label(self.list, "Sounds")
+        for i, k in enumerate(self.keys):
+            self.list.Check(i, k not in off)
+        s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        play = wx.Button(self, label="Play Selected")
+        play.SetToolTip("Plays the selected sound in the chosen set (Return).")
+        allb = wx.Button(self, label="Hear Them All")
+        allb.SetToolTip("Says each sound's name, then plays it, one after another.")
+        row.Add(play, 0, wx.RIGHT, 6)
+        row.Add(allb, 0)
+        s.Add(row, 0, wx.ALL, 6)
+        brow, ok, _ = buttons(self, "Use These")
+        s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
+        self.SetSizer(s)
+        play.Bind(wx.EVT_BUTTON, lambda e: self.play_selected())
+        allb.Bind(wx.EVT_BUTTON, lambda e: self.hear_all())
+        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.play_selected())
+        self.list.Bind(wx.EVT_KEY_DOWN, self.on_key)
+        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._said(e.GetInt()))
+        self.timers = []
+        self.list.SetFocus()
+        self.list.SetSelection(0)
+
+    def on_key(self, event):
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.play_selected()
+        else:
+            event.Skip()
+
+    def _said(self, i):
+        from .system import announce
+        announce("%s: %s." % (self.list.GetString(i), "on" if self.list.IsChecked(i) else "off"))
+
+    def play_selected(self):
+        from .system import play
+        i = self.list.GetSelection()
+        if i != wx.NOT_FOUND:
+            play(self.keys[i], self.theme(), self.volume())
+
+    def hear_all(self):
+        """Name, pause, sound, for every one: announce first, then play (never both at once)."""
+        from .system import announce, play
+        for t in self.timers:
+            t.Stop()
+        self.timers = []
+        at = 0
+        for i, k in enumerate(self.keys):
+            self.timers.append(wx.CallLater(at + 1, announce, self.list.GetString(i)))
+            self.timers.append(wx.CallLater(at + 1700, play, k, self.theme(), self.volume()))
+            at += 3400
+
+    def off(self) -> list:
+        return [k for i, k in enumerate(self.keys) if not self.list.IsChecked(i)]
+
+    def Destroy(self):
+        for t in self.timers:
+            t.Stop()
+        return super().Destroy()
 
 
 class CheckList(wx.Dialog):
@@ -393,6 +634,7 @@ class CheckList(wx.Dialog):
         super().__init__(parent, title=title, size=(720, 560), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.entries = entries
         self.ok_label = ok_label
+        self.main = parent
         s = wx.BoxSizer(wx.VERTICAL)
         s.Add(wx.StaticText(self, label=intro), 0, wx.ALL, 8)
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
@@ -415,6 +657,7 @@ class CheckList(wx.Dialog):
         b_all.Bind(wx.EVT_BUTTON, lambda e: self._set_all(True))
         b_none.Bind(wx.EVT_BUTTON, lambda e: self._set_all(False))
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
+        menus.attach(self.list, lambda: entry_menu(self, self.list, self.entries, self.main))
         self._count()
         self.list.SetFocus()
         if entries:
@@ -516,6 +759,16 @@ class Search(wx.Frame):
         self.go = wx.Button(p, label="Search")
         top.Add(self.go, 0)
         s.Add(top, 0, wx.EXPAND | wx.ALL, 8)
+        orow = wx.BoxSizer(wx.HORIZONTAL)
+        olab = wx.StaticText(p, label="Order:")
+        self.order = wx.Choice(p, choices=[w for _, w in ORDERS])
+        self.order.SetSelection(0)
+        mac_accessibility_label(self.order, "Order")
+        self.order.SetToolTip("Sorts the results loaded so far, keeping what's checked. More results that "
+                              "come in are sorted in too.")
+        orow.Add(olab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        orow.Add(self.order, 0)
+        s.Add(orow, 0, wx.LEFT | wx.RIGHT, 8)
         self.status = wx.StaticText(p, label="Type words and press Return.")
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
@@ -550,6 +803,7 @@ class Search(wx.Frame):
         p.SetSizer(s)
         self._menus()
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
+        self.order.Bind(wx.EVT_CHOICE, lambda e: self.reorder(speak=True))
         self.query.Bind(wx.EVT_TEXT_ENTER, self.on_search)
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
         if not play:
@@ -559,6 +813,8 @@ class Search(wx.Frame):
         self.cancel.Bind(wx.EVT_BUTTON, lambda e: self._finish([]))
         self.Bind(wx.EVT_CLOSE, lambda e: self._finish([]))
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
+        menus.attach(self.list, lambda: entry_menu(self, self.list, self.results, self.main,
+                                                   play=(lambda: self.on_play(None)) if self.play else None))
         self.query.SetFocus()
         if query.strip():
             wx.CallAfter(self.on_search, None)
@@ -573,6 +829,8 @@ class Search(wx.Frame):
         add(f, "&Search\tCtrl+F", lambda: (self.query.SetFocus(), self.query.SelectAll()))
         add(f, "&Download Checked\tCtrl+Return", self.download_checked)
         add(f, "&More Results\tCtrl+Shift+M", self.more)
+        add(f, "Look Up Exact Date and &Info\tCtrl+I", self._look_up_selected)
+        add(f, "Actions for the Selected &Result...\tCtrl+K", lambda: self.list._context_menu())
         if self.play:
             add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
         f.AppendSeparator()
@@ -613,6 +871,17 @@ class Search(wx.Frame):
             announce(self.status.GetLabel())
             return
         self._finish(chosen)
+
+    def _look_up_selected(self):
+        i = self.list.GetSelection()
+        if i == wx.NOT_FOUND or i >= len(self.results):
+            self.status.SetLabel("Select a result first.")
+            return
+        look_up_row(self, self.list, self.results, i, self.main)
+
+    def search_for(self, words_: str):
+        self.query.SetValue(words_)
+        self.on_search(None)
 
     def show_again(self, q: str):
         """Brought forward by the main window (Command-F, or words in the Link field). A new
@@ -666,7 +935,8 @@ class Search(wx.Frame):
             return
         if not self.has_more:
             self.status.SetLabel("That's every result %s has for %s." % (self._site_name(site_key), q))
-            from .system import announce
+            from .system import announce, cue
+            cue("no_more")
             announce(self.status.GetLabel())
             return
         self.status.SetLabel("Getting more results...")
@@ -703,9 +973,14 @@ class Search(wx.Frame):
         seen = {e["url"] for e in self.results}
         fresh = [e for e in (res or []) if e["url"] not in seen]
         first_new = len(self.results)
-        self.results.extend(fresh)
         for i, e in enumerate(fresh):
-            self.list.Append(entry_words(first_new + i + 1, e))  # appended: checks so far stay checked
+            e["_rank"] = first_new + i  # the site's own order, kept for "As the site ranks them"
+        self.results.extend(fresh)
+        if ORDERS[self.order.GetSelection()][0] == "site":
+            for i, e in enumerate(fresh):
+                self.list.Append(entry_words(first_new + i + 1, e))  # appended: checks so far stay checked
+        else:
+            self.reorder()
         # Only an empty page is the end. A short page usually is too, but a site can drop an entry
         # it can't list; and YouTube repeats some results from page to page (dropped above), so a
         # page of nothing but repeats isn't the end either: fetch the next one straight away.
@@ -715,7 +990,8 @@ class Search(wx.Frame):
         if res and not fresh and self.repeats < 3:
             wx.CallAfter(self.more)
             return
-        from .system import announce
+        from .system import announce, cue
+        cue("results" if fresh else "no_more")
         if not self.results:
             self.status.SetLabel("Nothing found on %s for %s." % (site, q))
             self.query.SetFocus()
@@ -731,6 +1007,26 @@ class Search(wx.Frame):
                                                                              words.n(len(self.results), "result")))
         announce(self.status.GetLabel())
         self._count()
+
+    def reorder(self, speak=False):
+        """Sort what's loaded by the Order choice, keeping checks and the selected result."""
+        how = ORDERS[self.order.GetSelection()][0]
+        checked = {self.results[i]["url"] for i in self.list.GetCheckedItems() if i < len(self.results)}
+        sel = self.list.GetSelection()
+        keep = self.results[sel]["url"] if 0 <= sel < len(self.results) else None
+        self.results = order_results(self.results, how)
+        self.list.Set([entry_words(i + 1, e) for i, e in enumerate(self.results)])
+        for i, e in enumerate(self.results):
+            if e["url"] in checked:
+                self.list.Check(i)
+        if self.results:
+            at = next((i for i, e in enumerate(self.results) if e["url"] == keep), 0) if not speak else 0
+            self.list.SetSelection(at)
+        if speak:
+            from .system import announce
+            missing = sum(1 for e in self.results if sort_value(e, how) is None)
+            note = (" %d the site didn't give that for are at the end." % missing) if missing and how != "site" else ""
+            announce("%s, %s.%s" % (ORDERS[self.order.GetSelection()][1], words.n(len(self.results), "result"), note))
 
     def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
@@ -829,6 +1125,7 @@ class DescribeDialog(wx.Dialog):
         self.dl_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("download"))
         self.make_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("make"))
         self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.look_further())
+        menus.attach(self.list, self.row_menu)
         threading.Thread(target=lambda: wx.CallAfter(self._found, run_find(url)), daemon=True).start()
 
     def _found(self, res):
@@ -874,12 +1171,33 @@ class DescribeDialog(wx.Dialog):
         self._buttons()
         self.Layout()
 
+    def row_menu(self):
+        o = self._selected()
+        if not o:
+            return []
+        main = wx.GetApp().frame if hasattr(wx.GetApp(), "frame") else None
+        url = o.get("url") or ""
+        items = []
+        if o["kind"] in ("track", "version"):
+            items += [menus.item("Play", lambda: self._act("play")),
+                      menus.item("Download", lambda: self._act("download"))]
+        if o["kind"] == "make":
+            items.append(menus.item("Make Description", lambda: self._act("make")))
+        if url and main:
+            items += [menus.SEP, menus.item("Open the Web Page", lambda: main.open_page(url)),
+                      menus.item("Copy Link", lambda: main.copy(url, "Link copied.")),
+                      menus.item("Copy Title", lambda: main.copy(o.get("title") or url, "Title copied."))]
+        if self.more_left:
+            items += [menus.SEP, menus.item("Look Further", self.look_further, not self.looking)]
+        return items
+
     @staticmethod
     def _version_row(c):
         return {"kind": "version", "url": c["url"], "title": c.get("title"),
-                "words": "A described version: %s%s%s" % (
+                "words": "A described version: %s%s%s%s" % (
                     c.get("title"), ", " + words.duration(c["duration"]) if c.get("duration") else "",
-                    ", by " + c["uploader"] if c.get("uploader") else "")}
+                    ", by " + c["uploader"] if c.get("uploader") else "",
+                    "".join(", " + x for x in (words.uploaded(c), words.views(c.get("views"))) if x))}
 
     def look_further(self):
         if self.looking or not self.more_left:
@@ -915,7 +1233,8 @@ class DescribeDialog(wx.Dialog):
             msg = "That's the end of the search. Nothing more."
         self.status.SetLabel(msg)
         self.status.Wrap(700)
-        from .system import announce
+        from .system import announce, cue
+        cue("results" if fresh else "no_more")
         announce(msg)
         self.list.SetFocus()
         self._buttons()

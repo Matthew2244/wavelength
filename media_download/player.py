@@ -233,6 +233,8 @@ class PlayerFrame(wx.Frame):
         self.show_btn.Bind(wx.EVT_BUTTON, lambda e: self.show_file())
         self.qlist.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.play_index(self.qlist.GetSelection()))
         self.qlist.Bind(wx.EVT_KEY_DOWN, self.on_queue_key)
+        from . import menus
+        menus.attach(self.qlist, self.queue_menu)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.timer = wx.Timer(self)
@@ -280,6 +282,7 @@ class PlayerFrame(wx.Frame):
         m.AppendSeparator()
         add("Download This\tCtrl+S", self.download_this)
         add("Show the File\tCtrl+R", self.show_file)
+        add("Actions for the Selected Queue Item...\tCtrl+K", lambda: self.qlist._context_menu())
         add("Close Player\tCtrl+W", self.Close)
         add("Go to the Downloads Window\tCtrl+1", self.to_main)
         m.AppendSeparator()
@@ -306,7 +309,9 @@ class PlayerFrame(wx.Frame):
         for i, it in enumerate(self.queue):
             state = ("Playing" if i == self.index else "Next" if i == self.index + 1 else
                      "Played" if i < self.index else "Later")
-            rows.append("%s: %s" % (state, it.get("title") or it.get("url") or it.get("path")))
+            when = words.uploaded(it)
+            rows.append("%s: %s%s" % (state, it.get("title") or it.get("url") or it.get("path"),
+                                      ", " + when if when else ""))
         self.qlist.Set(rows)
         if 0 <= self.index < len(rows):
             self.qlist.SetSelection(self.index)
@@ -386,6 +391,10 @@ class PlayerFrame(wx.Frame):
         item.update(play_url=found["url"], title=item.get("title") or found.get("title"),
                     duration=found.get("duration") or item.get("duration") or 0,
                     uploader=found.get("uploader") or item.get("uploader"),
+                    uploaded=found.get("uploaded") or item.get("uploaded"),
+                    uploaded_ts=found.get("uploaded_ts") or item.get("uploaded_ts"),
+                    approx=found.get("approx") if found.get("uploaded_ts") else item.get("approx"),
+                    views=found.get("views") or item.get("views"),
                     live=bool(found.get("is_live") or not found.get("duration")), got=found.get("want"))
         self.cues = [tuple(c) for c in found.get("cues") or []]
         self.title.SetLabel(item["title"] or "Playing")
@@ -412,7 +421,8 @@ class PlayerFrame(wx.Frame):
             self._resolved(item, {"log": item.get("first_log") or ["NOPLAYABLE"]})
             return
         new = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
-                "want": item.get("want", "audio"), "tried_list": True} for e in entries]
+                "want": item.get("want", "audio"), "tried_list": True,
+                **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views") if e.get(k)}} for e in entries]
         self.queue[self.index:self.index + 1] = new
         self.say("%s: %s. Playing them in turn." % (got.get("title") or "A list", words.n(len(new), "item")))
         self.play_index(self.index)
@@ -486,6 +496,9 @@ class PlayerFrame(wx.Frame):
 
     def _byline(self):
         bits = ["By " + self.item["uploader"]] if self.item and self.item.get("uploader") else []
+        when = words.uploaded(self.item) if self.item else ""
+        if when:
+            bits.append(when[0].upper() + when[1:])
         if self.ad_cues:
             bits.append("Audio description: " + dict(AD_MODES)[self.ad_mode])
         self.byline.SetLabel(". ".join(bits))
@@ -579,6 +592,8 @@ class PlayerFrame(wx.Frame):
         else:
             # Said, not just shown: silence at the end of a queue sounds the same as a stall.
             self.say("That's everything in the queue." if len(self.queue) > 1 else "Finished.")
+            from .system import cue
+            cue("queue_end")
             self._update_buttons()
 
     def playing(self) -> bool:
@@ -778,6 +793,36 @@ class PlayerFrame(wx.Frame):
             self.positions.set(self._key(), self.media.Tell() / 1000.0, self.length)
             self.positions.save()
         self.last_saved = time.time()
+
+    def queue_menu(self):
+        from . import menus
+        k = self.qlist.GetSelection()
+        if k == wx.NOT_FOUND or k >= len(self.queue):
+            return []
+        it = self.queue[k]
+        url = it.get("url") or it.get("page") or ""
+        here = k == self.index
+        return [
+            menus.item("Play or Pause" if here else "Play This One", self.toggle if here else
+                       (lambda: self.play_index(k)), True, "Space" if here else ""),
+            menus.item("Download This One", lambda: self.main.add_links([url], "player"), url.startswith("http")),
+            menus.item("Show the File", lambda: reveal([it["path"]]), bool(it.get("path"))),
+            menus.SEP,
+            menus.item("Open the Web Page", lambda: self.main.open_page(url), url.startswith("http")),
+            menus.item("Copy Link", lambda: self.main.copy(url, "Link copied."), bool(url)),
+            menus.item("Copy Title", lambda: self.main.copy(it.get("title") or url, "Title copied.")),
+            menus.SEP,
+            menus.item("Remove from the Queue", lambda: self.remove_from_queue(k), not here),
+        ]
+
+    def remove_from_queue(self, k: int):
+        if k == self.index or not 0 <= k < len(self.queue):
+            return
+        gone = self.queue.pop(k)
+        if k < self.index:
+            self.index -= 1
+        self._fill_queue()
+        self.say("Removed %s from the queue." % (gone.get("title") or "it"))
 
     def download_this(self):
         if not self.item:
