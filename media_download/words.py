@@ -14,6 +14,33 @@ def n(count: int, word: str, plural: str | None = None) -> str:
     return "%d %s" % (count, word if count == 1 else (plural or word + "s"))
 
 
+def ordinal(n: int) -> str:
+    """1st, 2nd, 3rd, 11th, 100th."""
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return "%d%s" % (n, suffix)
+
+
+def first_name() -> str:
+    """The first name on this computer's account ("Matthew"), or nothing. Only for a greeting."""
+    import os
+    import sys
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            size = ctypes.c_ulong(256)
+            buf = ctypes.create_unicode_buffer(256)
+            # NameDisplay: the person's full name, where Windows knows it.
+            if ctypes.windll.secur32.GetUserNameExW(3, buf, ctypes.byref(size)) and buf.value.strip():
+                return buf.value.split()[0]
+            return ""
+        import pwd
+        full = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()
+        first = full.split()[0] if full else ""
+        return first if first.isalpha() else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def duration(seconds) -> str:
     """'3 minutes 20 seconds', '1 hour 4 minutes'. Empty when unknown."""
     try:

@@ -102,7 +102,8 @@ DEFAULTS = {
     "app_search_site": "youtube",
     "app_signin_browser": "",     # remembered for Retry Using a Browser's Sign-in
     "app_rate_limit": "",
-    "app_keep_awake": True,      # don't let the computer sleep while downloading         # "", "500K", "1M", "5M", "10M"
+    "app_keep_awake": True,
+    "app_stats": {},              # {"count", "bytes", "seconds", "since"}: the running tally      # don't let the computer sleep while downloading         # "", "500K", "1M", "5M", "10M"
     "app_welcomed": False,
 }
 

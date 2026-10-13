@@ -116,3 +116,44 @@ def test_default_folder_is_on_this_computer():
     d = engine.default_folder()
     assert "CloudDocs" not in d and d.endswith(os.path.join("Downloads", "Media Downloads"))
     assert words.pretty_folder(d) == "Downloads > Media Downloads"
+
+
+def test_hundredth_download_is_mentioned_in_the_done_sentence(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda cfg: None)
+    frame.cfg["app_stats"] = {"count": 99, "bytes": 0, "seconds": 0, "since": "2026-10-13"}
+    j = job("done", "Song", bytes_done=5_000_000, length=200)
+    frame._count(j)
+    said = finish(frame, monkeypatch, [j], busy=True, batch_total=2)
+    assert said == ["Done: Song. That's your 100th download."]
+    frame._count(job("done", "Next", bytes_done=1, length=1))
+    assert frame.milestone == ""  # 101 is not a milestone, and it was said only once
+
+
+def test_about_tally_reads_naturally(frame):
+    frame.cfg["app_stats"] = {"count": 214, "bytes": 18_300_000_000, "seconds": 41 * 3600, "since": "2026-10-13"}
+    assert frame.tally() == ("Since October 13, 2026: 214 downloads, 18.3 GB, about 41 hours of listening and "
+                             "watching.")
+    frame.cfg["app_stats"] = {}
+    assert frame.tally() == "Nothing downloaded yet."
+
+
+def test_whats_happening_names_what_is_downloading(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    a = job("downloading", "Green Onions", percent=45)
+    b = job("waiting", "The Sermon")
+    c = job("done", "Turning")
+    old = frame.mgr.jobs
+    frame.mgr.jobs = [a, b, c]
+    try:
+        frame.on_whats_happening(None)
+    finally:
+        frame.mgr.jobs = old
+    assert said == ["Downloading Green Onions, 45 percent. 1 waiting, 1 done."]
+
+
+def test_welcome_uses_the_first_name(frame, monkeypatch):
+    monkeypatch.setattr(gui.words, "first_name", lambda: "Matthew")
+    assert frame.welcome().startswith("Welcome to Media Download, Matthew.")
+    monkeypatch.setattr(gui.words, "first_name", lambda: "")
+    assert frame.welcome().startswith("Welcome to Media Download.")

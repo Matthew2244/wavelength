@@ -118,6 +118,12 @@ for ctrl in ("self.link", "self.kind", "self.height", "self.list", "self.details
              "self.slider", "self.speed_choice", "self.volume", "self.qlist"):
     if "mac_accessibility_label(%s," % ctrl not in src:
         problems.append("%s has no spoken name" % ctrl)
+# Windows: two controls with the same Alt letter in one window means one is unreachable by it.
+gui = open(os.path.join(here, "media_download", "gui.py")).read()
+letters = [m.group(1).upper() for m in re.finditer(r'M\("[^"&]*&(\w)', gui)]
+dupes = sorted({l for l in letters if letters.count(l) > 1})
+if dupes:
+    problems.append("main window Alt letters used twice: " + ", ".join(dupes))
 for p in problems:
     print("  FAIL  " + p)
 print("  ok    dialogs close with Escape, controls are named" if not problems else "")

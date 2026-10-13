@@ -58,7 +58,7 @@ Media Download plays things too: what you've downloaded, and links you haven't.
 - **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from half to double, without changing pitch. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
 - **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.
 - **Captions** show in large type under the picture, from subtitles you downloaded or the stream's own.
-- Nothing is spoken unless you ask (T), or a new item starts while the player is in the background. Speed and volume are remembered.
+- Nothing is spoken unless you ask (T), a new item starts while the player is in the background, or the queue runs out. Speed, volume and where you put the window are remembered.
 
 Windows plays MP4 and M4A streams; video from sites that only offer the Mac-style streaming format plays after downloading.
 
@@ -114,6 +114,8 @@ Everything is in the menus with its shortcut. On Windows read Control for Comman
 | Command-Comma | Settings |
 
 You can also drop links, a text file of links, or a web location onto the window or the Dock icon.
+
+Help, About keeps a running tally of what you've downloaded ("Since October 13, 2026: 214 downloads, 18.3 GB, about 41 hours of listening and watching"), and the hundredth, thousandth and so on get a quiet mention in the "Done" sentence that was being said anyway.
 
 ### Settings
 

@@ -27,6 +27,7 @@ import wx.media
 
 from . import describe, engine, words
 from .speech import Reader
+from . import geometry
 from .manager import run_task
 from .system import (announce, mac_accessibility_label, mac_focus, mac_has_focus, mac_value_description, open_path,
                      reveal)
@@ -237,6 +238,7 @@ class PlayerFrame(wx.Frame):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_tick, self.timer)
         self.timer.Start(250)
+        geometry.restore(self, main.ui, "player")
         self._update_buttons()
 
     # ------------------------------------------------------------------ menus
@@ -559,7 +561,8 @@ class PlayerFrame(wx.Frame):
         if self.cfg.get("app_play_next", True) and self.index + 1 < len(self.queue):
             self.go(+1)
         else:
-            self.status("Finished.")
+            # Said, not just shown: silence at the end of a queue sounds the same as a stall.
+            self.say("That's everything in the queue." if len(self.queue) > 1 else "Finished.")
             self._update_buttons()
 
     def playing(self) -> bool:
@@ -715,7 +718,7 @@ class PlayerFrame(wx.Frame):
                 self.media.SetVolume(self.base_volume)
                 self.sleep_at, self.fading = 0.0, False
                 self.save_position()
-                self.status("Sleep timer: paused.")
+                self.status("Paused by the sleep timer. Sleep well.")  # shown, never spoken
                 self._update_buttons()
         if time.time() - self.last_saved > 10:
             self.save_position()
@@ -857,6 +860,7 @@ class PlayerFrame(wx.Frame):
         the player). Keeping one player alive, and stopping it well before the app quits
         (shutdown()), avoids it."""
         self.save_position()
+        geometry.save(self, self.main.ui, "player")
         self._end_ad(resume=False)
         self.media.Stop()
         self.loaded = False

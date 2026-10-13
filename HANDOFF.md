@@ -121,6 +121,15 @@ drive) is caught before anything is added, with Choose Folder offered. After
 the lookup knows the size, a download too big for the free space fails at once
 with both numbers (WAV and FLAC conversions counted at six times).
 
+**Small things that are deliberate.** Windows come back where they were left
+(`geometry.py`; a position on a missing display is ignored). The welcome uses
+the account's first name (`words.first_name`). Help, About carries a running
+tally (`app_stats`), and milestones (100th, 250th, 1000th...) are folded into
+the "Done" sentence already being said, never a message of their own: the
+`ytdl` rule that character lives in wording that was going to be said anyway.
+Windows Alt letters in the main window must be unique; `check.sh` fails on a
+repeat (Filter and Retry both had R until 2.4.2).
+
 **Trying again by itself** (`Manager._try_later`). Network trouble or a 5xx
 waits 15 s then 60 s (`net_retries`, at most 2). A 429 pauses the whole site
 (`site_pause`) for 5, 10, then 15 minutes and announces it once; jobs wait
@@ -151,6 +160,7 @@ which beats archive.org's file ids.
     .venv/bin/python tools/screenshot.py X.png [POINTS]   window draws itself, no screen capture
     .venv/bin/python tools/drive.py WORKDIR [links...]    real window, real downloads, off-screen
     .venv/bin/python tools/train.py WORKDIR [--only NAME...]  real-world matrix: 19 links and options at once, each result checked
+    .venv/bin/python tools/time_play.py WORKDIR FILE cold 5   how long Play takes, in the real event loop
     .venv/bin/python tools/make_icon.py         redraw assets/icon.*
     .venv/bin/python tools/release_mac.py vX.Y.Z  sign, notarize, staple, replace the Mac zip, attach the signed appcast
 
@@ -196,13 +206,20 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    sends a late notice to a destroyed media control: close-and-reopen crashed
    every time. Closing hides it; the app's own quit calls `shutdown()`, which
    stops and lets those notices drain for half a second first.
-12. **A slow sound system makes everything slow to start.** With coreaudiod at
-   132% CPU (the StudioLive as output), even a local MP3 took 19 s to be ready.
-   The player says "Still getting ready" after 8 s and only refetches a stream
-   after 30 s; restarting at 12 s made a slow-but-working load slower.
-13. **YouTube's direct M4A (DASH) stream sometimes never starts on the Mac** and
-   reads at twice its length; streaming prefers HLS audio there, and the site's
-   duration wins over the player's.
+12. **Never time media with a loop of `wx.SafeYield()`.** It disables and
+   repaints every window on each call, and that starves AVFoundation: a first
+   Play that really takes **0.4 s** measured 7 to 27 s that way, and a whole
+   night (2026-10-12/13) went on explaining slowness that wasn't there (blamed
+   on coreaudiod, on DASH streams, on the player). Time with
+   `tools/time_play.py`, which uses the real event loop. Real numbers, Studio,
+   2026-10-13: a local MP3 0.4 s; YouTube, SoundCloud and live radio streams
+   1.5 to 2 s including finding the stream (one YouTube outlier, 13.8 s). The
+   player's "Still getting ready" at 8 s and fresh-link retry at 30 s stay as
+   safety nets; neither fires normally.
+13. **AVFoundation reads YouTube's direct M4A (DASH) at twice its length** (38 s
+   for 19). Streaming prefers HLS audio on the Mac, and the site's duration
+   wins over the player's. (That DASH sometimes "never starts" was measured
+   with the SafeYield harness above, so it isn't established.)
 14. **wx sliders take keyboard focus only the Mac's way**: `system.mac_focus`
    (makeFirstResponder) and `mac_has_focus`; wx's SetFocus and FindFocus don't
    see them.
@@ -251,7 +268,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   found five real bugs.
 - Load: 400 downloads through the window, slowest refresh 12 ms, six spoken
   tallies in two minutes.
-- 46 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
+- 50 tests (one hammers Stop and Retry; `test_gui_speech.py` pins the exact
   spoken sentences and needs wx) (`tests/`, fake worker, offline); CI runs them on
   Mac, Windows and Linux.
 - Real downloads: YouTube to MP3, H.264 and AV1 video, a 5-second WAV cut,

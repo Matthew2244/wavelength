@@ -21,7 +21,7 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, dialogs, engine, sparkle, update, winsparkle, words
+from . import APP_NAME, __version__, dialogs, engine, geometry, sparkle, update, winsparkle, words
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
@@ -41,8 +41,10 @@ FOLDER_APP = "Finder" if sys.platform == "darwin" else "File Explorer"
 MORE_TIP = ("Just part of it, chapters, subtitles, a browser's sign-in, an exact stream, a file name. "
             "For the next download only.")
 
+MILESTONES = (100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000)
+
 WELCOME = (
-    "Welcome to Media Download.\n\n"
+    "Welcome to Media Download{name}.\n\n"
     "Paste a link into the Link field and press Return. It works with about 1,750 sites: "
     "YouTube, SoundCloud, Bandcamp, Vimeo, the BBC, archive.org and many more. "
     "Or type some words and press Search to find something without visiting the site.\n\n"
@@ -135,7 +137,7 @@ class MainFrame(wx.Frame):
         self.kind.SetToolTip("What every new download is saved as. \"Best audio\" keeps the sound exactly as "
                              "the site sends it, with no conversion. Remembered.")
         mac_accessibility_label(self.kind, "Format")
-        self.height_lab = wx.StaticText(p, label=M("&Video quality:"))
+        self.height_lab = wx.StaticText(p, label=M("Video &quality:"))
         self._texts.append(self.height_lab)
         self.height = wx.Choice(p, choices=[label for _, label in words.HEIGHTS])
         hv = [h for h, _ in words.HEIGHTS]
@@ -173,7 +175,7 @@ class MainFrame(wx.Frame):
         lab = wx.StaticText(p, label=M("Do&wnloads:"))
         self._texts.append(lab)
         row.Add(lab, 1, wx.ALIGN_CENTER_VERTICAL)
-        flab = wx.StaticText(p, label=M("Filte&r:"))
+        flab = wx.StaticText(p, label=M("F&ilter:"))
         self._texts.append(flab)
         self.filter = wx.SearchCtrl(p, size=(260, -1))
         self.filter.ShowCancelButton(True)
@@ -204,7 +206,7 @@ class MainFrame(wx.Frame):
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
         self.stop_btn = wx.Button(p, label=M("S&top"))
         self.retry_btn = wx.Button(p, label=M("&Retry"))
-        self.remove_btn = wx.Button(p, label=M("Remove from L&ist"))
+        self.remove_btn = wx.Button(p, label=M("Remo&ve from List"))
         self.open_btn.SetToolTip("Open the downloaded file in its usual app.")
         self.show_btn.SetToolTip("Show the downloaded file in %s." % FOLDER_APP)
         self.stop_btn.SetToolTip("Stop this download. Retry carries on from where it stopped.")
@@ -254,6 +256,8 @@ class MainFrame(wx.Frame):
         self.SetDropTarget(Drop(self))
         self.list.SetDropTarget(Drop(self))
 
+        geometry.restore(self, self.ui, "window")
+        self.milestone = ""
         self._update_folder_text()
         self._update_height_enabled()
         self.timer = wx.Timer(self)
@@ -263,7 +267,7 @@ class MainFrame(wx.Frame):
         unfinished = self.mgr.restore()
         self.structure_changed = True
         self.refresh()
-        self.details.SetValue(WELCOME)
+        self.details.SetValue(self.welcome())
         self._update_buttons()
         self.link.SetFocus()
         if unfinished:
@@ -658,6 +662,7 @@ class MainFrame(wx.Frame):
         elif job is not None:
             self.dirty.add(job.id)
         if what == "finished":
+            self._count(job)
             self.finished_buffer.append(job)
             wx.CallLater(1500, self._speak_finished)
         elif what == "playlist":
@@ -672,6 +677,30 @@ class MainFrame(wx.Frame):
                       "by themselves." % (data["site"] or "A site", words.clock_time(data["until"])))
         if what in ("added", "removed", "moved", "finished", "changed"):
             self.refresh()
+
+    def welcome(self) -> str:
+        name = words.first_name()
+        return WELCOME.format(name=", " + name if name else "")
+
+    def _count(self, job):
+        """The running tally (Help, About), and a quiet word at milestones, folded into the
+        sentence that was going to be said anyway, never a message of its own."""
+        if job.state != "done" or job.task != "download":
+            return
+        st = dict(self.cfg.get("app_stats") or {})
+        st.setdefault("since", time.strftime("%Y-%m-%d"))
+        st["count"] = int(st.get("count", 0)) + 1
+        st["bytes"] = int(st.get("bytes", 0)) + int(job.bytes_done or 0)
+        st["seconds"] = float(st.get("seconds", 0)) + float(job.length or 0)
+        self.cfg["app_stats"] = st
+        engine.save_settings(self.cfg)
+        if st["count"] in MILESTONES:
+            self.milestone = "That's your %s download." % words.ordinal(st["count"])
+
+    def _with_milestone(self, text: str) -> str:
+        if self.milestone:
+            text, self.milestone = text + " " + self.milestone, ""
+        return text
 
     def _speak_finished(self):
         """Say what finished, gathering a burst into one sentence instead of talking over itself.
@@ -708,7 +737,7 @@ class MainFrame(wx.Frame):
         elif failed and not summary_coming:
             bits.append("%s failed." % words.n(len(failed), "download"))
         if bits:
-            self.tell(" ".join(bits))
+            self.tell(self._with_milestone(" ".join(bits)))
         if failed and self.cfg.get("app_sounds", True) and self.mgr.busy():
             play("failed")
 
@@ -720,7 +749,7 @@ class MainFrame(wx.Frame):
             self.RequestUserAttention()
         if done + failed > 1:
             text = "All downloads finished: %d done%s." % (done, ", %d failed" % failed if failed else "")
-            wx.CallLater(1800, self.tell, text)
+            wx.CallLater(1800, lambda: self.tell(self._with_milestone(text)))
         self.last_tally = 0.0
         if self.cfg.get("notify") and (done or failed):
             if failed:
@@ -867,7 +896,7 @@ class MainFrame(wx.Frame):
     def show_details(self, progress_only=False):
         job = self.selected()
         if not job:
-            text = WELCOME if not self.rows else (
+            text = self.welcome() if not self.rows else (
                 "Select a download in the list to read about it here. %s in the list."
                 % words.n(len(self.rows), "download"))
             if self.details.GetValue() != text:
@@ -1196,12 +1225,22 @@ class MainFrame(wx.Frame):
         order = [("downloading", "downloading"), ("converting", "finishing"), ("looking", "being looked up"),
                  ("waiting", "waiting"), ("waiting_choice", "waiting for your choice"), ("done", "done"),
                  ("skipped", "already here"), ("failed", "failed"), ("stopped", "stopped")]
-        bits = ["%d %s" % (c[k], w) for k, w in order if c.get(k)]
-        text = (", ".join(bits) + ".") if bits else "The list is empty."
-        if c.get("downloading"):
-            text += " " + self.GetTitle().split(": ", 1)[-1].split(", ")[-1] + " overall." \
-                if "percent" in self.GetTitle() else ""
-        self.tell(text)
+        with self.mgr.lock:
+            active = [j for j in self.mgr.jobs if j.state in ("downloading", "converting")]
+        named = []
+        for j in active[:2]:
+            how = ("%d percent" % int(j.percent)) if j.state == "downloading" and j.percent is not None \
+                else (j.stage or "finishing").lower()
+            named.append("%s, %s" % (j.title or j.site or "one", how))
+        bits = []
+        if named:
+            bits.append("Downloading %s%s." % ("; ".join(named),
+                                              "; and %d more" % (len(active) - 2) if len(active) > 2 else ""))
+        rest = [(k, w) for k, w in order if k not in ("downloading", "converting")]
+        tail = ["%d %s" % (c[k], w) for k, w in rest if c.get(k)]
+        if tail:
+            bits.append(", ".join(tail).capitalize() + ".")
+        self.tell(" ".join(bits) if bits else "The list is empty.")
 
     # -------------------------------------------------------- clipboard offer
 
@@ -1416,11 +1455,27 @@ class MainFrame(wx.Frame):
         self.force_close = True
         wx.CallLater(1500, self.Close)
 
+    def tally(self) -> str:
+        st = self.cfg.get("app_stats") or {}
+        if not st.get("count"):
+            return "Nothing downloaded yet."
+        since = st.get("since", "")
+        try:
+            since = time.strftime("%B %-d, %Y", time.strptime(since, "%Y-%m-%d")) if sys.platform != "win32" \
+                else time.strftime("%B %d, %Y", time.strptime(since, "%Y-%m-%d"))
+        except ValueError:
+            pass
+        hours = float(st.get("seconds", 0)) / 3600
+        return "Since %s: %s, %s%s." % (
+            since, words.n(int(st["count"]), "download"), words.size(st.get("bytes", 0)) or "0 bytes",
+            ", about %s of listening and watching" % (words.n(round(hours), "hour") if hours >= 1
+                                                      else words.duration(st.get("seconds", 0))) if st.get("seconds") else "")
+
     def on_about(self, _):
         wx.MessageBox(
-            "%s %s\n\nSaves audio and video from about 1,750 sites, and says what it's doing.\n"
+            "%s %s\n\nSaves audio and video from about 1,750 sites, and says what it's doing.\n\n%s\n\n"
             "Download engine: yt-dlp %s.\nFree and open source, MIT license.\n\nBy Matthew Whitaker."
-            % (APP_NAME, __version__, engine.engine_version()),
+            % (APP_NAME, __version__, self.tally(), engine.engine_version()),
             "About %s" % APP_NAME, wx.OK | wx.ICON_INFORMATION, self)
 
     # -------------------------------------------------------- closing
@@ -1438,6 +1493,7 @@ class MainFrame(wx.Frame):
             if not go:
                 event.Veto()
                 return
+        geometry.save(self, self.ui, "window")
         self.timer.Stop()
         keep_awake(False)
         self.mgr.shutdown()
