@@ -25,6 +25,8 @@ args = [
     "--hidden-import", "media_download.selftest",
 ]
 if sys.platform == "win32":
+    from build_app_support import winsparkle_dll
+    args += ["--add-binary", winsparkle_dll() + os.pathsep + "."]  # updates for installed copies
     # Prism: speech through NVDA, JAWS, Narrator and others. Its compiled part loads cffi's
     # backend from C, so nothing names it and the packager would leave it out.
     # The compiled part (_prism_cffi.pyd) isn't a file type the packager collects on its own,
@@ -99,6 +101,15 @@ else:
     shutil.make_archive(out, "zip", ".", NAME)
     out += ".zip"
     exe = os.path.join(NAME, NAME + ".exe")
+    # The installer: per-person, no administrator, Start menu, uninstall in Settings.
+    iscc = shutil.which("ISCC") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    if os.path.exists(iscc):
+        iss = os.path.join("..", "packaging", "windows", "MediaDownload.iss")
+        subprocess.run([iscc, "/Q", f"/DAppVersion={__version__}", f"/DSourceDir={os.path.abspath(NAME)}", iss],
+                       check=True)
+        print("Built", os.path.abspath(f"{SLUG}-Setup.exe"))
+    else:
+        print("Inno Setup isn't installed, so no installer this time (the zip still works).")
 # A file, not a pipe, with a time limit: a broken build can leave a helper
 # holding a pipe open, and reading it would wait forever.
 with tempfile.TemporaryFile("w+") as log:

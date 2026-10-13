@@ -32,6 +32,35 @@ def sparkle_dir() -> str:
     return out
 
 
+WINSPARKLE_URL = "https://github.com/vslavik/winsparkle/releases/download/v0.9.4/WinSparkle-0.9.4.zip"
+WINSPARKLE_SHA = "6037df37fc263bd1650a1c4949681a9d40ffe991d01f35892a406cb5d103c976"
+
+
+def winsparkle_dll() -> str:
+    """WinSparkle 0.9.4's DLL for this Windows machine's architecture, checksum-verified."""
+    import hashlib
+    import platform
+    import urllib.request
+    import zipfile
+    cache = os.path.join(os.path.expanduser("~"), ".cache", "media-download-build", "winsparkle-0.9.4")
+    z = os.path.join(cache, "WinSparkle.zip")
+    if not os.path.exists(z):
+        os.makedirs(cache, exist_ok=True)
+        urllib.request.urlretrieve(WINSPARKLE_URL, z + ".part")
+        os.replace(z + ".part", z)
+    if hashlib.sha256(open(z, "rb").read()).hexdigest() != WINSPARKLE_SHA:
+        os.remove(z)
+        sys.exit("WinSparkle's download didn't match its checksum. Removed it; run the build again.")
+    arch = "ARM64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+    member = "WinSparkle-0.9.4/%s/Release/WinSparkle.dll" % arch
+    out = os.path.join(cache, arch, "WinSparkle.dll")
+    if not os.path.exists(out):
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with zipfile.ZipFile(z) as zf, zf.open(member) as src, open(out, "wb") as dst:
+            dst.write(src.read())
+    return out
+
+
 def sparkle_bin() -> str:
     """Sparkle's command-line tools: sign_update, generate_keys."""
     return os.path.join(sparkle_dir(), "bin")

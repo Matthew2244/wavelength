@@ -52,6 +52,10 @@ def run() -> int:
             from . import sparkle
             if not sparkle.load():
                 problems.append("updates: Sparkle.framework didn't load")
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            from . import winsparkle
+            if winsparkle.load() is None:
+                problems.append("updates: WinSparkle.dll didn't load")
         if sys.platform == "win32":
             # Windows speech: Prism must load inside the app and offer UI Automation at least.
             try:
