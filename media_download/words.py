@@ -20,6 +20,14 @@ def ordinal(n: int) -> str:
     return "%d%s" % (n, suffix)
 
 
+TOUR_LEFT = "No problem. Help, Welcome Tour brings the tour back whenever you like."
+
+
+def settings_section(name: str, i: int, total: int) -> str:
+    """Said when Control-Tab changes the section in Settings: focus stays where it was."""
+    return "%s, section %d of %d." % (name, i + 1, total)
+
+
 def first_name() -> str:
     """The first name on this computer's account ("Matthew"), or nothing. Only for a greeting."""
     import os

@@ -481,11 +481,12 @@ SOUNDS = [
     ("tour_done", "Finished the welcome tour", "Sosumi"),
     ("milestone", "A milestone: your 100th download and on", "Frog"),
     ("signed_in", "A browser's sign-in works", "Hero"),
+    ("settings_saved", "Settings saved", "Tink"),
     ("closing", "Wavelength closes", "Blow"),
 ]
 SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
 # Ear candy from ElevenLabs, the same in every set: they live once in assets/sounds/shared.
-SHARED = ("tour_done", "milestone", "signed_in")
+SHARED = ("tour_done", "milestone", "signed_in", "settings_saved")
 THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("pizzicato", "Pizzicato strings"),
           ("soft", "Soft clicks"), ("system", "The system's own sounds")]
 

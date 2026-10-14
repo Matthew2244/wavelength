@@ -410,7 +410,7 @@ class MainFrame(wx.Frame):
     def on_guide(self, start: str = "welcome"):
         """The welcome tour, or Set Up Accounts on its own; what it sets shows in the window after."""
         dlg = dialogs.Guide(self, self.cfg, self, start)
-        dlg.ShowModal()
+        left_early = dlg.ShowModal() != wx.ID_OK
         dlg.Destroy()
         if start == "welcome" and not self.cfg.get("app_onboarded"):
             # Closed early is still seen: it's offered once, and Help, Welcome Tour has it after.
@@ -422,6 +422,9 @@ class MainFrame(wx.Frame):
             self._update_height_enabled()
         self._update_folder_text()
         self.link.SetFocus()
+        if start == "welcome" and left_early:
+            # After the link field has been read, so the two don't talk over each other.
+            wx.CallLater(700, lambda: self and self.tell(words.TOUR_LEFT))
 
     def on_accounts(self, _=None):
         dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
@@ -932,7 +935,8 @@ class MainFrame(wx.Frame):
                                  daemon=True).start()
             if self.player is not None:
                 self.player.settings_changed()
-            self.tell("Settings saved. Up to %d downloads at once." % self.mgr.parallel())
+            self._sound("settings_saved")
+            self.tell("Settings saved.")
             self.mgr.pump()
         dlg.Destroy()
 

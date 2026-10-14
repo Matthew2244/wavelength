@@ -299,7 +299,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
    Sixteen events, listed in `system.SOUNDS` with their words and system fallback:
    opening, done, failed, item_done, added, stopped, waiting, results, no_more, copied,
-   update, queue_end, tour_done, milestone, signed_in, closing. **Ear candy** (Matthew,
+   update, queue_end, tour_done, milestone, signed_in, settings_saved, closing. **Ear candy** (Matthew,
    2026-10-14): `tour_done` (Finish in the welcome tour, first time or any time, a warm hand
    bell), `milestone` (the 100th, 250th, 1,000th download and on, a tiny bell fanfare, after
    the Done sound) and `signed_in` (a browser's sign-in checks out, a two-tone chime). Made
@@ -383,7 +383,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    menu) probes one result and rewrites its row. YouTube's own "sort by upload
    date" (`sp=CAI%3D`) is ignored now, so Search's Order sorts what's loaded.
    The saved download list no longer stops at 500 rows.
-25. **Welcome tour and Set Up Accounts** (`dialogs.Guide`). Offered once to someone new
+25. **Welcome tour and Set Up Accounts** (`dialogs.Guide`). **It's a conversation** (Matthew,
+   2026-10-14): the app talks as "I", and Next is labelled as your answer to each step
+   (`Guide.NEXT`: Let's Go, Looks Good, Got It, Sounds Good...). The leave button is
+   "I'll Take It from Here" in the tour, "Maybe Later" in Set Up Accounts (`Guide.LEAVE`),
+   hidden on the last step; leaving the tour early gets a line in the main window saying Help,
+   Welcome Tour brings it back. Keep new tour wording in that voice, light, never an extra step. Offered once to someone new
    (`app_onboarded`; anyone with downloads in `app_stats` is marked done silently), and
    any time from Help, Welcome Tour and File, Set Up Accounts. Each page's words sit in a
    read-only text box that takes the focus, so a screen reader reads the step on arrival
@@ -448,6 +453,10 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Control-Shift-Tab without showing a window (a shown, focused test window takes the
    keyboard and VoiceOver from whoever is at the Mac).
    Every control in it has a help tag; `test_settings_sections` fails on one without.
+   **Control-Tab says the section** ("Downloads, section 2 of 5."; Matthew, 2026-10-14): with
+   focus staying put, a silent switch sounded like the key did nothing. Saving Settings says
+   just "Settings saved." and plays `settings_saved` (shared ear candy, follows the volume,
+   the set's on/off and Choose Sounds like every other sound).
 31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
    list says what it does and its shortcut, checked against the bindings. Windows wording
    says Control and Enter. Keep it so: a new control needs a tip in the same voice.

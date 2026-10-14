@@ -542,7 +542,12 @@ class Settings(wx.Dialog):
     def _on_key(self, event):
         if event.GetKeyCode() == wx.WXK_TAB and event.RawControlDown() and not event.AltDown():
             step = -1 if event.ShiftDown() else 1
-            self.show_section((self.sections.GetSelection() + step) % len(self.pages))
+            i = (self.sections.GetSelection() + step) % len(self.pages)
+            self.show_section(i)
+            # Focus stays put, so nothing else would say the section changed (Matthew, 2026-10-14:
+            # with no word, Control-Tab sounded like it did nothing).
+            from .system import announce
+            announce(words.settings_section(SETTINGS_SECTIONS[i][1], i, len(self.pages)))
             return
         event.Skip()
 
@@ -1119,10 +1124,15 @@ class Guide(wx.Dialog):
 
     Each page opens with its words in a read-only text box that has the focus, so a screen reader
     reads the step as soon as it appears and Tab goes on to the page's controls: nothing depends
-    on a timed announcement. Back and Next move; Escape, or Close, leaves at any point, keeping
-    what was already chosen. `start` is "welcome" for the tour or "accounts" for the accounts
+    on a timed announcement. It's a conversation (Matthew, 2026-10-14): the app speaks as "I",
+    and Next is labelled as your answer to each step (NEXT). Go Back and Next move; Escape, or
+    the leave button (LEAVE), leaves at any point, keeping what was already chosen. `start` is "welcome" for the tour or "accounts" for the accounts
     steps on their own."""
 
+    LEAVE = {True: "I'll Take It from Here", False: "Maybe Later"}  # the leave-now button, tour or not
+    # The tour is a conversation (Matthew, 2026-10-14): Next answers each step the way you'd answer.
+    NEXT = {"welcome": "Let's Go", "folder": "Looks Good", "format": "Got It", "sounds": "Sounds Good",
+            "accounts": "Okay", "browser": "That's the One", "done": "Let's Do This"}
     SERVICES = [("YouTube", "https://www.youtube.com/", "youtube"),
                 ("YouTube Music", "https://music.youtube.com/", "youtube"),
                 ("SoundCloud", "https://soundcloud.com/signin", "soundcloud")]
@@ -1146,14 +1156,18 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         s.Add(self.book, 1, wx.EXPAND | wx.ALL, 6)
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.back = wx.Button(self, label="Back")
+        self.back = wx.Button(self, label="Go Back")
         self.back.SetToolTip("Goes back to the step before.")
         self.next = wx.Button(self, label="Next")
         self.next.SetToolTip("Goes on to the next step, keeping what this one set (" + ENTER + "). On the last step "
-                             "it's Finish, which closes the tour.")
-        self.close = wx.Button(self, wx.ID_CANCEL, "Close")
-        self.close.SetToolTip("Leaves now (Escape), keeping what's already chosen. Help, Welcome Tour, or File, "
-                              "Set Up Accounts, brings this back any time.")
+                             "it closes this and gets you started.")
+        # Said like a person would say it (Matthew, 2026-10-14), not "Close" or "Skip Tour".
+        self.tour = start == "welcome"
+        self.close = wx.Button(self, wx.ID_CANCEL, self.LEAVE[self.tour])
+        self.close.SetToolTip(("Leaves the tour now (Escape), keeping what you've chosen so far. Help, Welcome "
+                               "Tour brings it back any time.") if self.tour else
+                              "Leaves now (Escape), keeping what's already chosen. File, Set Up Accounts brings "
+                              "this back any time.")
         row.Add(self.close, 0, wx.ALL, 6)
         row.AddStretchSpacer()
         row.Add(self.back, 0, wx.ALL, 6)
@@ -1193,16 +1207,20 @@ class Guide(wx.Dialog):
 
     def _page_welcome(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "welcome", s, "Welcome to Wavelength.\n\nIt saves audio and video from about 1,750 sites, "
-                   "plays them, and says what it's doing. This short tour sets up where things go, what to save, the "
-                   "sounds, and, if you want, your accounts. Everything here can be changed later.\n\n"
-                   "Press Next to start, or Close to skip the tour.")
+        name = words.first_name()
+        self._text(p, "welcome", s, "Hi%s! I'm Wavelength. Glad you're here.\n\nI save audio and video from about "
+                   "1,750 sites, play them for you, and tell you what I'm up to along the way. Want to set a few "
+                   "things up together? It only takes a minute: where your downloads go, what to save them as, how "
+                   "I sound, and your accounts if you'd like. Nothing is set in stone. You can change all of it "
+                   "later.\n\nPress %s to start, or %s if you'd rather look around on your own."
+                   % (", " + name if name else "", self.NEXT["welcome"], self.LEAVE[True]))
         p.SetSizer(s)
 
     def _page_folder(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "folder", s, "Where downloads go.\n\nThey're saved on this computer, in the folder below. "
-                   "Change Folder picks another, such as a music drive or a cloud folder.")
+        self._text(p, "folder", s, "First up: where should I put your downloads?\n\nRight now they go in the folder "
+                   "below, on this computer. If you'd like them somewhere else, like a music drive or a cloud folder, "
+                   "press Change Folder.")
         self.folder_words = wx.StaticText(p, label="")
         s.Add(self.folder_words, 0, wx.ALL, 6)
         b = wx.Button(p, label="Change Folder...")
@@ -1217,9 +1235,10 @@ class Guide(wx.Dialog):
 
     def _page_format(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "format", s, "What to save.\n\n\"Best audio, as the site sends it\" never converts anything, "
-                   "so nothing is lost. MP3, M4A, WAV and FLAC convert. Video saves an MP4 that plays everywhere. "
-                   "The main window can change this for any download.")
+        self._text(p, "format", s, "Next: what should I save things as?\n\nIf you're not sure, go with \"Best "
+                   "audio, as the site sends it.\" I keep the sound exactly as it arrives, so nothing is lost. MP3, "
+                   "M4A, WAV and FLAC mean I convert it. Video gets you an MP4 that plays everywhere. You can pick "
+                   "something different for any download in the main window.")
         keys = [k for k, _ in words.FORMAT_LABELS]
         lab = wx.StaticText(p, label="Save as:")
         self.format = wx.Choice(p, choices=[w for _, w in words.FORMAT_LABELS])
@@ -1233,9 +1252,10 @@ class Guide(wx.Dialog):
     def _page_sounds(self, p):
         from .system import THEMES
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "sounds", s, "Sounds.\n\nThe app plays a short sound when downloads finish or fail, when "
-                   "something's added, when search results arrive, and more, each with its own sound. Pick a set, and press Play a Sample to hear it. Settings, Choose Sounds "
-                   "lets you pick each one, or your own.")
+        self._text(p, "sounds", s, "Now the fun part: how should I sound?\n\nI play a short sound when downloads "
+                   "finish or fail, when something's added, when search results come in, and more, each with its own "
+                   "sound. Pick a set and press Play a Sample to hear one. Later on, Settings, Choose Sounds lets you "
+                   "pick each sound yourself, or use your own.")
         self.sounds_on = wx.CheckBox(p, label="Play sounds")
         self.sounds_on.SetValue(bool(self.cfg.get("app_sounds", True)))
         self.sounds_on.SetToolTip("Plays a short sound when a download finishes, fails, and more. Uncheck for "
@@ -1261,12 +1281,12 @@ class Guide(wx.Dialog):
 
     def _page_accounts(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "accounts", s, "Your accounts (you can skip this).\n\nWavelength can use the sign-in your "
-                   "browser already has, for YouTube, SoundCloud and the other sites. Then members-only and private "
-                   "videos work, and you can open your Liked videos, Watch Later, subscriptions and likes. It never "
-                   "asks for a password and never keeps one.\n\nSet them up now, or any time later with File, Set "
-                   "Up Accounts.")
-        self.now = wx.RadioButton(p, label="Set up my accounts now", style=wx.RB_GROUP)
+        self._text(p, "accounts", s, "Want me to use your accounts? Totally optional.\n\nI can borrow the sign-in "
+                   "your browser already has, for YouTube, SoundCloud and other sites. That way members-only and "
+                   "private videos work, and I can open your Liked videos, Watch Later, subscriptions and likes. I "
+                   "never ask for a password and never keep one.\n\nWe can set that up now, or any time later from "
+                   "File, Set Up Accounts.")
+        self.now = wx.RadioButton(p, label="Yes, let's set them up now", style=wx.RB_GROUP)
         self.later = wx.RadioButton(p, label="Not now")
         self.later.SetValue(True)
         self.now.SetToolTip("Adds steps to choose your browser and sign in to YouTube and SoundCloud.")
@@ -1279,10 +1299,10 @@ class Guide(wx.Dialog):
 
     def _page_browser(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "browser", s, "Which browser are you signed in with?\n\nThese are the browsers on this "
-                   "computer, your default first. If a browser has more than one profile, each is listed: choose the "
-                   "one you're signed in to your services with. A browser shows here once it has been opened at "
-                   "least once; you'll sign in with it in a moment.")
+        self._text(p, "browser", s, "Which browser are you signed in with?\n\nHere are the browsers on this "
+                   "computer, your default first. If one has more than one profile, each gets its own line: pick the "
+                   "one you use for your services. A browser shows up here once it's been opened at least once. "
+                   "You'll sign in with it in a moment.")
         lab = wx.StaticText(p, label="Browsers on this computer:")
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 6)
         self.found = self.acc.installed()
@@ -1397,10 +1417,10 @@ class Guide(wx.Dialog):
         where = "Step %d of %d. " % (steps.index(key) + 1, len(steps)) if key in steps else ""
         if key == "permission":
             lines = self.acc.permission_steps(self._browser())
-            body = ("Letting Wavelength read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
+            body = ("First I need permission to read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
                     ("\n".join("%d. %s" % (i + 1, l) for i, l in enumerate(lines)) if lines else
                      "%s needs no permission on this computer." % self.acc.spec_words(self._browser())) +
-                    "\n\nPress Check Again to try it.")
+                    "\n\nThen press Check Again and I'll try.")
             self.texts[key].SetValue(body)
             self.open_settings.Show(bool(self.acc.settings_page_url(self._browser())))
             self.perm_status.SetLabel("")
@@ -1408,28 +1428,29 @@ class Guide(wx.Dialog):
         elif key == "services":
             name = self.acc.spec_words(self._browser())
             self.texts[key].SetValue(
-                "Sign in to your services in %s.\n\nChoose a service and press Open It in the Browser: its page "
-                "opens in %s. Sign in there as you normally would, then come back here. Check YouTube asks YouTube "
-                "whether the sign-in works. A browser signed in to Google but not to YouTube itself needs signing in "
-                "at youtube.com too.\n\nOther sites work the same way: whatever you're signed in to in %s, Wavelength "
-                "can use." % (name, name, name) + (
-                    "\n\nOn Windows, close %s completely before pressing Check YouTube: it can't be read while it's "
+                "Now sign in to your services in %s.\n\nPick a service and press Open It in the Browser, and I'll "
+                "open its page in %s. Sign in there like you normally would, then come back here. Check YouTube asks "
+                "YouTube whether the sign-in works. One catch: if %s is signed in to Google but not to YouTube "
+                "itself, sign in at youtube.com too.\n\nAny other site works the same way: whatever you're signed "
+                "in to in %s, I can use." % (name, name, name, name) + (
+                    "\n\nOn Windows, close %s completely before pressing Check YouTube. I can't read it while it's "
                     "open." % name if sys.platform == "win32" and not self._browser().startswith("firefox") else ""))
             self.svc_status.SetLabel("")
         elif key == "done":
             b = self.acc.signin(self.cfg)
             self.texts[key].SetValue(
-                "All set.\n\n" + ("Wavelength uses %s's sign-in. File, Your Accounts (%s-U) opens your liked "
-                                   "videos, Watch Later, subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD)
-                                   if b else
-                                   "No accounts for now. File, Set Up Accounts brings this back.\n\n") +
-                "Paste a link and press " + ENTER + " to download it, or type words to search. Help, Keyboard Shortcuts "
-                "lists every key. Press Finish to start.")
+                ("That's it. We're on the same wavelength now.\n\n" if self.tour else "That's it.\n\n") +
+                ("I'll use %s's sign-in. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
+                 "subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD) if b else
+                 "No accounts for now. File, Set Up Accounts brings them back whenever you want.\n\n") +
+                "Paste a link and press " + ENTER + " and I'll download it, or type some words and I'll search. Help, "
+                "Keyboard Shortcuts lists every key. Have fun!")
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
         self.book.SetSelection(k)
         self.back.Enable(k > 0)
-        self.next.SetLabel("Finish" if key == "done" else "Next")
+        self.next.SetLabel(self.NEXT.get(key, "Next"))
+        self.close.Show(key != "done")  # on the last step Next is the way out
         self.Layout()
         self.texts[key].SetInsertionPoint(0)
         self.texts[key].SetFocus()

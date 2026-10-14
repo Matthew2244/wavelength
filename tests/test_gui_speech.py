@@ -733,3 +733,57 @@ def test_choosing_a_section_never_moves_focus(frame, monkeypatch):
     key(True)  # from the first section, round to the last
     assert settle() is dlg.sections and dlg.book.GetSelection() == len(dlg.pages) - 1
     dlg.Destroy()
+
+
+def test_control_tab_says_the_section(frame, monkeypatch):
+    """Focus stays put on Control-Tab, so the new section is said, or it sounds like nothing happened."""
+    from media_download import system
+    said = []
+    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="general")
+    k = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+    k.SetKeyCode(wx.WXK_TAB)
+    k.SetRawControlDown(True)
+    dlg._on_key(k)
+    total = len(gui.dialogs.SETTINGS_SECTIONS)
+    assert said == ["Downloads, section 2 of %d." % total]
+    k.SetShiftDown(True)
+    dlg._on_key(k)
+    dlg._on_key(k)
+    assert said[-1] == "%s, section %d of %d." % (gui.dialogs.SETTINGS_SECTIONS[-1][1], total, total)
+    dlg.Destroy()
+
+
+def test_saving_settings_says_so_with_its_sound(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+
+    class Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def ShowModal(self):
+            return wx.ID_OK
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "Settings", Fake)
+    said, rung = [], []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(frame, "_sound", lambda k: rung.append(k))
+    frame.on_settings(None)
+    assert said == ["Settings saved."] and rung == ["settings_saved"]
+
+
+def test_tour_leave_button_talks_like_a_person(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    g = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "welcome")
+    monkeypatch.setattr(g, "EndModal", lambda code: None)
+    assert g.close.GetLabel() == "I'll Take It from Here" and g.close.IsShown()
+    assert "I'll Take It from Here" in g.texts["welcome"].GetValue()
+    while g.order[g.at] != "done":
+        g.go(+1)
+    assert not g.close.IsShown() and g.next.GetLabel() == "Let's Do This"  # the way out there
+    g.Destroy()
+    a = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "accounts")
+    assert a.close.GetLabel() == "Maybe Later"
+    a.Destroy()
