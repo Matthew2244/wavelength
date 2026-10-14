@@ -905,3 +905,45 @@ def test_words_in_the_link_field_point_to_search(frame, monkeypatch):
     assert searched == [] and said == [gui.words.NOT_A_LINK] * 3
     assert frame.link.GetValue() == "green onions"  # kept, ready for Search to take
     frame.link.SetValue("")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="VoiceOver's view of a Mac table")
+def test_check_list_rows_read_once(frame):
+    """A checkable row's checkbox carries the row's words and the text beside it says nothing,
+    so VoiceOver reads each search result once, not "So What, unchecked checkbox, So What"."""
+    from media_download.system import _objc_send, mac_check_list_reads_once
+    ctypes, send = _objc_send()
+    lst = wx.CheckListBox(frame, choices=["1. So What", "2. All Blues"])
+    mac_check_list_reads_once(lst)
+    lst.Set(["1. Blue in Green", "2. All Blues"])  # rows are named afresh when the words change
+    lst.Check(1)
+    table = send(lst.GetHandle(), "documentView")
+
+    def ax(element, name):
+        s = send(ctypes.c_void_p(_nsstring_class()), "stringWithUTF8String:", name.encode(),
+                 argtypes=(ctypes.c_char_p,))
+        return send(element, "accessibilityAttributeValue:", s, argtypes=(ctypes.c_void_p,))
+
+    def text(obj):
+        if not obj:
+            return None
+        return send(send(obj, "description"), "UTF8String", restype=ctypes.c_char_p).decode()
+
+    def _nsstring_class():
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        return objc.objc_getClass(b"NSString")
+
+    rows = ax(table, "AXRows")
+    seen = []
+    for r in range(send(rows, "count", restype=ctypes.c_ulong)):
+        row = send(rows, "objectAtIndex:", r, argtypes=(ctypes.c_ulong,))
+        kids = ax(row, "AXChildren")
+        cells = [send(kids, "objectAtIndex:", k, argtypes=(ctypes.c_ulong,))
+                 for k in range(send(kids, "count", restype=ctypes.c_ulong))]
+        seen.append([(text(ax(c, "AXRole")), text(ax(c, "AXDescription")), text(ax(c, "AXValue"))) for c in cells])
+    lst.Destroy()
+    assert seen == [[("AXCheckBox", "1. Blue in Green", "0"), ("AXTextField", None, "")],
+                    [("AXCheckBox", "2. All Blues", "1"), ("AXTextField", None, "")]]

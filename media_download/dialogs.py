@@ -11,7 +11,7 @@ import wx
 from . import describe, engine, textsize, words
 from .options import SEARCH_SITES
 from . import menus
-from .system import mac_accessibility_label, windows_name
+from .system import mac_accessibility_label, mac_check_list_reads_once, mac_text_without_wrapper, windows_name
 
 def browser_choices(current: str = "", none_words: str = "Don't use a browser's sign-in") -> list:
     """The browsers (and profiles) on this computer, default first, after a "none" choice. A
@@ -74,9 +74,10 @@ def message(parent, text: str, title: str = "Wavelength", button: str = "Got It"
         # text by themselves: plain text, and the focus on the button.
         t = WrapText(dlg, label=text)
     else:
+        # No name and no help tag on the box: VoiceOver said "Message, text" before every message
+        # and a hint after it (Matthew, 2026-10-14). The words alone are the message.
         t = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL)
-        mac_accessibility_label(t, "Message")
-        t.SetToolTip("The message. %s or Escape closes it." % ENTER)
+        mac_text_without_wrapper(t)
     s.Add(t, 1, wx.EXPAND | wx.ALL, 10)
     ok = wx.Button(dlg, wx.ID_OK, button)
     textsize.apply(dlg)  # before sizing: at Bigger Text the words must still fit
@@ -1273,10 +1274,14 @@ class Guide(wx.Dialog):
     def _text(self, panel, key, sizer, words_):
         t = wx.TextCtrl(panel, value=words_, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
                         size=(-1, 170))
-        mac_accessibility_label(t, "Step")
+        mac_text_without_wrapper(t)
+        # On the Mac, no name and no help tag: VoiceOver said "Step, text" before every step and a
+        # hint after it (Matthew, 2026-10-14). The words alone are the step. Windows keeps the
+        # name, or it would take the heading above as one and read that first.
         windows_name(t, "Step")
-        t.SetToolTip("What this step is about, to read. Tab moves on to its choices; %s goes to the next step."
-                     % ENTER)
+        if sys.platform == "win32":
+            t.SetToolTip("What this step is about, to read. Tab moves on to its choices; %s goes to the next "
+                         "step." % ENTER)
 
         def on_key(event):
             # A multi-line box keeps Return for itself; read-only, it has no use for it: go on.
@@ -1627,6 +1632,7 @@ class CheckList(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         s.Add(WrapText(self, label=intro), 0, wx.ALL, 8)
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
+        mac_check_list_reads_once(self.list)
         mac_accessibility_label(self.list, "Items")
         self.list.SetToolTip("Space checks or unchecks the selected item; the count below says how many are "
                              "checked. Its context menu has more for each item.")
@@ -1817,6 +1823,7 @@ class Search(wx.Frame):
                                         "to listen first." % ENTER)
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
+        mac_check_list_reads_once(self.list)
         mac_accessibility_label(self.list, "Results")
         windows_name(self.list, "Results")  # else Windows names it after the status line above it
         self.list.SetToolTip("Check the ones you want with Space, then Download Checked. %s-K lists more for "
@@ -2139,8 +2146,12 @@ class Search(wx.Frame):
         if not self:
             return
         pl = self._previewing()
-        self.play_btn.SetLabel("Pause Preview" if pl and pl.loaded and pl.playing() else "Play Selected")
-        self.panel.Layout()
+        label = "Pause Preview" if pl and pl.loaded and pl.playing() else "Play Selected"
+        # Runs on every move through the results. Touching the button or the layout when nothing
+        # changed makes VoiceOver read the row it's on all over again (Matthew, 2026-10-14).
+        if self.play_btn.GetLabel() != label:
+            self.play_btn.SetLabel(label)
+            self.panel.Layout()
 
     def on_play(self, _):
         """Play the selected result; press again to pause. The player opens behind Search and

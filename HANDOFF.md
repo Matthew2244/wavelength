@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.3.1 is the latest release (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.3.2 is the latest release (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -508,6 +508,24 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    a link already added or already in the list, an untouched earlier offer gives way to a
    newer link, it stays quiet if you've moved on while the link was being recognised, and
    when focus isn't in the Link field it says "Command-L, then Return".
+33. **A checkable list read every row twice in VoiceOver** (Matthew, 2026-10-14): "2. So
+   What, unchecked checkbox, 2. So What". A wx.CheckListBox row is a checkbox with no name
+   plus a text cell; VoiceOver names the checkbox after the text beside it, then reads the
+   text cell too. A plain wx.ListBox reads once. `system.mac_check_list_reads_once` names
+   the checkbox with the row's words (a `tableView:willDisplayCell:...` added to wx's table
+   class, acting only on registered tables) and gives the text cell an empty accessibility
+   value (an NSTextFieldCell subclass swapped in by isa). Ignoring the text cell does NOT
+   work: the cell proxy shows it anyway. Any new CheckListBox needs the call;
+   `test_check_list_rows_read_once` holds it. Measured by ear: VoiceOver's `content of last
+   phrase` while arrowing a real Search window, before and after.
+34. **A read-only message box on the Mac is a text area inside a scroll area**, and
+   VoiceOver landed on the scroll area first: "Message, scroll area" (with the old name),
+   then the words. `system.mac_text_without_wrapper` hides the scroll area from VoiceOver,
+   so the message and the tour's steps read as their words alone, then "text" (VoiceOver's
+   own role word; a blank role description doesn't remove it). Those two boxes carry no name
+   and no help tag on the Mac, on purpose. Anything run on every move through a list must
+   not touch other controls or the layout unless something changed: Search relabelled Play
+   Selected and re-laid out the window on every arrow press.
 
 ## Tested
 

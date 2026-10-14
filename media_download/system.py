@@ -234,6 +234,125 @@ def mac_menu_action(ctrl, open_menu) -> None:
         pass
 
 
+def mac_text_without_wrapper(ctrl) -> None:
+    """A multi-line wx text box on the Mac is a text area inside a scroll area, and VoiceOver
+    lands on the scroll area first, saying "scroll area" (or its name) before the words. Hide
+    the wrapper, so arriving reads the text and nothing else. Only for read-only boxes that
+    hold a message; a box people scroll through themselves keeps its scroll area."""
+    if sys.platform != "darwin":
+        return
+    try:
+        ctypes, send = _objc_send()
+        send(ctrl.GetHandle(), "setAccessibilityElement:", False, restype=None, argtypes=(ctypes.c_bool,))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_check_tables: dict = {}   # NSTableView pointer -> (checkbox column, text column)
+_check_classes: set = set()
+_check_imps: list = []     # kept alive, as _menu_imps
+
+
+def mac_check_list_reads_once(ctrl) -> None:
+    """Make VoiceOver read a wx.CheckListBox row once (Matthew, 2026-10-14).
+
+    Each row is a checkbox with no name and the row's text beside it. VoiceOver names the
+    checkbox after that text, then reads the text again on its own: "2. So What, unchecked
+    checkbox, 2. So What". Here the checkbox is named with the row's text as each row is
+    prepared, and the text cell answers VoiceOver with nothing, so the row reads "2. So What,
+    unchecked checkbox", once. What's drawn is unchanged. A failure leaves the list as it was."""
+    if sys.platform != "darwin":
+        return
+    try:
+        ctypes, send = _objc_send()
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        for fn, res, args in (("object_getClass", ctypes.c_void_p, [ctypes.c_void_p]),
+                              ("object_setClass", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_void_p]),
+                              ("objc_getClass", ctypes.c_void_p, [ctypes.c_char_p]),
+                              ("objc_allocateClassPair", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]),
+                              ("objc_registerClassPair", None, [ctypes.c_void_p]),
+                              ("class_getMethodImplementation", ctypes.c_void_p, [ctypes.c_void_p, ctypes.c_void_p]),
+                              ("class_addMethod", ctypes.c_bool,
+                               [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p]),
+                              ("sel_registerName", ctypes.c_void_p, [ctypes.c_char_p])):
+            getattr(objc, fn).restype = res
+            getattr(objc, fn).argtypes = args
+        sel = objc.sel_registerName
+        table = send(ctrl.GetHandle(), "documentView")
+        cols = send(table, "tableColumns")
+        if not table or send(cols, "count", restype=ctypes.c_ulong) != 2:
+            return
+        check_col = send(cols, "objectAtIndex:", 0, argtypes=(ctypes.c_ulong,))
+        text_col = send(cols, "objectAtIndex:", 1, argtypes=(ctypes.c_ulong,))
+
+        # The text cell: a subclass of its own class whose value VoiceOver hears as nothing.
+        quiet = objc.objc_getClass(b"WavelengthQuietTextCell")
+        if not quiet:
+            base = objc.objc_getClass(b"NSTextFieldCell")
+            quiet = objc.objc_allocateClassPair(base, b"WavelengthQuietTextCell", 0)
+            empty = send(objc.objc_getClass(b"NSString"), "string")
+            send(empty, "retain")
+            VAL = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+            ATTR = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+            sup_attr = ATTR(objc.class_getMethodImplementation(base, sel(b"accessibilityAttributeValue:")))
+            ax_value = send(objc.objc_getClass(b"NSString"), "stringWithUTF8String:", b"AXValue",
+                            argtypes=(ctypes.c_char_p,))
+            send(ax_value, "retain")
+
+            def attr_imp(self_, _cmd, name):
+                if name and send(name, "isEqualToString:", ax_value, restype=ctypes.c_bool,
+                                 argtypes=(ctypes.c_void_p,)):
+                    return empty
+                return sup_attr(self_, _cmd, name)
+            value = VAL(lambda self_, _cmd: empty)
+            attr = ATTR(attr_imp)
+            _check_imps.extend([value, attr, sup_attr])
+            objc.class_addMethod(quiet, sel(b"accessibilityValue"), ctypes.cast(value, ctypes.c_void_p), b"@@:")
+            objc.class_addMethod(quiet, sel(b"accessibilityAttributeValue:"), ctypes.cast(attr, ctypes.c_void_p), b"@@:@")
+            objc.objc_registerClassPair(quiet)
+        cell = send(text_col, "dataCell")
+        if send(cell, "isMemberOfClass:", objc.objc_getClass(b"NSTextFieldCell"), restype=ctypes.c_bool,
+                argtypes=(ctypes.c_void_p,)):
+            objc.object_setClass(cell, quiet)  # adds no instance variables, so this is safe
+
+        # The checkbox: named with its row's text as AppKit prepares each row, for drawing and
+        # for VoiceOver alike. The table is its own delegate in wx.
+        _check_tables[table] = (check_col, text_col)
+
+        def forget(event):
+            if event.GetEventObject() is ctrl:
+                _check_tables.pop(table, None)  # a later table could be given this address
+            event.Skip()
+        import wx
+        ctrl.Bind(wx.EVT_WINDOW_DESTROY, forget)
+        cls = objc.object_getClass(table)
+        if cls not in _check_classes:
+            _check_classes.add(cls)
+            WILL = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                    ctypes.c_void_p, ctypes.c_long)
+
+            def will_imp(self_, _cmd, tv, c, col, row):
+                pair = _check_tables.get(tv)
+                if not pair or col != pair[0]:
+                    return
+                text = send(send(tv, "dataSource"), "tableView:objectValueForTableColumn:row:", tv, pair[1], row,
+                            argtypes=(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long))
+                if text:
+                    send(c, "setAccessibilityLabel:", text, restype=None, argtypes=(ctypes.c_void_p,))
+            will = WILL(will_imp)
+            _check_imps.append(will)
+            objc.class_addMethod(cls, sel(b"tableView:willDisplayCell:forTableColumn:row:"),
+                                 ctypes.cast(will, ctypes.c_void_p), b"v@:@@@q")
+        # AppKit asks a delegate what it can do when it's set, so set it again to be asked anew.
+        delegate = send(table, "delegate")
+        send(table, "setDelegate:", None, restype=None, argtypes=(ctypes.c_void_p,))
+        send(table, "setDelegate:", delegate, restype=None, argtypes=(ctypes.c_void_p,))
+        send(table, "reloadData", restype=None)
+    except Exception:  # noqa: BLE001 - never stop the app over this
+        pass
+
+
 def mac_focus(ctrl) -> bool:
     """Give a control keyboard focus the Mac's way. A wx slider takes it from the Mac but not
     from wx's SetFocus, and wx doesn't notice either way, so ask the window directly."""
