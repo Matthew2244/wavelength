@@ -466,7 +466,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    `-[_NSEventObserver dealloc]` from an autorelease pool drain): AppKit holds the observer
    in a copy of its monitor list for the key event, releases it later, and by then Python had
    freed the block it points at. Handlers come and go from a plain list instead. Faked keys
-   and even zeroing the freed block did not reproduce it; only a real key press takes that path. The tests that
+   and even zeroing the freed block did not reproduce it; only a real key press takes that path. Matthew confirmed the fix with real keys the same day. The tests that
    passed before called `_on_key` directly, which skips AppKit: **a faked key event proves
    nothing about a real one.** Windows still uses `_on_key` (untested by a person).
    Saving Settings shows "Settings saved." as a message window (below) and plays
