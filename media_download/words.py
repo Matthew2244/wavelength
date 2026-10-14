@@ -84,6 +84,21 @@ def uploaded(d, now: float | None = None) -> str:
     return ""
 
 
+def when_words(ts: float, now: float | None = None) -> str:
+    """'at 3:42 PM today', 'yesterday at 9:05 AM', 'on October 2 at 8:00 PM'."""
+    import time
+    now = now or time.time()
+    t, today = time.localtime(ts), time.localtime(now)
+    clock = time.strftime("%I:%M %p", t).lstrip("0")
+    if (t.tm_year, t.tm_yday) == (today.tm_year, today.tm_yday):
+        return "at %s today" % clock
+    y = time.localtime(now - 86400)
+    if (t.tm_year, t.tm_yday) == (y.tm_year, y.tm_yday):
+        return "yesterday at %s" % clock
+    day = "%s %d" % (MONTHS[t.tm_mon - 1], t.tm_mday) + (", %d" % t.tm_year if t.tm_year != today.tm_year else "")
+    return "on %s at %s" % (day, clock)
+
+
 def views(count) -> str:
     """'402 thousand views', said the way a person would say it."""
     try:
@@ -501,6 +516,8 @@ def details_text(job) -> str:
         sp = speed(job.speed)
         if sp:
             lines.append("Speed: " + sp + ".")
+    if job.finished and job.state in ("done", "skipped", "failed"):
+        lines.append("%s %s." % ("Failed" if job.state == "failed" else "Finished", when_words(job.finished)))
     for f in job.files:  # every one: no caps
         lines.append("Saved as: " + f)
     if not job.files:

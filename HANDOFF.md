@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.5.1 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.6.0 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.5.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.6.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -257,8 +257,8 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    with no label before it (the progress bar).
 21. **The app's sounds are files, in themes**: `assets/sounds/<theme>/<event>.mp3`
    (Mac, afplay, with `-v` for Settings' volume) and `.wav` (Windows, winsound).
-   Themes `rhodes` (default), `kalimba`, `pizzicato`, `steel`, `sax`, `retro`
-   (Kenney Music Jingles, CC0) and `soft` (Kenney Interface Sounds, CC0), each
+   Themes `rhodes` (default), `kalimba`, `pizzicato` (Kenney Music Jingles, CC0)
+   and `soft` (Kenney Interface Sounds, CC0), each
    Kenney set with its `LICENSE-kenney.txt`, all in `CREDITS.md`; plus `system`
    (macOS sounds). **Only CC0 or Matthew's own sounds go in**: the repo is
    public, so every file in it is redistributed. Epidemic Sound was offered on
@@ -266,9 +266,18 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
    Eleven events, listed in `system.SOUNDS` with their words and system fallback:
    done, failed, item_done, added, stopped, waiting, results, no_more, copied,
-   update, queue_end. `system.cue(kind)` plays one from any window through the
+   update, queue_end. `app_sound_map` gives any action its own sound:
+   `""` the set's, `"none"`, `"<set>:<event>"`, or `"custom:<file>"` from
+   `system.custom_dir()` (imported with ffmpeg to a 16-bit WAV; a missing custom
+   file falls back to the set, never silence). 2.5's `app_sounds_off` still reads
+   as "none" (`system.sound_map`). Volume is a 0 to 1 slider (`app_sound_volume`;
+   0 is silent, so never `or 1.0`); Windows gets it through a quieter copy of the
+   WAV (`_scaled_wav`, cached). **Nothing ever plays by itself after speech**
+   (Matthew, 2026-10-13: "how will the app know when voiceover is done talking?
+   Just make it a play button"): Choose Sounds and Settings play only on Play or
+   Return. `system.cue(kind)` plays one from any window through the
    main window's `_sound`, which applies Settings (on/off, the set, volume,
-   `app_sounds_off`). The short ones play at once (item_done at most every 2 s);
+   `app_sound_map`). The short ones play at once (item_done at most every 2 s);
    the long ones queue 1.4 s apart. Rhodes done/failed are the pair Matthew chose
    by ear on 2026-10-13 from four families (masters, candidates and
    the audition in iCloud, `Media Download Sounds`); they are held chords, not
@@ -339,9 +348,15 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **2.6.0** (2026-10-13): Choose Sounds gives every action any sound, your own
+  file or none; volume slider; steel, sax and retro removed. A full review for
+  low vision, sighted and Windows users: Bigger Text in every window
+  (`textsize.py`), Settings scrolls, the player grows to fit, Windows Alt keys
+  no longer collide with the menu bar (`check.sh` now checks), OK and Cancel
+  in Windows order, list names on Windows, finish times in Details, a drag hint.
 - **2.5.1** (2026-10-13): four more sound sets from Kenney's Music Jingles
-  (pizzicato, steel, sax, retro). Matthew heard the first three and called them
-  great; the new four have auditions in iCloud, not yet heard.
+  (pizzicato, steel, sax, retro). Matthew liked pizzicato and not the others;
+  steel, sax and retro came out again in 2.6.0 at his word.
 - **2.5.0** (2026-10-13): upload dates and views on every result, Order in
   Search, right-click menus everywhere (VO-Shift-M verified on the built app),
   three sound sets of eleven sounds, Settings, Sounds. Real lookups: a YouTube

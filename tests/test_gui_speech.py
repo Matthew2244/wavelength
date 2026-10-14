@@ -437,3 +437,42 @@ def test_search_order_keeps_checks(frame, monkeypatch):
         assert dlg.list.GetString(0).startswith("1. " + want[0])
     dlg.cancel.Command(wx.CommandEvent(wx.wxEVT_BUTTON, wx.ID_CANCEL))
     _drain()
+
+
+def test_sound_picker_choose_hear_and_cancel(frame, monkeypatch):
+    played = []
+    monkeypatch.setattr(gui.dialogs.wx, "CallLater", lambda ms, fn, *a: (fn(*a), type("T", (), {"Stop": lambda s: None})())[1])
+    import media_download.system as system
+    monkeypatch.setattr(system, "play", lambda kind, theme, vol, smap=None: played.append((kind, (smap or {}).get(kind, ""))))
+    monkeypatch.setattr(system, "announce", lambda t: None)
+    dlg = gui.dialogs.SoundPicker(frame, {"added": "none"}, lambda: "pizzicato", lambda: 0.5)
+    keys = dlg.keys
+    assert dlg.actions.GetString(keys.index("added")) == "Added to the list: No sound"
+    dlg.actions.SetSelection(keys.index("done"))
+    dlg.on_action()
+    specs = [c for c, _ in dlg.choices]
+    dlg.sounds.SetSelection(specs.index("kalimba:update"))
+    dlg.on_sound()  # moving in the sounds list chooses; nothing plays by itself
+    assert played == []
+    dlg.play_now()  # Play, or Return
+    assert played[-1] == ("done", "kalimba:update")
+    assert dlg.actions.GetString(keys.index("done")) == "Downloads finished: Kalimba: An update is ready"
+    assert dlg.chosen_map() == {"added": "none", "done": "kalimba:update"}
+    dlg.on_reset()
+    assert dlg.chosen_map() == {}
+    dlg.Destroy()
+
+
+def test_settings_fit_the_screen_at_big_text(frame):
+    from media_download import textsize
+    old = textsize.current
+    textsize.current = textsize.default * 2
+    try:
+        dlg = gui.dialogs.Settings(frame, dict(frame.cfg))
+        area = wx.Display(0).GetClientArea()
+        assert dlg.GetSize().height <= area.height and dlg.GetSize().width <= area.width
+        big = [c for c in dlg.body.GetChildren() if isinstance(c, wx.StaticText)]
+        assert big and all(c.GetFont().GetPointSize() >= textsize.default * 2 - 1 for c in big)
+        dlg.Destroy()
+    finally:
+        textsize.current = old

@@ -451,8 +451,7 @@ SOUNDS = [
 ]
 SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
 THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("pizzicato", "Pizzicato strings"),
-          ("steel", "Steel drums"), ("sax", "Saxophone"), ("retro", "8-bit retro"), ("soft", "Soft clicks"),
-          ("system", "The system's own sounds")]
+          ("soft", "Soft clicks"), ("system", "The system's own sounds")]
 
 
 cue_handler = None  # the main window's _sound, set when it opens: settings, spacing and theme apply
@@ -472,6 +471,10 @@ def _sounds_dir() -> str:
     return os.path.join(base, "assets", "sounds")
 
 
+def _ext() -> str:
+    return ".wav" if sys.platform == "win32" else ".mp3"
+
+
 def sound_file(kind: str, theme: str = "rhodes") -> str | None:
     """A theme's file for this sound, inside the app or beside the source; None means use the
     system sound. A theme missing one sound borrows Rhodes's before falling back."""
@@ -487,25 +490,169 @@ def sound_file(kind: str, theme: str = "rhodes") -> str | None:
     return path if path and os.path.exists(path) else None
 
 
-def play(kind: str, theme: str = "rhodes", volume: float = 1.0) -> None:
-    """Play one of the app's sounds. A missing file falls back to a system sound, and a sound
-    that can't play is never an error: a missing sound must never matter."""
+def sound_volume(cfg) -> float:
+    """0 to 1. Zero is a real choice (silence), so never `or 1.0`."""
     try:
-        own = sound_file(kind, theme)
-        system_name = next((f for k, _, f in SOUNDS if k == kind), "Pop")
+        return max(0.0, min(1.0, float(cfg.get("app_sound_volume", 1.0))))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def sound_map(cfg) -> dict:
+    """Each action's chosen sound (Choose Sounds); 2.5's "sounds off" list reads as "No sound"."""
+    m = dict(cfg.get("app_sound_map") or {})
+    for kind in cfg.get("app_sounds_off") or []:
+        m.setdefault(kind, "none")
+    return m
+
+
+def custom_dir() -> str:
+    """Where sounds people import live (inside the app's own folder, never in the app)."""
+    from .engine import SUPPORT
+    return os.path.join(SUPPORT, "sounds")
+
+
+def custom_sounds() -> list[tuple[str, str]]:
+    """Imported sounds: (file name, the name people see)."""
+    try:
+        names = sorted(f for f in os.listdir(custom_dir()) if f.lower().endswith((".wav", ".mp3", ".aiff", ".m4a")))
+    except OSError:
+        return []
+    return [(f, os.path.splitext(f)[0]) for f in names]
+
+
+def sound_choices() -> list[tuple[str, str]]:
+    """Everything an action can sound like: (spec, words). "" follows the chosen set."""
+    out = [("", "The sound set's own"), ("none", "No sound")]
+    for f, name in custom_sounds():
+        out.append(("custom:" + f, "Your sound: " + name))
+    for theme, tw in THEMES:
+        for kind, kw, _ in SOUNDS:
+            out.append(("%s:%s" % (theme, kind), "%s: %s" % (tw, kw)))
+    return out
+
+
+def spec_words(spec: str) -> str:
+    return dict(sound_choices()).get(spec, "The sound set's own")
+
+
+def resolve(kind: str, theme: str, sound_map: dict | None = None) -> tuple[str, str] | None:
+    """What to play for an action: ("file", path), ("system", name), or None for silence.
+
+    An action follows the sound set unless Choose Sounds gave it something else: another
+    set's sound, an imported file, or no sound."""
+    spec = (sound_map or {}).get(kind, "")
+    if spec == "none":
+        return None
+    if spec.startswith("custom:"):
+        path = os.path.join(custom_dir(), spec[7:])
+        if os.path.exists(path):
+            return ("file", path)
+        spec = ""  # the file was removed: fall back to the set rather than go quiet
+    if ":" in spec:
+        theme, kind = spec.split(":", 1)
+    own = sound_file(kind, theme)
+    if own:
+        return ("file", own)
+    return ("system", next((f for k, _, f in SOUNDS if k == kind), "Pop"))
+
+
+def _scaled_wav(path: str, volume: float) -> str:
+    """Windows plays a WAV at the system's level only, so make a quieter copy (16-bit only)."""
+    import array
+    import hashlib
+    import wave
+    from .engine import CACHE
+    pct = int(round(volume * 100))
+    key = hashlib.sha1(("%s|%s" % (path, os.path.getmtime(path))).encode()).hexdigest()[:16]
+    out = os.path.join(CACHE, "sound-volume", str(pct), key + ".wav")
+    if os.path.exists(out):
+        return out
+    with wave.open(path, "rb") as r:
+        params = r.getparams()
+        frames = r.readframes(r.getnframes())
+    if params.sampwidth != 2:
+        return path
+    samples = array.array("h", frames)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    for i in range(len(samples)):
+        samples[i] = int(samples[i] * volume)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with wave.open(out, "wb") as w:
+        w.setparams(params)
+        w.writeframes(samples.tobytes())
+    return out
+
+
+def play_resolved(what, volume: float = 1.0) -> None:
+    """Play what resolve() chose. A sound that can't play is never an error."""
+    if not what or volume <= 0:
+        return
+    try:
+        how, ref = what
         if sys.platform == "darwin":
-            path = own or "/System/Library/Sounds/%s.aiff" % system_name
+            path = ref if how == "file" else "/System/Library/Sounds/%s.aiff" % ref
             cmd = ["afplay", path]
             if volume < 0.999:
-                cmd[1:1] = ["-v", "%.2f" % max(0.0, volume)]
+                cmd[1:1] = ["-v", "%.2f" % volume]
             subprocess.Popen(cmd)
         elif sys.platform == "win32":
             import winsound
-            if own:
-                winsound.PlaySound(own, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            if how == "file" and ref.lower().endswith(".wav"):
+                path = _scaled_wav(ref, volume) if volume < 0.999 else ref
+                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
             else:
-                winsound.MessageBeep(winsound.MB_ICONHAND if kind in ("failed", "no_more") else winsound.MB_OK)
+                winsound.MessageBeep(winsound.MB_OK)
     except Exception:  # noqa: BLE001
+        pass
+
+
+def play(kind: str, theme: str = "rhodes", volume: float = 1.0, sound_map: dict | None = None) -> None:
+    """Play the sound for an action, through the set and any choice made in Choose Sounds."""
+    play_resolved(resolve(kind, theme, sound_map), volume)
+
+
+def import_sound(src: str) -> tuple[str | None, str]:
+    """Bring a sound file in for Choose Sounds: (file name, or None; a sentence saying what happened).
+
+    Converted to a 16-bit WAV with ffmpeg when it's there, so it plays on Windows too and in
+    any format afplay can't read (Ogg, Opus, FLAC...). Its level is left as made."""
+    import re
+    import shutil
+    from .engine import find_tool, hidden_window
+    stem = re.sub(r"[^\w\- ]+", "", os.path.splitext(os.path.basename(src))[0]).strip()[:60] or "sound"
+    os.makedirs(custom_dir(), exist_ok=True)
+    name, k = stem, 2
+    while any(os.path.splitext(f)[0] == name for f, _ in custom_sounds()):
+        name, k = "%s %d" % (stem, k), k + 1
+    ffmpeg = find_tool("ffmpeg")
+    if ffmpeg:
+        out = os.path.join(custom_dir(), name + ".wav")
+        r = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", src, "-vn", "-ac", "2", "-ar", "44100",
+                            "-c:a", "pcm_s16le", out], capture_output=True, text=True, timeout=300, **hidden_window())
+        if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 100:
+            return name + ".wav", "Imported %s." % name
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+        return None, "That file couldn't be read as sound."
+    ext = os.path.splitext(src)[1].lower()
+    ok = (".wav",) if sys.platform == "win32" else (".wav", ".mp3", ".aiff", ".m4a")
+    if ext not in ok:
+        return None, ("Only %s files can be imported until the helper tools are here (Help, Get Helper Tools)."
+                      % " or ".join(e[1:].upper() for e in ok))
+    shutil.copyfile(src, os.path.join(custom_dir(), name + ext))
+    return name + ext, "Imported %s." % name
+
+
+def remove_sound(filename: str) -> None:
+    try:
+        os.remove(os.path.join(custom_dir(), os.path.basename(filename)))
+    except OSError:
         pass
 
 

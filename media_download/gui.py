@@ -21,8 +21,9 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, describe, dialogs, engine, geometry, menus, sparkle, update, winsparkle, words
+from . import APP_NAME, __version__, describe, dialogs, engine, geometry, menus, sparkle, textsize, update, winsparkle, words
 from . import system
+from .system import sound_map, sound_volume
 from .jobs import ACTIVE, Job
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
@@ -113,13 +114,13 @@ class MainFrame(wx.Frame):
         lab = wx.StaticText(p, label=M("&Link or search words:"))
         self._texts.append(lab)
         self.link = wx.TextCtrl(p, style=wx.TE_PROCESS_ENTER)
-        self.link.SetHint("Paste a link, or type words to search")
+        self.link.SetHint("Paste a link, type words to search, or drag links here")
         self.link.SetToolTip("Paste a link and press Return to download it. Paste several at once and each "
                              "gets its own row. Or type words and press Return to search.")
         mac_accessibility_label(self.link, "Link or search words")
-        self.download_btn = wx.Button(p, label=M("&Download"))
+        self.download_btn = wx.Button(p, label=M("Dow&nload"))
         self.download_btn.SetToolTip("Download the link in the Link field (Return).")
-        self.search_btn = wx.Button(p, label=M("&Search..."))
+        self.search_btn = wx.Button(p, label=M("Sear&ch..."))
         self.play_link_btn = wx.Button(p, label=M("&Play"))
         self.play_link_btn.SetToolTip("Play the link without downloading it. Paste several to play them in turn "
                                       "(%s-Shift-Return)." % CMD)
@@ -133,7 +134,7 @@ class MainFrame(wx.Frame):
 
         # format, quality, folder
         row = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(p, label=M("&Format:"))
+        lab = wx.StaticText(p, label=M("Form&at:"))
         self._texts.append(lab)
         self.kind = wx.Choice(p, choices=[label for _, label in words.FORMAT_LABELS])
         keys = [k for k, _ in words.FORMAT_LABELS]
@@ -159,7 +160,7 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.folder_text = wx.StaticText(p, label="")
         self._texts.append(self.folder_text)
-        self.folder_btn = wx.Button(p, label=M("C&hange Folder..."))
+        self.folder_btn = wx.Button(p, label=M("Chan&ge Folder..."))
         self.folder_btn.SetToolTip("Choose where downloads are saved. Remembered.")
         row.Add(self.folder_text, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.folder_btn, 0)
@@ -200,7 +201,7 @@ class MainFrame(wx.Frame):
                              "Delete removes the row (never the file).")
         s.Add(self.list, 3, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
-        lab = wx.StaticText(p, label=M("D&etails:"))
+        lab = wx.StaticText(p, label=M("Detail&s:"))
         self._texts.append(lab)
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 10)
         self.details = wx.TextCtrl(p, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2)
@@ -214,7 +215,7 @@ class MainFrame(wx.Frame):
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
         self.stop_btn = wx.Button(p, label=M("S&top"))
         self.retry_btn = wx.Button(p, label=M("&Retry"))
-        self.remove_btn = wx.Button(p, label=M("Remo&ve from List"))
+        self.remove_btn = wx.Button(p, label=M("Remove from List"))
         self.open_btn.SetToolTip("Open the downloaded file in its usual app.")
         self.show_btn.SetToolTip("Show the downloaded file in %s." % FOLDER_APP)
         self.stop_btn.SetToolTip("Stop this download. Retry carries on from where it stopped.")
@@ -236,6 +237,7 @@ class MainFrame(wx.Frame):
         self._fit_choices()
         self.default_pt = self.list.GetFont().GetPointSize()
         self.text_pt = self.ui.ReadInt("text_size", self.default_pt)
+        textsize.current, textsize.default = self.text_pt, self.default_pt
         if self.text_pt != self.default_pt:
             self._apply_text_size()
 
@@ -858,10 +860,13 @@ class MainFrame(wx.Frame):
         """Play one of the app's sounds, if sounds and this one are switched on. The long ones
         (finished, failed, update, end of the queue) never play on top of each other: a failure
         straight followed by the end of the batch was two sounds at once, neither clear."""
-        if not self.cfg.get("app_sounds", True) or kind in (self.cfg.get("app_sounds_off") or []):
+        if not self.cfg.get("app_sounds", True):
             return
         theme = self.cfg.get("app_sound_theme", "rhodes")
-        vol = float(self.cfg.get("app_sound_volume", 1.0) or 1.0)
+        vol = sound_volume(self.cfg)
+        smap = sound_map(self.cfg)
+        if smap.get(kind) == "none" or vol <= 0:
+            return
         now = time.time()
         if kind in self.SHORT_SOUNDS:
             if kind == "item_done" and now - getattr(self, "last_item_sound", 0) < 2.0:
@@ -870,14 +875,14 @@ class MainFrame(wx.Frame):
                 self.last_item_sound = now
             if self.next_sound_at - now > 1.0:
                 return  # a long sound is playing; a blip on top would only blur it
-            play(kind, theme, vol)
+            play(kind, theme, vol, smap)
             return
         wait = self.next_sound_at - now
         self.next_sound_at = max(now, self.next_sound_at) + 1.4
         if wait > 0:
-            wx.CallLater(int(wait * 1000), play, kind, theme, vol)
+            wx.CallLater(int(wait * 1000), play, kind, theme, vol, smap)
         else:
-            play(kind, theme, vol)
+            play(kind, theme, vol, smap)
 
     def _all_done(self, data):
         done, failed, took = data.get("done", 0), data.get("failed", 0), data.get("took", 0)
@@ -1131,11 +1136,7 @@ class MainFrame(wx.Frame):
         from .player import PlayerFrame
         if self.player is None:
             self.player = PlayerFrame(self)
-            if self.text_pt != self.default_pt:
-                for c in (self.player.qlist, self.player.byline, self.player.pos_label):
-                    f = c.GetFont()
-                    f.SetPointSize(self.text_pt)
-                    c.SetFont(f)
+            textsize.apply(self.player)
         self.player.set_queue(items, start)
         if focus:
             self.player.Show()
@@ -1553,6 +1554,15 @@ class MainFrame(wx.Frame):
     def _apply_text_size(self):
         # The popup menus and buttons keep the system size: a bigger font inside a fixed-height
         # Mac control is clipped, and a popup menu drew blank at 22 points.
+        textsize.current = self.text_pt
+        for w in (self.player, self.search_win):  # every other open window too, not only this one
+            if w:
+                textsize.apply(w)
+        sb = self.GetStatusBar()
+        if sb:  # the status bar is the only place tell() shows for the eye
+            f = sb.GetFont()
+            f.SetPointSize(self.text_pt)
+            sb.SetFont(f)
         for c in [self.list, self.details, self.link] + self._texts:
             f = c.GetFont()
             f.SetPointSize(self.text_pt)

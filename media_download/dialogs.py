@@ -8,10 +8,10 @@ import threading
 
 import wx
 
-from . import describe, engine, words
+from . import describe, engine, textsize, words
 from .options import SEARCH_SITES
 from . import menus
-from .system import mac_accessibility_label
+from .system import mac_accessibility_label, windows_name
 
 BROWSERS = [("", "Don't use a browser's sign-in"), ("chrome", "Chrome"), ("safari", "Safari"),
             ("firefox", "Firefox"), ("edge", "Edge"), ("brave", "Brave"), ("vivaldi", "Vivaldi"),
@@ -64,9 +64,12 @@ def buttons(dlg, ok_label, cancel_label="Cancel"):
     cancel = wx.Button(dlg, wx.ID_CANCEL, cancel_label)
     ok = wx.Button(dlg, wx.ID_OK, ok_label) if ok_label else None
     row.AddStretchSpacer()
-    row.Add(cancel, 0, wx.ALL, 6)
+    # Where each system puts them: Cancel then OK on the Mac, OK then Cancel on Windows.
+    order = [cancel, ok] if sys.platform == "darwin" else [ok, cancel]
+    for b in order:
+        if b:
+            row.Add(b, 0, wx.ALL, 6)
     if ok:
-        row.Add(ok, 0, wx.ALL, 6)
         ok.SetDefault()
     dlg.SetEscapeId(wx.ID_CANCEL)
     return row, ok, cancel
@@ -137,7 +140,9 @@ class MoreOptions(wx.Dialog):
 
         row, ok, _ = buttons(self, "Keep These Options")
         s.Add(row, 0, wx.EXPAND | wx.ALL, 6)
-        self.SetSizerAndFit(s)
+        self.SetSizer(s)
+        textsize.apply(self)  # View, Bigger Text reaches every window
+        s.SetSizeHints(self)
         self.SetMinSize((560, -1))
         self.Fit()
         self.pick.Bind(wx.EVT_BUTTON, self.on_pick)
@@ -249,137 +254,157 @@ class Settings(wx.Dialog):
     def __init__(self, parent, cfg: dict):
         super().__init__(parent, title="Settings", style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.cfg = cfg
+        # The settings scroll and Save and Cancel stay put: at large text or on a laptop the
+        # list is taller than the screen, and the buttons would be off the bottom.
+        body = self.body = wx.ScrolledWindow(self, style=wx.VSCROLL | wx.TAB_TRAVERSAL)
         s = wx.BoxSizer(wx.VERTICAL)
-        heading(self, s, "Downloads")
+        heading(body, s, "Downloads")
         auto = engine.auto_parallel()
         self.parallel_vals = [0] + list(range(1, 13))
-        _label = wx.StaticText(self, label="Downloads at once:")
-        self.parallel = wx.Choice(self, choices=["Automatic (%d on this computer)" % auto] +
+        _label = wx.StaticText(body, label="Downloads at once:")
+        self.parallel = wx.Choice(body, choices=["Automatic (%d on this computer)" % auto] +
                                   [str(i) for i in range(1, 13)])
         self.parallel.SetSelection(self.parallel_vals.index(int(cfg.get("app_parallel") or 0))
                                    if int(cfg.get("app_parallel") or 0) in self.parallel_vals else 0)
-        labelled(self, s, "Downloads at once:", self.parallel, _label,
+        labelled(body, s, "Downloads at once:", self.parallel, _label,
                  "More at once uses more of the computer's cores for converting. Automatic is half the "
                  "cores, between two and eight.")
         self.site_vals = list(range(1, 7))
-        _label = wx.StaticText(self, label="From the same site at once:")
-        self.per_site = wx.Choice(self, choices=[str(i) for i in self.site_vals])
+        _label = wx.StaticText(body, label="From the same site at once:")
+        self.per_site = wx.Choice(body, choices=[str(i) for i in self.site_vals])
         self.per_site.SetSelection(max(0, min(5, int(cfg.get("app_per_site") or 3) - 1)))
-        labelled(self, s, "From the same site at once:", self.per_site, _label,
+        labelled(body, s, "From the same site at once:", self.per_site, _label,
                  "Sites that see too many downloads at once from one address start refusing. Three is safe.")
         self.frag_vals = [1, 2, 4, 8, 16]
-        _label = wx.StaticText(self, label="Pieces fetched at once per download:")
-        self.frags = wx.Choice(self, choices=["1", "2", "4", "8", "16"])
+        _label = wx.StaticText(body, label="Pieces fetched at once per download:")
+        self.frags = wx.Choice(body, choices=["1", "2", "4", "8", "16"])
         f = int(cfg.get("app_fragments") or 4)
         self.frags.SetSelection(self.frag_vals.index(f) if f in self.frag_vals else 2)
-        labelled(self, s, "Pieces fetched at once per download:", self.frags, _label,
+        labelled(body, s, "Pieces fetched at once per download:", self.frags, _label,
                  "Long videos arrive in pieces; fetching several at once is faster on a quick connection.")
 
         self.rate_vals = ["", "500K", "1M", "2M", "5M", "10M"]
-        _label = wx.StaticText(self, label="Limit download speed:")
-        self.rate = wx.Choice(self, choices=["No limit", "500 KB a second", "1 MB a second", "2 MB a second",
+        _label = wx.StaticText(body, label="Limit download speed:")
+        self.rate = wx.Choice(body, choices=["No limit", "500 KB a second", "1 MB a second", "2 MB a second",
                                              "5 MB a second", "10 MB a second"])
         r = cfg.get("app_rate_limit") or ""
         self.rate.SetSelection(self.rate_vals.index(r) if r in self.rate_vals else 0)
-        labelled(self, s, "Limit download speed:", self.rate, _label,
+        labelled(body, s, "Limit download speed:", self.rate, _label,
                  "Per download. Leaves room for everyone else on a shared or slow connection.")
-        self.cover = wx.CheckBox(self, label="Add cover art to audio files")
+        self.cover = wx.CheckBox(body, label="Add cover art to audio files")
         self.cover.SetValue(bool(cfg.get("app_cover_art", True)))
         s.Add(self.cover, 0, wx.ALL, 6)
         self.say_vals = [0, 10, 30, 60]
-        _label = wx.StaticText(self, label="Speak progress while downloading:")
-        self.say = wx.Choice(self, choices=["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"])
+        _label = wx.StaticText(body, label="Speak progress while downloading:")
+        self.say = wx.Choice(body, choices=["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"])
         v = int(cfg.get("app_announce_progress") or 0)
         self.say.SetSelection(self.say_vals.index(v) if v in self.say_vals else 0)
-        labelled(self, s, "Speak progress while downloading:", self.say, _label,
+        labelled(body, s, "Speak progress while downloading:", self.say, _label,
                  "For screen readers. Finishes and failures are always spoken.")
-        heading(self, s, "Sounds")
+        heading(body, s, "Sounds")
         from .system import SOUNDS, THEMES
-        self.sounds = wx.CheckBox(self, label="Play sounds")
+        self.sounds = wx.CheckBox(body, label="Play sounds")
         self.sounds.SetValue(bool(cfg.get("app_sounds", True)))
         self.sounds.SetToolTip("A sound for each thing that happens: finished, failed, added, copied, search "
                                "results and more. Choose Sounds picks which.")
         s.Add(self.sounds, 0, wx.ALL, 6)
         self.theme_vals = [k for k, _ in THEMES]
-        _label = wx.StaticText(self, label="Sound set:")
-        self.theme = wx.Choice(self, choices=[w for _, w in THEMES])
+        _label = wx.StaticText(body, label="Sound set:")
+        self.theme = wx.Choice(body, choices=[w for _, w in THEMES])
         t = cfg.get("app_sound_theme", "rhodes")
         self.theme.SetSelection(self.theme_vals.index(t) if t in self.theme_vals else 0)
-        labelled(self, s, "Sound set:", self.theme, _label,
-                 "Each set has a sound for everything the app does. Changing it plays its Finished sound.")
-        self.theme.Bind(wx.EVT_CHOICE, lambda e: self._preview("done"))
-        self.vol_vals = [1.0, 0.75, 0.5, 0.25]
-        self.volume = None
-        if sys.platform == "darwin":  # Windows plays sounds at the system's own level
-            _label = wx.StaticText(self, label="Sound volume:")
-            self.volume = wx.Choice(self, choices=["Full", "Three quarters", "Half", "Quarter"])
-            v = float(cfg.get("app_sound_volume", 1.0) or 1.0)
-            self.volume.SetSelection(min(range(4), key=lambda k: abs(self.vol_vals[k] - v)))
-            labelled(self, s, "Sound volume:", self.volume, _label, "How loud the app's sounds are, under the "
-                     "system volume. Changing it plays a sound at the new level.")
-            self.volume.Bind(wx.EVT_CHOICE, lambda e: self._preview("item_done"))
-        self.sounds_off = list(cfg.get("app_sounds_off") or [])
-        pick = wx.Button(self, label="Choose Sounds...")
-        pick.SetToolTip("Lists every sound with a checkbox: checked plays, unchecked stays quiet. You can hear "
-                        "each one there.")
+        labelled(body, s, "Sound set:", self.theme, _label,
+                 "Each set has a sound for everything the app does. Play a Sample lets you hear it.")
+        from .system import sound_map, sound_volume
+        _label = wx.StaticText(body, label="Sound volume:")
+        self.volume = wx.Slider(body, value=int(round(sound_volume(cfg) * 100)), minValue=0, maxValue=100,
+                                size=(220, -1))
+        self.volume.SetLineSize(5)
+        self.volume.SetPageSize(20)
+        labelled(body, s, "Sound volume:", self.volume, _label,
+                 "How loud the app's sounds are, under the computer's own volume. Arrow keys move it in steps "
+                 "of 5 percent; Play a Sample plays one at that level. All the way down is silent.")
+        self._say_volume()
+        self.volume.Bind(wx.EVT_SLIDER, lambda e: self._say_volume())
+        sample = wx.Button(body, label="Play a Sample")
+        sample.SetToolTip("Plays the Finished sound from the chosen set at the chosen volume. Nothing plays "
+                          "by itself while you choose, so it never talks over your screen reader.")
+        sample.Bind(wx.EVT_BUTTON, lambda e: self._preview("done"))
+        s.Add(sample, 0, wx.ALL, 6)
+        self.sound_map = sound_map(cfg)
+        pick = wx.Button(body, label="Choose Sounds...")
+        pick.SetToolTip("Every action the app has a sound for. Give each one any sound from any set, a sound "
+                        "file of your own, or no sound, and hear each as you choose.")
         pick.Bind(wx.EVT_BUTTON, self.on_pick_sounds)
         s.Add(pick, 0, wx.ALL, 6)
-        heading(self, s, "Player")
+        tab_through_slider(self, self.volume, before=self.theme, after=sample)
+        heading(body, s, "Player")
         self.skip_vals = [5, 10, 15, 30, 60]
-        _label = wx.StaticText(self, label="Skip back and forward by:")
-        self.skip = wx.Choice(self, choices=["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"])
+        _label = wx.StaticText(body, label="Skip back and forward by:")
+        self.skip = wx.Choice(body, choices=["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"])
         sk = int(cfg.get("app_skip", 10) or 10)
         self.skip.SetSelection(self.skip_vals.index(sk) if sk in self.skip_vals else 1)
-        labelled(self, s, "Skip back and forward by:", self.skip, _label, "What Left and Right arrows do in the player.")
-        self.play_next = wx.CheckBox(self, label="Play the next item when one finishes")
+        labelled(body, s, "Skip back and forward by:", self.skip, _label, "What Left and Right arrows do in the player.")
+        self.play_next = wx.CheckBox(body, label="Play the next item when one finishes")
         self.play_next.SetValue(bool(cfg.get("app_play_next", True)))
         s.Add(self.play_next, 0, wx.ALL, 6)
-        self.resume = wx.CheckBox(self, label="Remember where I stopped in each item")
+        self.resume = wx.CheckBox(body, label="Remember where I stopped in each item")
         self.resume.SetValue(bool(cfg.get("app_resume", True)))
         self.resume.SetToolTip("For podcasts, lectures and audiobooks. Not for the first or last 30 seconds.")
         s.Add(self.resume, 0, wx.ALL, 6)
         self.ad_vals = ["pause", "over", "off"]
-        _label = wx.StaticText(self, label="Audio description, when there is some:")
-        self.ad = wx.Choice(self, choices=["Pause the video to read it", "Read it over the video",
+        _label = wx.StaticText(body, label="Audio description, when there is some:")
+        self.ad = wx.Choice(body, choices=["Pause the video to read it", "Read it over the video",
                                            "Don't read it"])
         m = cfg.get("app_ad_mode", "pause")
         self.ad.SetSelection(self.ad_vals.index(m) if m in self.ad_vals else 0)
-        labelled(self, s, "Audio description, when there is some:", self.ad, _label,
+        labelled(body, s, "Audio description, when there is some:", self.ad, _label,
                  "Pausing is extended description: nothing gets talked over. D in the player changes it.")
         self.adv_vals = ["system", "screen reader"]
-        _label = wx.StaticText(self, label="Read description with:")
-        self.adv = wx.Choice(self, choices=["The system voice", "My screen reader"])
+        _label = wx.StaticText(body, label="Read description with:")
+        self.adv = wx.Choice(body, choices=["The system voice", "My screen reader"])
         v = cfg.get("app_ad_voice", "system")
         self.adv.SetSelection(self.adv_vals.index(v) if v in self.adv_vals else 0)
-        labelled(self, s, "Read description with:", self.adv, _label,
+        labelled(body, s, "Read description with:", self.adv, _label,
                  "The system voice lets the player resume exactly when it finishes. Your screen reader uses your "
                  "own voice and rate; the pause is then estimated.")
-        self.captions = wx.CheckBox(self, label="Show captions under videos when there are some")
+        self.captions = wx.CheckBox(body, label="Show captions under videos when there are some")
         self.captions.SetValue(bool(cfg.get("app_captions", True)))
         s.Add(self.captions, 0, wx.ALL, 6)
-        heading(self, s, "Everything else")
-        self.clip = wx.CheckBox(self, label="Offer a link I've copied when I switch to the app")
+        heading(body, s, "Everything else")
+        self.clip = wx.CheckBox(body, label="Offer a link I've copied when I switch to the app")
         self.clip.SetValue(bool(cfg.get("app_clipboard", True)))
         s.Add(self.clip, 0, wx.ALL, 6)
-        self.awake = wx.CheckBox(self, label="Keep the computer awake while downloading")
+        self.awake = wx.CheckBox(body, label="Keep the computer awake while downloading")
         self.awake.SetValue(bool(cfg.get("app_keep_awake", True)))
         self.awake.SetToolTip("So a long playlist left overnight finishes. Only while something is "
                               "downloading; the screen can still turn off.")
         s.Add(self.awake, 0, wx.ALL, 6)
-        self.upd = wx.CheckBox(self, label="Keep the download engine up to date automatically")
+        self.upd = wx.CheckBox(body, label="Keep the download engine up to date automatically")
         self.upd.SetValue(bool(cfg.get("auto_update", True)))
         self.upd.SetToolTip("Sites change often and the engine (yt-dlp) keeps up. Checks once a day, "
                             "and again when a download fails.")
         s.Add(self.upd, 0, wx.ALL, 6)
         self.push = None
         if os.path.exists(engine.PUSHOVER):
-            self.push = wx.CheckBox(self, label="Send a Pushover notification when downloads finish")
+            self.push = wx.CheckBox(body, label="Send a Pushover notification when downloads finish")
             self.push.SetValue(bool(cfg.get("notify")))
             s.Add(self.push, 0, wx.ALL, 6)
+        fit_choices(body)
+        body.SetSizer(s)
+        textsize.apply(body)
+        body.SetScrollRate(0, 20)
+        outer = wx.BoxSizer(wx.VERTICAL)
+        outer.Add(body, 1, wx.EXPAND)
         row, ok, _ = buttons(self, "Save Settings")
-        s.Add(row, 0, wx.EXPAND | wx.ALL, 6)
-        fit_choices(self)
-        self.SetSizerAndFit(s)
+        outer.Add(row, 0, wx.EXPAND | wx.ALL, 6)
+        self.SetSizer(outer)
+        need = s.GetMinSize()
+        idx = wx.Display.GetFromWindow(parent) if parent else 0
+        screen = wx.Display(idx if idx != wx.NOT_FOUND else 0).GetClientArea()
+        self.SetSize((min(need.width + 40, screen.width - 40),
+                      min(need.height + row.GetMinSize().height + 60, int(screen.height * 0.9))))
+        self.SetMinSize((min(need.width + 40, screen.width - 40), 320))
         ok.Bind(wx.EVT_BUTTON, self.on_ok)
         self.parallel.SetFocus()
 
@@ -387,23 +412,29 @@ class Settings(wx.Dialog):
         return self.theme_vals[self.theme.GetSelection()]
 
     def _vol_now(self):
-        return self.vol_vals[self.volume.GetSelection()] if self.volume else 1.0
+        return self.volume.GetValue() / 100.0
+
+    def _say_volume(self):
+        from .system import mac_value_description
+        v = self.volume.GetValue()
+        mac_value_description(self.volume, "%d percent" % v if v else "Silent")
 
     def _preview(self, kind):
-        """Announce, then play: VoiceOver has just read the new choice; let it finish first."""
+        """Only ever from a button: the app can't know when the screen reader has finished
+        speaking, so nothing plays by itself (Matthew, 2026-10-13)."""
         from .system import play
-        wx.CallLater(700, play, kind, self._theme_now(), self._vol_now())
+        play(kind, self._theme_now(), self._vol_now(), self.sound_map)
 
     def on_pick_sounds(self, _):
-        dlg = SoundPicker(self, self.sounds_off, self._theme_now, self._vol_now)
+        dlg = SoundPicker(self, self.sound_map, self._theme_now, self._vol_now)
         if dlg.ShowModal() == wx.ID_OK:
-            self.sounds_off = dlg.off()
+            self.sound_map = dlg.chosen_map()
         dlg.Destroy()
 
     def on_ok(self, _):
         self.cfg.update({
             "app_sound_theme": self._theme_now(), "app_sound_volume": self._vol_now(),
-            "app_sounds_off": self.sounds_off,
+            "app_sound_map": {k: v for k, v in self.sound_map.items() if v}, "app_sounds_off": [],
             "app_parallel": self.parallel_vals[self.parallel.GetSelection()],
             "app_per_site": self.site_vals[self.per_site.GetSelection()],
             "app_fragments": self.frag_vals[self.frags.GetSelection()],
@@ -551,79 +582,213 @@ def look_up_row(win, lst, entries, i, main):
     main.look_up(e.get("url") or "", done)
 
 
-class SoundPicker(wx.Dialog):
-    """Every sound the app makes, each with a checkbox (checked plays). Return or Play Selected
-    plays the selected one; Hear Them All says each name, then plays it."""
+def tab_through_slider(dlg, slider, before, after):
+    """On the Mac a wx slider only takes the keyboard the Mac's way (HANDOFF), so Tab and
+    Shift-Tab are walked into and out of it here. Windows already does it."""
+    if sys.platform != "darwin":
+        return
+    from .system import mac_focus, mac_has_focus
 
-    def __init__(self, parent, off: list, theme, volume):
-        super().__init__(parent, title="Choose Sounds", size=(560, 480),
+    def on_key(event):
+        if event.GetKeyCode() != wx.WXK_TAB or event.ControlDown() or event.AltDown():
+            event.Skip()
+            return
+        back = event.ShiftDown()
+        if mac_has_focus(slider):
+            (before if back else after).SetFocus()
+        elif not back and wx.Window.FindFocus() is before:
+            mac_focus(slider)
+        elif back and wx.Window.FindFocus() is after:
+            mac_focus(slider)
+        else:
+            event.Skip()
+    dlg.Bind(wx.EVT_CHAR_HOOK, on_key)
+
+
+class SoundPicker(wx.Dialog):
+    """Choose the sound for every action: the set's own, any sound from any set, a sound file
+    of your own, or no sound.
+
+    Two lists, not a popup, so every choice can be read through by arrowing. Moving in the
+    Sounds list chooses; Cancel puts everything back. Nothing plays by itself: the app can't
+    know when the screen reader has finished speaking, so Play (or Return) plays it."""
+
+    def __init__(self, parent, sound_map: dict, theme, volume):
+        super().__init__(parent, title="Choose Sounds", size=(860, 560),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         from .system import SOUNDS
         self.keys = [k for k, _, _ in SOUNDS]
+        self.action_words = {k: w for k, w, _ in SOUNDS}
+        self.map = dict(sound_map)
         self.theme, self.volume = theme, volume
         s = wx.BoxSizer(wx.VERTICAL)
-        s.Add(wx.StaticText(self, label="Checked sounds play; unchecked ones stay quiet. Return plays the "
-                                        "selected one."), 0, wx.ALL, 8)
-        self.list = wx.CheckListBox(self, choices=[w for _, w, _ in SOUNDS])
-        mac_accessibility_label(self.list, "Sounds")
-        for i, k in enumerate(self.keys):
-            self.list.Check(i, k not in off)
-        s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
+        s.Add(wx.StaticText(self, label="Choose an action, then its sound. Play, or Return in either list, plays "
+                                        "the action's sound; nothing plays by itself."), 0, wx.ALL, 8)
+        cols = wx.BoxSizer(wx.HORIZONTAL)
+        left = wx.BoxSizer(wx.VERTICAL)
+        alab = wx.StaticText(self, label="Actions:")
+        self.actions = wx.ListBox(self, style=wx.LB_SINGLE)
+        mac_accessibility_label(self.actions, "Actions")
+        left.Add(alab, 0, wx.BOTTOM, 4)
+        left.Add(self.actions, 1, wx.EXPAND)
+        right = wx.BoxSizer(wx.VERTICAL)
+        slab = wx.StaticText(self, label="Sound for this action:")
+        self.sounds = wx.ListBox(self, style=wx.LB_SINGLE)
+        mac_accessibility_label(self.sounds, "Sound for this action")
+        right.Add(slab, 0, wx.BOTTOM, 4)
+        right.Add(self.sounds, 1, wx.EXPAND)
+        cols.Add(left, 1, wx.EXPAND | wx.ALL, 6)
+        cols.Add(right, 1, wx.EXPAND | wx.ALL, 6)
+        s.Add(cols, 1, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
-        play = wx.Button(self, label="Play Selected")
-        play.SetToolTip("Plays the selected sound in the chosen set (Return).")
-        allb = wx.Button(self, label="Hear Them All")
-        allb.SetToolTip("Says each sound's name, then plays it, one after another.")
-        row.Add(play, 0, wx.RIGHT, 6)
-        row.Add(allb, 0)
+        self.play_btn = wx.Button(self, label="Play")
+        self.play_btn.SetToolTip("Plays the selected action's sound (Return in either list).")
+        imp = wx.Button(self, label="Import a Sound File...")
+        imp.SetToolTip("Any audio file: MP3, WAV, AIFF, M4A, FLAC, Ogg and more. It's copied into the app's "
+                       "own folder and can then be chosen for any action.")
+        self.remove_btn = wx.Button(self, label="Remove Imported Sound")
+        self.remove_btn.SetToolTip("Deletes the selected imported sound from the app (never your original file). "
+                                   "Actions using it go back to the set's own sound.")
+        reset = wx.Button(self, label="All Back to the Set")
+        reset.SetToolTip("Every action uses the chosen sound set again.")
+        for b in (self.play_btn, imp, self.remove_btn, reset):
+            row.Add(b, 0, wx.RIGHT, 6)
         s.Add(row, 0, wx.ALL, 6)
         brow, ok, _ = buttons(self, "Use These")
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
-        play.Bind(wx.EVT_BUTTON, lambda e: self.play_selected())
-        allb.Bind(wx.EVT_BUTTON, lambda e: self.hear_all())
-        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.play_selected())
-        self.list.Bind(wx.EVT_KEY_DOWN, self.on_key)
-        self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._said(e.GetInt()))
-        self.timers = []
-        self.list.SetFocus()
-        self.list.SetSelection(0)
+        textsize.apply(self)  # View, Bigger Text reaches every window
+        self.play_btn.Bind(wx.EVT_BUTTON, lambda e: self.play_now())
+        imp.Bind(wx.EVT_BUTTON, lambda e: self.on_import())
+        self.remove_btn.Bind(wx.EVT_BUTTON, lambda e: self.on_remove())
+        reset.Bind(wx.EVT_BUTTON, lambda e: self.on_reset())
+        self.actions.Bind(wx.EVT_LISTBOX, lambda e: self.on_action())
+        self.sounds.Bind(wx.EVT_LISTBOX, lambda e: self.on_sound())
+        for lst in (self.actions, self.sounds):
+            lst.Bind(wx.EVT_KEY_DOWN, self.on_key)
+            lst.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.play_now())
+        self._fill_actions()
+        self._fill_sounds()
+        self.actions.SetSelection(0)
+        self.on_action()
+        self.actions.SetFocus()
+
+    # -- the lists
+    def _theme_words(self):
+        from .system import THEMES
+        return dict(THEMES).get(self.theme(), "the set")
+
+    def _spec_words(self, spec):
+        from .system import spec_words
+        return ("The sound set's own (%s)" % self._theme_words()) if not spec else spec_words(spec)
+
+    def _fill_actions(self):
+        keep = self.actions.GetSelection()
+        self.actions.Set(["%s: %s" % (self.action_words[k], self._spec_words(self.map.get(k, "")))
+                          for k in self.keys])
+        if keep != wx.NOT_FOUND:
+            self.actions.SetSelection(keep)
+
+    def _fill_sounds(self):
+        from .system import sound_choices
+        self.choices = sound_choices()
+        self.sounds.Set([self._spec_words(spec) if not spec else w for spec, w in self.choices])
+
+    def _kind(self):
+        i = self.actions.GetSelection()
+        return self.keys[i] if i != wx.NOT_FOUND else None
+
+    def on_action(self):
+        kind = self._kind()
+        if not kind:
+            return
+        spec = self.map.get(kind, "")
+        specs = [c for c, _ in self.choices]
+        self.sounds.SetSelection(specs.index(spec) if spec in specs else 0)
+        self._update_remove()
+
+
+    def on_sound(self):
+        kind = self._kind()
+        i = self.sounds.GetSelection()
+        if not kind or i == wx.NOT_FOUND:
+            return
+        self.map[kind] = self.choices[i][0]
+        self._fill_actions()
+        self._update_remove()
+
+    def _update_remove(self):
+        i = self.sounds.GetSelection()
+        self.remove_btn.Enable(i != wx.NOT_FOUND and self.choices[i][0].startswith("custom:"))
+
+    # -- hearing
+    def play_now(self):
+        from .system import play
+        kind = self._kind()
+        if kind and self:
+            play(kind, self.theme(), self.volume(), self.map)
 
     def on_key(self, event):
         if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
-            self.play_selected()
+            self.play_now()
         else:
             event.Skip()
 
-    def _said(self, i):
+    # -- your own sounds
+    def on_import(self):
+        from .system import announce, import_sound
+        with wx.FileDialog(self, "Choose a sound file", wildcard="Sound files|*.mp3;*.wav;*.aif;*.aiff;*.m4a;"
+                           "*.flac;*.ogg;*.opus;*.caf;*.aac|All files|*.*",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as fd:
+            if fd.ShowModal() != wx.ID_OK:
+                return
+            src = fd.GetPath()
+        name, said = import_sound(src)
+        announce(said)
+        if not name:
+            wx.MessageBox(said, "Import a Sound File", wx.OK | wx.ICON_INFORMATION, self)
+            return
+        self._fill_sounds()
+        kind = self._kind()
+        if kind:  # the action you were on gets it straight away; Cancel undoes it
+            self.map[kind] = "custom:" + name
+            self._fill_actions()
+            self.on_action()
+        self.sounds.SetFocus()
+
+    def on_remove(self):
+        from .system import announce, remove_sound
+        i = self.sounds.GetSelection()
+        if i == wx.NOT_FOUND or not self.choices[i][0].startswith("custom:"):
+            return
+        spec, words_ = self.choices[i]
+        dlg = wx.MessageDialog(self, "Remove %s from Media Download? Your original file isn't touched."
+                               % words_.replace("Your sound: ", ""), "Remove Imported Sound",
+                               wx.OK | wx.CANCEL | wx.CANCEL_DEFAULT)
+        dlg.SetOKCancelLabels("&Remove", "Cancel")
+        go = dlg.ShowModal() == wx.ID_OK
+        dlg.Destroy()
+        if not go:
+            return
+        remove_sound(spec[7:])
+        for k, v in list(self.map.items()):
+            if v == spec:
+                self.map[k] = ""
+        self._fill_sounds()
+        self._fill_actions()
+        self.on_action()
+        announce("Removed.")
+
+    def on_reset(self):
         from .system import announce
-        announce("%s: %s." % (self.list.GetString(i), "on" if self.list.IsChecked(i) else "off"))
+        self.map = {}
+        self._fill_actions()
+        self.on_action()
+        announce("Every action uses %s again." % self._theme_words())
 
-    def play_selected(self):
-        from .system import play
-        i = self.list.GetSelection()
-        if i != wx.NOT_FOUND:
-            play(self.keys[i], self.theme(), self.volume())
+    def chosen_map(self) -> dict:
+        return {k: v for k, v in self.map.items() if v}
 
-    def hear_all(self):
-        """Name, pause, sound, for every one: announce first, then play (never both at once)."""
-        from .system import announce, play
-        for t in self.timers:
-            t.Stop()
-        self.timers = []
-        at = 0
-        for i, k in enumerate(self.keys):
-            self.timers.append(wx.CallLater(at + 1, announce, self.list.GetString(i)))
-            self.timers.append(wx.CallLater(at + 1700, play, k, self.theme(), self.volume()))
-            at += 3400
-
-    def off(self) -> list:
-        return [k for i, k in enumerate(self.keys) if not self.list.IsChecked(i)]
-
-    def Destroy(self):
-        for t in self.timers:
-            t.Stop()
-        return super().Destroy()
 
 
 class CheckList(wx.Dialog):
@@ -654,6 +819,7 @@ class CheckList(wx.Dialog):
         brow, self.ok, _ = buttons(self, ok_label)
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
+        textsize.apply(self)  # View, Bigger Text reaches every window
         b_all.Bind(wx.EVT_BUTTON, lambda e: self._set_all(True))
         b_none.Bind(wx.EVT_BUTTON, lambda e: self._set_all(False))
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
@@ -717,7 +883,9 @@ class PlaylistQuestion(wx.Dialog):
         b_all.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(self.ALL))
         b_choose.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(self.CHOOSE))
         (b_one if can_single else b_choose).SetDefault()
-        self.SetSizerAndFit(s)
+        self.SetSizer(s)
+        textsize.apply(self)  # View, Bigger Text reaches every window
+        s.SetSizeHints(self)
         (b_one if can_single else b_choose).SetFocus()
 
 
@@ -749,7 +917,7 @@ class Search(wx.Frame):
         mac_accessibility_label(self.query, "Search for")
         top.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.query, 1, wx.RIGHT, 6)
-        on_lab = wx.StaticText(p, label="on")
+        on_lab = wx.StaticText(p, label="Search on:")
         self.site = wx.Choice(p, choices=[name for _, name, _ in SEARCH_SITES])
         keys = [k for k, _, _ in SEARCH_SITES]
         self.site.SetSelection(keys.index(site) if site in keys else 0)
@@ -773,6 +941,7 @@ class Search(wx.Frame):
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
         mac_accessibility_label(self.list, "Results")
+        windows_name(self.list, "Results")  # else Windows names it after the status line above it
         s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
         brow = wx.BoxSizer(wx.HORIZONTAL)
         brow.AddStretchSpacer()
@@ -801,6 +970,7 @@ class Search(wx.Frame):
         self.ok.Disable()
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         p.SetSizer(s)
+        textsize.apply(self)  # View, Bigger Text reaches every window
         self._menus()
         self.go.Bind(wx.EVT_BUTTON, self.on_search)
         self.order.Bind(wx.EVT_CHOICE, lambda e: self.reorder(speak=True))
@@ -852,6 +1022,10 @@ class Search(wx.Frame):
         v.AppendSeparator()
         add(v, "Go to the D&ownloads Window\tCtrl+1", self.main.on_to_main)
         add(v, "Go to the &Player\tCtrl+2", self.main.on_to_player)
+        v.AppendSeparator()
+        add(v, "&Bigger Text\tCtrl+=", lambda: self.main._text_size(+2))
+        add(v, "&Smaller Text\tCtrl+-", lambda: self.main._text_size(-2))
+        add(v, "&Actual Size\tCtrl+0", lambda: self.main._text_size(0))
         bar.Append(f, "&File")
         bar.Append(ed, "&Edit")
         bar.Append(v, "&View")
@@ -1098,6 +1272,7 @@ class DescribeDialog(wx.Dialog):
         s.Add(self.status, 0, wx.ALL, 10)
         self.list = wx.ListBox(self, style=wx.LB_SINGLE)
         mac_accessibility_label(self.list, "What's available")
+        windows_name(self.list, "What's available")
         s.Add(self.list, 1, wx.EXPAND | wx.ALL, 8)
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(self, label="Play")
@@ -1118,6 +1293,7 @@ class DescribeDialog(wx.Dialog):
         row.Add(close, 0)
         s.Add(row, 0, wx.EXPAND | wx.ALL, 8)
         self.SetSizer(s)
+        textsize.apply(self)  # View, Bigger Text reaches every window
         self.SetEscapeId(wx.ID_CANCEL)
         self.list.Bind(wx.EVT_LISTBOX, lambda e: self._buttons())
         self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self._act("play"))

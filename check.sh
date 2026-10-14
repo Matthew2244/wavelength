@@ -124,6 +124,11 @@ letters = [m.group(1).upper() for m in re.finditer(r'M\("[^"&]*&(\w)', gui)]
 dupes = sorted({l for l in letters if letters.count(l) > 1})
 if dupes:
     problems.append("main window Alt letters used twice: " + ", ".join(dupes))
+# ...or one a menu uses: Alt with File's F opens the File menu, so a control on F is dead.
+menu_letters = {m.group(1).upper() for m in re.finditer(r'bar\.Append\(\w+, "[^"&]*&(\w)', gui)}
+clash = sorted(set(letters) & menu_letters)
+if clash:
+    problems.append("main window Alt letters taken by the menu bar: " + ", ".join(clash))
 for p in problems:
     print("  FAIL  " + p)
 print("  ok    dialogs close with Escape, controls are named" if not problems else "")

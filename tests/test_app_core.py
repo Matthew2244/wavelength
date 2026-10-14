@@ -529,3 +529,63 @@ def test_every_sound_set_is_complete():
                 path = os.path.join(root, key, kind + ext)
                 assert os.path.getsize(path) > 1000, path
         assert key in credits, key
+
+
+def test_each_action_can_have_any_sound_or_none(tmp_path, monkeypatch):
+    from media_download import system
+    monkeypatch.setattr(system, "custom_dir", lambda: str(tmp_path))
+    assert system.resolve("done", "pizzicato")[1].endswith(os.path.join("pizzicato", "done" + system._ext()))
+    assert system.resolve("done", "pizzicato", {"done": "none"}) is None
+    assert system.resolve("done", "pizzicato", {"done": "kalimba:added"})[1].endswith(
+        os.path.join("kalimba", "added" + system._ext()))
+    (tmp_path / "bell.wav").write_bytes(b"x" * 200)
+    assert system.resolve("copied", "rhodes", {"copied": "custom:bell.wav"}) == ("file", str(tmp_path / "bell.wav"))
+    # an imported sound that was deleted falls back to the set, never to silence
+    assert system.resolve("copied", "rhodes", {"copied": "custom:gone.wav"})[1].endswith(
+        os.path.join("rhodes", "copied" + system._ext()))
+    assert ("custom:bell.wav", "Your sound: bell") in system.sound_choices()
+    assert system.sound_map({"app_sounds_off": ["added"]}) == {"added": "none"}
+    assert system.sound_volume({"app_sound_volume": 0}) == 0.0
+
+
+def test_quieter_wav_for_windows(tmp_path, monkeypatch):
+    import array
+    import wave
+    from media_download import engine, system
+    monkeypatch.setattr(engine, "CACHE", str(tmp_path / "cache"))
+    src = tmp_path / "s.wav"
+    with wave.open(str(src), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(44100)
+        w.writeframes(array.array("h", [10000, -10000, 20000]).tobytes())
+    out = system._scaled_wav(str(src), 0.5)
+    with wave.open(out, "rb") as r:
+        assert list(array.array("h", r.readframes(3))) == [5000, -5000, 10000]
+
+
+def test_import_any_sound_file(tmp_path, monkeypatch):
+    from media_download import engine, system
+    if not engine.find_tool("ffmpeg"):
+        pytest.skip("needs ffmpeg")
+    monkeypatch.setattr(system, "custom_dir", lambda: str(tmp_path / "sounds"))
+    src = tmp_path / "Door Bell!.mp3"
+    import subprocess
+    subprocess.run([engine.find_tool("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "sine=f=660:d=0.3", str(src)],
+                   check=True)
+    name, said = system.import_sound(str(src))
+    assert name == "Door Bell.wav" and said == "Imported Door Bell."
+    name2, _ = system.import_sound(str(src))
+    assert name2 == "Door Bell 2.wav"  # never overwrites one already there
+    bad = tmp_path / "notes.txt"
+    bad.write_text("hello")
+    assert system.import_sound(str(bad))[0] is None
+
+
+def test_when_finished_said_plainly():
+    import time as _t
+    now = _t.mktime((2026, 10, 13, 18, 0, 0, 0, 0, -1))
+    assert words.when_words(now - 3600, now).startswith("at 5:00 PM today")
+    assert words.when_words(now - 86400, now) == "yesterday at 6:00 PM"
+    assert words.when_words(_t.mktime((2026, 10, 2, 20, 0, 0, 0, 0, -1)), now) == "on October 2 at 8:00 PM"
+    assert words.when_words(_t.mktime((2025, 1, 5, 9, 5, 0, 0, 0, -1)), now) == "on January 5, 2025 at 9:05 AM"

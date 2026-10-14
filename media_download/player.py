@@ -286,6 +286,10 @@ class PlayerFrame(wx.Frame):
         add("Close Player\tCtrl+W", self.Close)
         add("Go to the Downloads Window\tCtrl+1", self.to_main)
         m.AppendSeparator()
+        add("Bigger Text\tCtrl+=", lambda: self.main._text_size(+2))
+        add("Smaller Text\tCtrl+-", lambda: self.main._text_size(-2))
+        add("Actual Size\tCtrl+0", lambda: self.main._text_size(0))
+        m.AppendSeparator()
         # Quit, Settings and About belong to the app, not the window: on the Mac they live in the
         # app menu, which takes them from whichever window is in front. Without them here,
         # Command-Q did nothing while the player was in front.
@@ -343,6 +347,7 @@ class PlayerFrame(wx.Frame):
         self.time.SetLabel("Loading")
         self.slider.SetValue(0)
         self.title.SetLabel(self.item.get("title") or "Loading")
+        self.title.SetToolTip(self.item.get("title") or "")  # the whole title, where it's cut short
         self._byline()
         self.SetTitle("%s: Player" % (self.item.get("title") or "Loading"))
         self._fill_queue()
@@ -398,6 +403,7 @@ class PlayerFrame(wx.Frame):
                     live=bool(found.get("is_live") or not found.get("duration")), got=found.get("want"))
         self.cues = [tuple(c) for c in found.get("cues") or []]
         self.title.SetLabel(item["title"] or "Playing")
+        self.title.SetToolTip(item["title"] or "")
         self._byline()
         self.SetTitle("%s: Player" % item["title"])
         self._fill_queue()
@@ -522,7 +528,7 @@ class PlayerFrame(wx.Frame):
             return  # long past (a skip landed after it): don't read a stale description
         self.ad_active, self.ad_text = True, text
         self.caption.SetLabel("Description: " + text)
-        self.caption.Wrap(max(200, self.panel.GetClientSize().width - 40))
+        self._fit_caption()
         if self.ad_mode == "pause":
             self.media.Pause()
             self.ad_paused = True
@@ -576,8 +582,23 @@ class PlayerFrame(wx.Frame):
     def _show_video(self, on: bool):
         self.media.Show(on)
         self.media_holder.SetProportion(1 if on else 0)
-        self.media.SetMinSize((640, 360) if on else (0, 0))
+        # The picture can shrink (it keeps its shape when drawn); the controls under it can't.
+        # At 640 by 360 the queue and the speed and volume row fell off the bottom.
+        self.media.SetMinSize((320, 180) if on else (0, 0))
         self.panel.Layout()
+        self._room_for_controls()
+
+    def _room_for_controls(self):
+        """Grow the window, up to the screen, so every control fits; never shrink it."""
+        need = self.panel.GetBestSize()
+        have = self.GetClientSize()
+        idx = wx.Display.GetFromWindow(self)
+        area = wx.Display(idx if idx != wx.NOT_FOUND else 0).GetClientArea()
+        w = min(max(have.width, need.width), area.width - 20)
+        h = min(max(have.height, need.height), area.height - 60)
+        self.SetMinClientSize((min(need.width, area.width - 20), min(need.height, area.height - 60)))
+        if (w, h) != (have.width, have.height):
+            self.SetClientSize((w, h))
 
     def on_finished(self, _):
         self.positions.set(self._key(), 0, 0)
@@ -752,7 +773,7 @@ class PlayerFrame(wx.Frame):
             line = words.cue_at(self.cues, now)
             if line != self.caption.GetLabel():
                 self.caption.SetLabel(line)
-                self.caption.Wrap(max(200, self.panel.GetClientSize().width - 40))
+                self._fit_caption()
         if self.sleep_at and time.time() >= self.sleep_at - 10 and self.playing():
             left = self.sleep_at - time.time()
             self.fading = True
@@ -871,7 +892,7 @@ class PlayerFrame(wx.Frame):
             event.Skip()
             return
         mods = event.GetModifiers()
-        if key == wx.WXK_SPACE and not isinstance(focus, wx.Button) and mods == 0:
+        if key == wx.WXK_SPACE and not isinstance(focus, (wx.Button, wx.Choice, wx.CheckBox)) and mods == 0:
             self.toggle()
         elif key in (wx.WXK_LEFT, wx.WXK_RIGHT) and focus is not self.volume:
             # On the position slider too: steps of the skip length, not the slider's own.
@@ -946,6 +967,16 @@ class PlayerFrame(wx.Frame):
         # Back to Search if it's open (a preview started there), else the downloads window.
         back = getattr(self.main, "search_win", None) or self.main
         back.Raise()
+
+    def _fit_caption(self):
+        """Grow the caption to however many lines it wrapped to, so a long description or a
+        large text size is never cut off at the bottom."""
+        self.caption.Wrap(max(200, self.panel.GetClientSize().width - 40))
+        lines = max(2, self.caption.GetLabel().count("\n") + 1)
+        h = self.caption.GetCharHeight() * lines + 8
+        if self.caption.GetMinSize().height != h:
+            self.caption.SetMinSize((-1, max(60, h)))
+            self.panel.Layout()
 
     def to_main(self):
         self.main.on_to_main()
