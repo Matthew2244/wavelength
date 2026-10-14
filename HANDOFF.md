@@ -295,9 +295,17 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    public, so every file in it is redistributed. Epidemic Sound was offered on
    2026-10-13 (a friend's account) and declined for that reason; Matthew chose
    more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
-   Thirteen events, listed in `system.SOUNDS` with their words and system fallback:
+   Sixteen events, listed in `system.SOUNDS` with their words and system fallback:
    opening, done, failed, item_done, added, stopped, waiting, results, no_more, copied,
-   update, queue_end, closing. **Opening and closing** (Matthew, 2026-10-13) play when the
+   update, queue_end, tour_done, milestone, signed_in, closing. **Ear candy** (Matthew,
+   2026-10-14): `tour_done` (Finish in the welcome tour, first time or any time, a warm hand
+   bell), `milestone` (the 100th, 250th, 1,000th download and on, a tiny bell fanfare, after
+   the Done sound) and `signed_in` (a browser's sign-in checks out, a two-tone chime). Made
+   with ElevenLabs sound effects and picked by him by ear from fourteen candidates
+   (auditions in iCloud, `Media Download Sounds/Ear candy/`). They're the same in every set,
+   kept once in `assets/sounds/shared/` (`sound_file` looks there after the set); originals
+   in `tools/sound_sources/`, levelled with `tools/finish_sound.py`. New ear candy: generate a
+   spread, let him choose, finish it, drop it in `shared/`, add it to `SOUNDS` and `SHARED`. **Opening and closing** (Matthew, 2026-10-13) play when the
    app starts (`startup_checks`) and once a quit is certain (`_closing_sound`, after any
    Quit Anyway question); they follow the set, volume and Choose Sounds like the rest. On
    Windows the closing sound holds the quit up to 2 s so it isn't cut off; on the Mac
@@ -442,6 +450,27 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **Unreleased, second round** (2026-10-14): a review of the tour, accounts, the player and
+  audio description. Fixed: **an unreadable browser sign-in no longer fails downloads**: the
+  download goes once more without it and says so in its note (`Manager._without_signin`,
+  `words.cookie_store_unreadable`); Retry by hand brings the sign-in back. That covers Chrome
+  or Edge left open on Windows, Safari without Full Disk Access, and a denied Keychain prompt,
+  whatever the tour or Settings chose. Sign-in explanations: the Mac Keychain case says what
+  the prompt says ("security" asking for "<browser> Safe Storage", `accounts.keychain_name`),
+  and "permission denied" only means the sign-in when the error is about cookies. Close,
+  Escape and the close box in the tour keep the page's choice; Return on a step's text goes
+  on; the permission step is skipped when nothing needs allowing; running the tour again with
+  a sign-in set no longer says "No accounts". Open It in the Browser opens the chosen profile.
+  The player: skipping during a description carries on playing; descriptions pick up from a
+  resumed position; the sleep timer waits through a pause, ends when the player closes or a
+  new queue starts, and refuses "end of this item" on live radio; a file that never starts
+  is reported after 60 s. Audio description: a downloaded file can be described from the
+  player (its link is kept as `page`); a failed lookup says why; Make needs ffmpeg as well
+  as Claude and says which is missing; a signed-out Claude says so; stretches Claude didn't
+  answer are named in the finished note. Windows wording says Enter. **Not yet tried by a
+  person:** Return on the tour's step text with NVDA and VoiceOver, and whether reading a
+  description on Windows stops early (`speech.Reader.speaking()` relies on Prism's backend
+  having `.speaking`).
 - **Unreleased, after 3.0.1** (2026-10-13): Settings in sections, help tags everywhere,
   opening and closing sounds, and a review from other users' points of view. Fixed from it:
   a failed search no longer reads "Nothing found" or ends the paging (`SearchPage.error`);

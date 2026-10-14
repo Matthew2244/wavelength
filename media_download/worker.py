@@ -447,25 +447,32 @@ def do_find_description(yt_dlp, task):
     versions, and whether one can be made here."""
     from .options import tool_flags
     from . import describe
+    from . import engine
     logger = Logger()
     info = None
-    try:
-        signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
-        ydl = _make_ydl(yt_dlp, ["--no-playlist"] + signin + tool_flags(), logger)
-        with ydl:
-            info = ydl.extract_info(task["url"], download=False)
-    except Exception as exc:  # noqa: BLE001
-        logger.error(str(exc))
+    if task.get("url"):  # a downloaded file with no link has nothing to look up, but can still be made
+        try:
+            signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
+            ydl = _make_ydl(yt_dlp, ["--no-playlist"] + signin + tool_flags(), logger)
+            with ydl:
+                info = ydl.extract_info(task["url"], download=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(str(exc))
     title = (info or {}).get("title") or task.get("title") or ""
     track = describe.descriptive_track(info or {})
+    local_video = os.path.splitext(task.get("path") or "")[1].lower() in (".mp4", ".m4v", ".mov", ".mkv", ".webm")
+    needs = [] if describe.claude_path() else ["the Claude command-line tool (claude.com/code)"]
+    if not engine.find_tool("ffmpeg"):
+        needs.append("ffmpeg (Help, Get Helper Tools)")
     emit("about", title=title, duration=(info or {}).get("duration") or 0,
          track=str(track.get("format_id")) if track else "",
          track_words=(track.get("format_note") or "described track") if track else "",
-         has_video=any((f.get("vcodec") or "none") != "none" for f in (info or {}).get("formats") or []),
-         can_make=bool(describe.claude_path()))
+         has_video=local_video or any((f.get("vcodec") or "none") != "none"
+                                      for f in (info or {}).get("formats") or []),
+         can_make=not needs, needs=" and ".join(needs), looked_up=info is not None or not task.get("url"))
     found, searched = _described_versions(yt_dlp, title, 1, describe.VERSIONS_PAGE, logger) if title else ([], 0)
     emit("candidates", items=found, searched=searched)
-    emit("end", ok=info is not None)
+    emit("end", ok=info is not None or not task.get("url"))
 
 
 def _described_versions(yt_dlp, title, start, count, logger):
@@ -567,7 +574,13 @@ def do_describe(yt_dlp, task):
             emit("stage", text="Describing, %d of %d moments" % (min(done + describe.BATCH, total), total)
                  if done < total else "Saving the description")
             emit("progress", done=done, total=total, speed=None, eta=None, part=1, parts=1)
-        rows = describe.describe_frames(frames, os.path.join(work, "frames"), title, claude, progress)
+        gaps = []
+        try:
+            rows = describe.describe_frames(frames, os.path.join(work, "frames"), title, claude, progress, gaps)
+        except describe.ClaudeSignedOut:
+            emit("log", text="ERROR: CLAUDESIGNEDOUT")
+            emit("end", ok=False)
+            return
         if not rows:
             emit("log", text="ERROR: Claude didn't return any description")
             emit("end", ok=False)
@@ -582,7 +595,7 @@ def do_describe(yt_dlp, task):
             stem = None
         for path in describe.write_outputs(rows, folder, title, stem):
             emit("file", path=path)
-        emit("described", url=spec["url"], count=len(rows))
+        emit("described", url=spec["url"], count=len(rows), gaps=gaps)
         emit("end", ok=True)
     except Exception as exc:  # noqa: BLE001
         emit("log", text="ERROR: %s" % exc)

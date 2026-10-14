@@ -651,3 +651,34 @@ def test_opening_and_closing_sounds_follow_settings(frame, monkeypatch):
     for theme, _ in system.THEMES:
         if theme != "system":
             assert system.sound_file("opening", theme).endswith(os.path.join(theme, "opening" + system._ext()))
+
+
+def test_guide_close_keeps_the_page_and_finish_rings(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    from media_download import system
+    rung = []
+    monkeypatch.setattr(system, "cue", lambda k: rung.append(k))
+    cfg = dict(frame.cfg)
+    g = gui.dialogs.Guide(frame, cfg, frame, "welcome")
+    monkeypatch.setattr(g, "EndModal", lambda code: None)
+    while g.order[g.at] != "format":
+        g.go(+1)
+    g.format.SetSelection([k for k, _ in gui.words.FORMAT_LABELS].index("mp3"))
+    g._close_keeping()  # Close, Escape or the close box, straight from the page
+    assert cfg["format"] == "mp3" and rung == []
+    g.finish()
+    assert rung == ["tour_done"]
+    g.Destroy()
+
+
+def test_describe_lookup_failure_says_why(frame, monkeypatch):
+    from media_download import dialogs
+    monkeypatch.setattr(dialogs.threading, "Thread", lambda target, daemon: type("T", (), {"start": lambda s: None})())
+    dlg = dialogs.DescribeDialog(frame, "https://x/v", "Clip", lambda u: {}, {})
+    dlg._found({"about": {"title": "Clip", "has_video": False, "can_make": True, "looked_up": False},
+                "error": "That isn't available."})
+    assert dlg.status.GetLabel() == "Couldn't look up Clip. That isn't available."
+    dlg._found({"about": {"title": "Clip", "has_video": True, "can_make": False, "looked_up": True,
+                          "needs": "ffmpeg (Help, Get Helper Tools)"}})
+    assert any("ffmpeg" in o["words"] for o in dlg.options)
+    dlg.Destroy()

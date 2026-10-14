@@ -68,6 +68,7 @@ class Job:
     not_before: float = 0.0      # waiting to try again: not before this time
     wait_reason: str = ""
     note: str = ""               # something worth knowing about a finished download
+    cookie_fallback: str = ""    # the browser whose sign-in couldn't be read; this run goes without it
     tmp: str = ""
     run: int = 0
     added: float = 0.0

@@ -675,3 +675,26 @@ def test_an_unwritable_folder_is_explained_and_never_waits_on_an_engine_update()
                 "ERROR: [Errno 30] Read-only file system: '/Volumes/Card/x'"):
         assert not words.worth_updating_for(err)
         assert "download folder" in words.explain_failure(err)
+
+
+def test_an_unreadable_sign_in_is_skipped_once_and_said(fake, monkeypatch, tmp_path):
+    m, _ = fake
+    monkeypatch.setenv("FAKE_STATE", str(tmp_path))
+    j = m.add(Job(url="https://ex.com/lockedcookies", dest="/tmp", cookies="chrome"))
+    assert wait(lambda: j.state == "done")
+    assert j.cookies == "" and j.cookie_fallback == "chrome"
+    assert "still open" in j.note and j.note.endswith("It came without the sign-in.")
+    m.retry(j)  # by hand: the sign-in comes back, in case Chrome is closed now
+    assert j.cookies == "chrome" and not j.note
+    assert wait(lambda: j.state == "done")
+
+
+def test_unreadable_sign_in_is_told_apart_from_other_trouble():
+    assert words.cookie_store_unreadable("ERROR: Could not copy Chrome cookie database.")
+    assert words.cookie_store_unreadable("PermissionError: [Errno 1] Operation not permitted: "
+                                         "'/Users/x/Library/Containers/com.apple.Safari/Data/Library/Cookies/"
+                                         "Cookies.binarycookies'")
+    assert not words.cookie_store_unreadable("ERROR: [Errno 13] Permission denied: '/Volumes/Music/Song.m4a.part'")
+    assert not words.cookie_store_unreadable("ERROR: [youtube] abc: Private video")
+    from media_download import accounts
+    assert accounts.explain_signin("ERROR: [Errno 13] Permission denied: '/Volumes/Music/x.part'", "firefox") is None

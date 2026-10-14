@@ -324,10 +324,24 @@ def worth_updating_for(text: str) -> bool:
     hopeless = ("private", "unavailable", "removed", "members-only", "join this channel",
                 "does not exist", "no space left", "not a valid url", "unsupported url",
                 "geo", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture",
+                "claudesignedout",
                 # the download folder, not the engine: an unplugged drive fails the same on every version
                 "permission denied", "no such file or directory", "read-only file system",
                 "input/output error", "winerror 3")
     return not any(word in lowered for word in hopeless)
+
+
+def cookie_store_unreadable(text: str) -> bool:
+    """The browser's sign-in couldn't be read at all (as opposed to read and refused by the site):
+    the browser still open on Windows, its sign-in locked, Safari without Full Disk Access, the
+    Keychain prompt denied, or the browser never used on this computer."""
+    low = (text or "").lower()
+    near_cookies = any(w in low for w in ("cookie", "binarycookies", "com.apple.safari", "keychain"))
+    return ("could not copy chrome cookie database" in low or "database is locked" in low
+            or "could not be decrypted" in low or ("unlock" in low and "decrypt" in low)
+            or ("could not find" in low and "cookies database" in low)
+            or (near_cookies and any(w in low for w in ("operation not permitted", "permission denied",
+                                                        "failed to decrypt", "cannot extract", "keychain"))))
 
 
 def explain_failure(text: str, cookies_used: bool = False, site: str | None = None, browser: str = "") -> str:
@@ -373,6 +387,8 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
         return "Making audio description needs %s, which isn't on this computer." % what
     if "no picture to describe" in lowered:
         return "There's no picture to describe: it's audio only."
+    if "claudesignedout" in lowered:
+        return ("Claude isn't signed in on this computer. Open Terminal, type claude, sign in, then Retry.")
     if "claude didn't return" in lowered:
         return "Claude didn't send back any description. Try again in a while."
     if "badoptions:" in lowered or "no such option" in lowered:

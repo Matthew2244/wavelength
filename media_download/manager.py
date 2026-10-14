@@ -224,6 +224,8 @@ class Manager:
                 return
             job.reset_progress()
             job.net_retries = 0
+            if job.cookie_fallback:  # asked for by hand: the sign-in may be readable now
+                job.cookies, job.cookie_fallback, job.note = job.cookie_fallback, "", ""
             self.site_pause.pop(job.site, None)  # asked for by hand: don't keep making them wait
             job.state = "waiting" if job.probed else "looking"
             job.finished = 0.0
@@ -355,6 +357,17 @@ class Manager:
                       "choose another folder, then Retry." % (words.size(need), words.size(free)))
         return True
 
+    def _without_signin(self, job: Job, text: str) -> bool:
+        """The browser's sign-in couldn't be read at all (Chrome open on Windows, Safari without Full
+        Disk Access, the Keychain prompt denied): try once more without it, since most things need
+        none, and say so. True if it will (lock held). Retry by hand brings the sign-in back."""
+        if not job.cookies or job.cookie_fallback or not words.cookie_store_unreadable(text):
+            return False
+        job.cookie_fallback = job.cookies
+        job.note = "%s It came without the sign-in." % words.explain_failure(text, True, job.site, job.cookies)
+        job.cookies = ""
+        return True
+
     def _try_later(self, job: Job, text: str) -> bool:
         """Network trouble or a "slow down": wait and try again by itself. True if it will (lock held).
 
@@ -381,6 +394,15 @@ class Manager:
             job.wait_reason = "Lost the connection, or the site had a problem. Trying again by itself."
             return True
         return False
+
+    @staticmethod
+    def _with_signin_note(job: Job, reason: str) -> str:
+        """A failure after going without an unreadable sign-in names both problems."""
+        if job.cookie_fallback and job.note:
+            first = job.note.rsplit(" It came without the sign-in.", 1)[0]
+            job.note = ""
+            return "%s Without it: %s" % (first, reason[:1].lower() + reason[1:])
+        return reason
 
     def _check_all_done(self):
         with self.lock:
@@ -466,13 +488,15 @@ class Manager:
                     elif ok:
                         job.state = "waiting"
                         job.probed = True
+                    elif self._without_signin(job, "\n".join(log)):
+                        job.state = "looking"  # straight away, without the sign-in
                     elif self._try_later(job, "\n".join(log)):
                         job.state = "looking"  # look it up again once the wait is over
                     else:
                         job.state = "failed"
                         job.log_tail = log[-12:]
-                        job.reason = (getattr(job, "spawn_error", "") or
-                                      words.explain_failure("\n".join(log), bool(job.cookies), job.site, job.cookies))
+                        job.reason = (getattr(job, "spawn_error", "") or self._with_signin_note(job,
+                                      words.explain_failure("\n".join(log), bool(job.cookies), job.site, job.cookies)))
                         job.spawn_error = ""
                         job.finished = time.time()
                         self.batch_counts["failed"] += 1
@@ -518,6 +542,12 @@ class Manager:
                         if srt:
                             from . import describe
                             describe.remember(ev.get("url") or job.url, srt)
+                        gaps = ev.get("gaps") or []
+                        if gaps:  # said, so a silent stretch isn't taken for nothing happening
+                            job.note = ("Claude didn't answer for %s, so %s no description: %s." % (
+                                words.n(len(gaps), "stretch", "stretches"), "that part has" if len(gaps) == 1 else "those have",
+                                ", ".join("%s to %s" % (words.clock_words(a), words.clock_words(b))
+                                          for a, b in gaps[:5]) + (" and more" if len(gaps) > 5 else "")))
                     elif e == "already":
                         already = True
                     elif e == "log":
@@ -558,7 +588,7 @@ class Manager:
                             except OSError:
                                 pass
                         self.batch_counts["done"] += 1
-                    elif self._try_later(job, "\n".join(log)):
+                    elif self._without_signin(job, "\n".join(log)) or self._try_later(job, "\n".join(log)):
                         job.state = "waiting"
                         job.stage = ""
                         job.files = []
@@ -574,8 +604,8 @@ class Manager:
                             retry_engine = True
                         else:
                             job.state = "failed"
-                            job.reason = (getattr(job, "spawn_error", "") or
-                                          words.explain_failure(text, bool(job.cookies), job.site, job.cookies))
+                            job.reason = (getattr(job, "spawn_error", "") or self._with_signin_note(job,
+                                          words.explain_failure(text, bool(job.cookies), job.site, job.cookies)))
                             job.spawn_error = ""
                             self.batch_counts["failed"] += 1
                     self.dirty = True

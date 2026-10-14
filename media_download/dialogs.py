@@ -26,6 +26,7 @@ def browser_choices(current: str = "", none_words: str = "Don't use a browser's 
     return out
 
 CMD = "Command" if sys.platform == "darwin" else "Control"
+ENTER = "Return" if sys.platform == "darwin" else "Enter"  # what the key is called on each system
 
 
 class WrapText(wx.StaticText):
@@ -347,7 +348,7 @@ class Settings(wx.Dialog):
         p, s = page()
         self.clip = check(p, s, "Offer a link I've copied when I switch to the app", cfg.get("app_clipboard", True),
                           "When you come back to Wavelength with a link on the clipboard that it can download, "
-                          "the link is put in the Link field and read out, ready for Return. Each link is "
+                          "the link is put in the Link field and read out, ready for " + ENTER + ". Each link is "
                           "offered once.")
         self.say_vals = [0, 10, 30, 60]
         self.say = choice(p, s, "Speak progress while downloading:",
@@ -748,7 +749,7 @@ class SoundPicker(wx.Dialog):
         self.map = dict(sound_map)
         self.theme, self.volume = theme, volume
         s = wx.BoxSizer(wx.VERTICAL)
-        s.Add(WrapText(self, label="Choose an action, then its sound. Play, or Return in either list, plays "
+        s.Add(WrapText(self, label="Choose an action, then its sound. Play, or " + ENTER + " in either list, plays "
                                         "the action's sound; nothing plays by itself."), 0, wx.ALL, 8)
         cols = wx.BoxSizer(wx.HORIZONTAL)
         left = wx.BoxSizer(wx.VERTICAL)
@@ -756,7 +757,7 @@ class SoundPicker(wx.Dialog):
         self.actions = wx.ListBox(self, style=wx.LB_SINGLE)
         mac_accessibility_label(self.actions, "Actions")
         self.actions.SetToolTip("Everything the app makes a sound for, with the sound each one uses now. "
-                                "Return plays it.")
+                                "" + ENTER + " plays it.")
         left.Add(alab, 0, wx.BOTTOM, 4)
         left.Add(self.actions, 1, wx.EXPAND)
         right = wx.BoxSizer(wx.VERTICAL)
@@ -764,7 +765,7 @@ class SoundPicker(wx.Dialog):
         self.sounds = wx.ListBox(self, style=wx.LB_SINGLE)
         mac_accessibility_label(self.sounds, "Sound for this action")
         self.sounds.SetToolTip("Moving here chooses the sound for the selected action: the set's own, no sound, "
-                               "one you imported, or any sound from any set. Return plays it.")
+                               "one you imported, or any sound from any set. " + ENTER + " plays it.")
         right.Add(slab, 0, wx.BOTTOM, 4)
         right.Add(self.sounds, 1, wx.EXPAND)
         cols.Add(left, 1, wx.EXPAND | wx.ALL, 6)
@@ -772,7 +773,7 @@ class SoundPicker(wx.Dialog):
         s.Add(cols, 1, wx.EXPAND)
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(self, label="Play")
-        self.play_btn.SetToolTip("Plays the selected action's sound (Return in either list).")
+        self.play_btn.SetToolTip("Plays the selected action's sound (" + ENTER + " in either list).")
         imp = wx.Button(self, label="Import a Sound File...")
         imp.SetToolTip("Choose an audio file of your own, like MP3, WAV, AIFF, M4A, FLAC or Ogg. Its first 30 "
                        "seconds are copied into the app (your file isn't touched) and given to the selected action.")
@@ -1130,7 +1131,7 @@ class Guide(wx.Dialog):
         self.back = wx.Button(self, label="Back")
         self.back.SetToolTip("Goes back to the step before.")
         self.next = wx.Button(self, label="Next")
-        self.next.SetToolTip("Goes on to the next step, keeping what this one set (Return). On the last step "
+        self.next.SetToolTip("Goes on to the next step, keeping what this one set (" + ENTER + "). On the last step "
                              "it's Finish, which closes the tour.")
         self.close = wx.Button(self, wx.ID_CANCEL, "Close")
         self.close.SetToolTip("Leaves now (Escape), keeping what's already chosen. Help, Welcome Tour, or File, "
@@ -1145,6 +1146,9 @@ class Guide(wx.Dialog):
         self.next.SetDefault()
         self.back.Bind(wx.EVT_BUTTON, lambda e: self.go(-1))
         self.next.Bind(wx.EVT_BUTTON, lambda e: self.go(+1))
+        # Close, Escape and the close box keep this page's choice too, as Close's tip promises.
+        self.close.Bind(wx.EVT_BUTTON, self._close_keeping)
+        self.Bind(wx.EVT_CLOSE, self._close_keeping)
         textsize.apply(self)
         self.at = 0
         self.show(0)
@@ -1155,7 +1159,16 @@ class Guide(wx.Dialog):
                         size=(-1, 170))
         mac_accessibility_label(t, "Step")
         windows_name(t, "Step")
-        t.SetToolTip("What this step is about, to read. Tab moves on to its choices.")
+        t.SetToolTip("What this step is about, to read. Tab moves on to its choices; %s goes to the next step."
+                     % ENTER)
+
+        def on_key(event):
+            # A multi-line box keeps Return for itself; read-only, it has no use for it: go on.
+            if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER) and not event.HasAnyModifiers():
+                self.go(+1)
+            else:
+                event.Skip()
+        t.Bind(wx.EVT_KEY_DOWN, on_key)
         self.texts[key] = t
         sizer.Add(t, 1, wx.EXPAND | wx.ALL, 6)
         return t
@@ -1250,8 +1263,8 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "browser", s, "Which browser are you signed in with?\n\nThese are the browsers on this "
                    "computer, your default first. If a browser has more than one profile, each is listed: choose the "
-                   "one you're signed in to your services with. A browser you don't use yet is fine too: you'll "
-                   "sign in with it in a moment.")
+                   "one you're signed in to your services with. A browser shows here once it has been opened at "
+                   "least once; you'll sign in with it in a moment.")
         lab = wx.StaticText(p, label="Browsers on this computer:")
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 6)
         self.found = self.acc.installed()
@@ -1326,8 +1339,8 @@ class Guide(wx.Dialog):
     def _visible(self, key):
         if key in ("browser", "permission", "services") and self.skip_accounts:
             return False
-        if key == "permission" and not self.acc.permission_steps(self._browser()) and not self._browser():
-            return False
+        if key == "permission" and (not self._browser() or not self.acc.permission_steps(self._browser())):
+            return False  # nothing to allow: straight on
         return True
 
     def go(self, step):
@@ -1390,9 +1403,9 @@ class Guide(wx.Dialog):
             self.texts[key].SetValue(
                 "All set.\n\n" + ("Wavelength uses %s's sign-in. File, Your Accounts (%s-U) opens your liked "
                                    "videos, Watch Later, subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD)
-                                   if b and not self.skip_accounts else
+                                   if b else
                                    "No accounts for now. File, Set Up Accounts brings this back.\n\n") +
-                "Paste a link and press Return to download it, or type words to search. Help, Keyboard Shortcuts "
+                "Paste a link and press " + ENTER + " to download it, or type words to search. Help, Keyboard Shortcuts "
                 "lists every key. Press Finish to start.")
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
@@ -1453,6 +1466,10 @@ class Guide(wx.Dialog):
                 from .system import cue
                 cue("signed_in")
             self._say(self.svc_status, said)
+
+    def _close_keeping(self, _=None):
+        self._leave(self.order[self.at])
+        self.EndModal(wx.ID_CANCEL)
 
     def finish(self):
         """Finish, the first time or any time after: a bell to say it's done."""
@@ -1635,7 +1652,7 @@ class Search(wx.Frame):
         lab = wx.StaticText(p, label="Search for:")
         self.query = wx.TextCtrl(p, value=query, style=wx.TE_PROCESS_ENTER)
         mac_accessibility_label(self.query, "Search for")
-        self.query.SetToolTip("The words to look for. Return searches.")
+        self.query.SetToolTip("The words to look for. " + ENTER + " searches.")
         top.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.query, 1, wx.RIGHT, 6)
         on_lab = wx.StaticText(p, label="Search on:")
@@ -1692,7 +1709,7 @@ class Search(wx.Frame):
         brow.Add(self.more_btn, 0, wx.ALL, 6)
         self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.more())
         self.ok = wx.Button(p, wx.ID_OK, "Download Checked")
-        self.ok.SetToolTip("Adds the checked results to the downloads list and closes Search (%s-Return)." % CMD)
+        self.ok.SetToolTip("Adds the checked results to the downloads list and closes Search (%s-%s)." % (CMD, ENTER))
         brow.Add(self.ok, 0, wx.ALL, 6)
         self.ok.Disable()
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
@@ -2077,14 +2094,15 @@ class DescribeDialog(wx.Dialog):
         self.next_start = describe.VERSIONS_PAGE + 1
         self.more_left = bool(res.get("searched")) and bool(self.run_more)
         self.looking = False
-        if about.get("has_video", True):
+        if about.get("has_video", bool(about)):
             if about.get("can_make"):
                 opts.append({"kind": "make", "words": "Make a description: Claude reads the picture. Machine-made "
                                                       "and unchecked. About a minute for a short video; a long film "
                                                       "takes much longer, since every moment is described."})
             else:
-                opts.append({"kind": "none", "words": "Making one needs the Claude command-line tool "
-                                                      "(claude.com/code), which isn't on this computer."})
+                opts.append({"kind": "none", "words": "Making one needs %s, which isn't on this computer."
+                                                      % (about.get("needs") or "the Claude command-line tool "
+                                                                                 "(claude.com/code)")})
         self.options = opts
         self.list.Set([o["words"] for o in opts])
         found = sum(1 for o in opts if o["kind"] in ("track", "version"))
@@ -2096,6 +2114,8 @@ class DescribeDialog(wx.Dialog):
                    "searches deeper, or you can make a description." % (self.title, describe.VERSIONS_PAGE))
         else:
             msg = "No audio description found for %s." % self.title
+        if res.get("error"):  # the lookup itself failed: say why, never just "none found"
+            msg = "Couldn't look up %s. %s" % (self.title or "this", res["error"])
         self.status.SetLabel(msg)
         self.status.Wrap(max(300, self.GetClientSize().width - 40))
         from .system import announce

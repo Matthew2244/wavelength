@@ -1394,7 +1394,7 @@ class MainFrame(wx.Frame):
             return
         item = self._file_item(job)
         if item:
-            item.pop("url", None)
+            item["page"] = item.pop("url", None)  # a file plays as a file; its link stays for description
             self.open_player([item])
         else:
             self.play_links([{"url": job.url, "title": job.title, "uploader": job.uploader}])
@@ -1406,7 +1406,7 @@ class MainFrame(wx.Frame):
         for j in jobs:
             it = j and j.state in ("done", "skipped") and self._file_item(j)
             if it:
-                it.pop("url", None)
+                it["page"] = it.pop("url", None)
                 items.append(it)
         if not items:
             self.tell("Nothing finished to play yet.")
@@ -1436,7 +1436,7 @@ class MainFrame(wx.Frame):
 
     def describe_dialog(self, url, title, path):
         def run_find(u):
-            res = {}
+            res = {"log": []}
 
             def on(ev):
                 if ev.get("ev") == "about":
@@ -1444,8 +1444,16 @@ class MainFrame(wx.Frame):
                 elif ev.get("ev") == "candidates":
                     res["candidates"] = ev.get("items") or []
                     res["searched"] = ev.get("searched") or 0
-            run_task({"task": "find_description", "url": u, "title": title, "cookies": accounts.signin(self.cfg)},
+                elif ev.get("ev") == "log":
+                    res["log"].append(ev.get("text") or "")
+            cookies = accounts.signin(self.cfg)
+            run_task({"task": "find_description", "url": u, "title": title, "cookies": cookies, "path": path or ""},
                      on, timeout=600)
+            if "about" not in res:
+                res["error"] = "The lookup didn't finish. Check the connection, then try again."
+            elif not res["about"].get("looked_up"):
+                res["error"] = words.explain_failure("\n".join(res["log"]), bool(cookies), words.site_name(u or ""),
+                                                     cookies)
             return res
 
         def run_more(t, start):

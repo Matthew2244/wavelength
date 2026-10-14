@@ -127,6 +127,7 @@ class PlayerFrame(wx.Frame):
         self.positions = Positions()
         self.last_saved = 0.0
         self.sleep_at = 0.0
+        self.sleep_left = 0.0  # a sleep timer's time left while paused by hand: it waits with you
         self.sleep_end_of_item = False
         self.fading = False
         self.base_volume = float(self.cfg.get("app_volume", 1.0))
@@ -221,8 +222,9 @@ class PlayerFrame(wx.Frame):
         s.Add(qlab, 0, wx.LEFT | wx.RIGHT, 12)
         self.qlist = wx.ListBox(p, style=wx.LB_SINGLE, size=(-1, 110))
         mac_accessibility_label(self.qlist, "Up next")
-        self.qlist.SetToolTip("Everything queued, in order. Return plays the selected one; %s-K lists what else "
-                              "you can do with it." % ("Command" if sys.platform == "darwin" else "Control"))
+        self.qlist.SetToolTip("Everything queued, in order. %s plays the selected one; %s-K lists what else "
+                              "you can do with it." % (("Return", "Command") if sys.platform == "darwin"
+                                                       else ("Enter", "Control")))
         s.Add(self.qlist, 0, wx.EXPAND | wx.ALL, 12)
         p.SetSizer(s)
         self.CreateStatusBar()
@@ -339,6 +341,7 @@ class PlayerFrame(wx.Frame):
 
     def set_queue(self, items: list[dict], start: int = 0):
         self.save_position()
+        self._clear_sleep()  # a timer set for the last listen doesn't carry over to a new one
         self.queue = items
         self._fill_queue()
         self.play_index(start)
@@ -519,6 +522,7 @@ class PlayerFrame(wx.Frame):
         resume = self.positions.get(key) if self.cfg.get("app_resume", True) and not live else 0
         if resume:
             self.media.Seek(int(resume * 1000))
+            self._ad_reseek(resume)  # descriptions from here, not from the start
             self.say("Picking up at %s." % words.duration(resume))
         elif not self.IsActive():
             self.say("Playing: %s." % (self.item.get("title") or ""))
@@ -550,8 +554,13 @@ class PlayerFrame(wx.Frame):
         self.byline.SetLabel(". ".join(bits))
 
     def _ad_reseek(self, now: float):
-        self._end_ad(resume=False)
+        """A skip or a jump: stop any reading, carry on playing if a reading had paused it, and pick
+        up the descriptions from the new place (not by stepping through every earlier one)."""
+        was_paused_for_ad = self.ad_paused
+        self._end_ad(resume=True)
         self.ad_next = next((i for i, c in enumerate(self.ad_cues) if c[0] >= now - 0.2), len(self.ad_cues))
+        if was_paused_for_ad:
+            self._update_buttons()
 
     def _ad_tick(self, now: float):
         if self.ad_active:
@@ -673,10 +682,17 @@ class PlayerFrame(wx.Frame):
         if self.playing():
             self.media.Pause()
             self.save_position()
+            if self.sleep_at:  # the timer counts listening, not the time spent paused
+                self.sleep_left, self.sleep_at = max(10.0, self.sleep_at - time.time()), 0.0
+                if self.fading:
+                    self.fading = False
+                    self.media.SetVolume(self.out_volume())
             self.say("Paused at %s." % words.clock_words(self.media.Tell() / 1000))
         else:
             self.media.Play()
             self.media.SetPlaybackRate(self.speed)  # some systems reset the rate on play
+            if self.sleep_left:
+                self.sleep_at, self.sleep_left = time.time() + self.sleep_left, 0.0
             self.say("Playing.")
         self._update_buttons()
 
@@ -781,7 +797,15 @@ class PlayerFrame(wx.Frame):
         self.say("Captions %s%s." % ("on" if self.captions_on else "off",
                                      "" if self.cues or not self.captions_on else ", but this one has none"))
 
+    def _clear_sleep(self):
+        self.sleep_at = self.sleep_left = 0.0
+        self.sleep_end_of_item = False
+
     def set_sleep(self, minutes: int):
+        if minutes == -1 and self.item and (self.item.get("live") or self.length <= 0):
+            self.say("Live radio has no end to stop at. Choose a time instead.")
+            return
+        self.sleep_left = 0.0
         self.sleep_end_of_item = minutes == -1
         self.sleep_at = time.time() + minutes * 60 if minutes > 0 else 0.0
         if minutes == 0:
@@ -812,10 +836,12 @@ class PlayerFrame(wx.Frame):
             self.status("Still waiting for the stream; trying a fresh link.")
             self.play_index(self.index)
             return
-        if self.item and not self.item.get("path") and not self.loaded and self.load_started and \
-                time.time() - self.load_started > 60:
+        if self.item and not self.loaded and self.load_started and time.time() - self.load_started > 60:
             self.load_started = 0
-            self.fail("That stream didn't start. It may only play after downloading.")
+            if self.item.get("path"):  # Windows' player can't open some files (.opus, .webm, .mkv)
+                self.fail("This file can't be played here. Show the File, then open it in another app.")
+            else:
+                self.fail("That stream didn't start. It may only play after downloading.")
         if not self.loaded or not self.IsShown():
             return
         now = self.media.Tell() / 1000.0
@@ -880,7 +906,8 @@ class PlayerFrame(wx.Frame):
         return [
             menus.item("Play or Pause" if here else "Play This One", self.toggle if here else
                        (lambda: self.play_index(k)), True, "Space" if here else ""),
-            menus.item("Download This One", lambda: self.main.add_links([url], "player"), url.startswith("http")),
+            menus.item("Download This One", lambda: self.main.add_links([url], "player"),
+                       url.startswith("http") and not it.get("path")),
             menus.item("Show the File", lambda: reveal([it["path"]]), bool(it.get("path"))),
             menus.SEP,
             menus.item("Open the Web Page", lambda: self.main.open_page(url), url.startswith("http")),
@@ -902,8 +929,8 @@ class PlayerFrame(wx.Frame):
     def download_this(self):
         if not self.item:
             return
-        url = self.item.get("url") or self.item.get("page")
-        if not url:
+        url = self.item.get("url")
+        if not url or self.item.get("path"):
             self.say("This is already a downloaded file.")
             return
         self.main.add_links([url], "player")
@@ -1019,6 +1046,8 @@ class PlayerFrame(wx.Frame):
         self.loaded = False
         self.load_started = 0.0
         self.item = None
+        self.queue, self.index = [], -1  # closed is closed: nothing left to start up hidden
+        self._clear_sleep()
         self.Hide()
         if event.CanVeto():
             event.Veto()

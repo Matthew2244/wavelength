@@ -78,10 +78,17 @@ def explain_signin(log: str, browser: str, service: str = "") -> str | None:
         return ("%s is still open, so its sign-in can't be read. Close every %s window (and check it isn't "
                 "running near the clock), then try again." % (name, name))
     if "unlock" in low and "decrypt" in low or "could not be decrypted" in low:
+        if sys.platform == "darwin":
+            # On the Mac this is the Keychain prompt answered Deny (it names "security", not Wavelength).
+            return ("%s's sign-in is locked in the Keychain. Try again, and when macOS asks whether "
+                    "\"security\" may use \"%s Safe Storage\", type your Mac password and choose Always Allow."
+                    % (name, keychain_name(browser)))
         return ("%s keeps its sign-in locked so other apps can't read it. On Windows, newer versions of Chrome, "
                 "Edge and Brave do this; Firefox doesn't. Sign in to your services in Firefox and choose it instead."
                 % name)
-    if "operation not permitted" in low or "permission denied" in low or "full disk access" in low:
+    about_cookies = any(w in low for w in ("cookie", "binarycookies", "com.apple.safari", "full disk access"))
+    if about_cookies and ("operation not permitted" in low or "permission denied" in low
+                          or "full disk access" in low):
         return ("Wavelength isn't allowed to read %s's sign-in. On a Mac, add Wavelength under System "
                 "Settings, Privacy & Security, Full Disk Access, then try again." % name)
     if "could not find" in low and "cookies database" in low:
@@ -254,22 +261,32 @@ def default_browser() -> str:
 def open_in(spec: str, url: str) -> None:
     """Open a page in that browser specifically (so the sign-in lands where it will be read)."""
     import webbrowser
-    key = (spec or "").split(":", 1)[0]
+    key, _, prof = (spec or "").partition(":")
     entry = next((b for b in BROWSERS if b[0] == key), None)
+    # The chosen profile, not whichever was used last: signing in to the wrong one is how a
+    # sign-in check fails for no visible reason.
+    extra = []
+    if prof and key == "firefox":
+        extra = ["-profile", prof]
+    elif prof and key not in ("safari", "opera"):
+        extra = ["--profile-directory=%s" % prof]
     try:
         if entry and sys.platform == "darwin":
-            subprocess.Popen(["open", "-a", entry[2], url])
+            if extra:  # -n: a running browser only takes these from a fresh launch
+                subprocess.Popen(["open", "-na", entry[2], "--args"] + extra + [url])
+            else:
+                subprocess.Popen(["open", "-a", entry[2], url])
             return
         if entry and sys.platform == "win32":
             exe = _windows_exe(key)
             if exe:
-                subprocess.Popen([exe, url])
+                subprocess.Popen([exe] + extra + [url])
                 return
         if entry and entry[5]:
             import shutil
             for c in entry[5]:
                 if shutil.which(c):
-                    subprocess.Popen([c, url])
+                    subprocess.Popen([c] + extra + [url])
                     return
     except OSError:
         pass
@@ -295,6 +312,13 @@ def _windows_exe(key: str) -> str:
     return ""
 
 
+def keychain_name(spec: str) -> str:
+    """The name a Chromium browser's keychain item goes by: "<this> Safe Storage"."""
+    key = (spec or "").split(":", 1)[0]
+    return {"chrome": "Chrome", "edge": "Microsoft Edge", "brave": "Brave", "vivaldi": "Vivaldi",
+            "opera": "Opera", "chromium": "Chromium", "whale": "Whale"}.get(key, NAMES.get(key, key))
+
+
 def permission_steps(spec: str) -> list[str]:
     """What this system needs before Wavelength can read this browser's sign-in, step by
     step; empty when nothing is needed."""
@@ -309,9 +333,9 @@ def permission_steps(spec: str) -> list[str]:
                 "then come back here and press Check Again."]
     if sys.platform == "darwin" and key != "firefox":
         return ["%s locks its sign-in with a key in your keychain." % name,
-                "When you press Check Again, macOS asks whether Wavelength may use \"%s Safe Storage\". "
-                "Type your Mac's password if asked, then choose Always Allow, so it doesn't ask every time."
-                % ("Chrome" if key == "chrome" else "Microsoft Edge" if key == "edge" else name)]
+                "When you press Check Again, macOS asks whether \"security\" may use \"%s Safe Storage\". "
+                "That's the Mac's own keychain tool, reading it for Wavelength. Type your Mac's password, then "
+                "choose Always Allow, so it doesn't ask every time." % keychain_name(key)]
     if sys.platform == "win32" and key != "firefox":
         return ["On Windows, %s has to be closed completely while Wavelength reads its sign-in: close every "
                 "%s window, and check it isn't still running near the clock." % (name, name),

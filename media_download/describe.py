@@ -152,8 +152,22 @@ def sample_frames(video: str, folder: str, ffmpeg: str) -> list[tuple[str, float
     return kept  # every moment, however long the video: no cap (Matthew, 2026-10-13)
 
 
-def describe_frames(frames, folder, title, claude, progress=lambda done, total: None) -> list[dict]:
+class ClaudeSignedOut(Exception):
+    """Claude answered that it isn't signed in: every other batch would fail the same way."""
+
+
+def _signed_out(text: str) -> bool:
+    low = (text or "").lower()
+    return any(w in low for w in ("/login", "not logged in", "please log in", "invalid api key",
+                                  "authentication_error", "oauth token has expired", "credit balance is too low"))
+
+
+def describe_frames(frames, folder, title, claude, progress=lambda done, total: None,
+                    gaps: list | None = None) -> list[dict]:
+    """Describe the frames in batches. A batch that fails is skipped and its stretch of time goes
+    into `gaps` as (from, to) seconds, so the finished description can say where it's silent."""
     rows, carried = [], ""
+    gaps = gaps if gaps is not None else []
     for start in range(0, len(frames), BATCH):
         chunk = frames[start:start + BATCH]
         progress(start, len(frames))
@@ -167,14 +181,19 @@ def describe_frames(frames, folder, title, claude, progress=lambda done, total: 
                                  input=PROMPT % (title, listing), cwd=folder, capture_output=True,
                                  encoding="utf-8", errors="replace", timeout=900, **engine.hidden_window())
         except (OSError, subprocess.TimeoutExpired):
+            gaps.append((chunk[0][1], chunk[-1][1]))
             continue
+        if out.returncode != 0 and _signed_out((out.stdout or "") + (out.stderr or "")):
+            raise ClaudeSignedOut()
         body = re.sub(r"^```(?:json)?|```$", "", (out.stdout or "").strip(), flags=re.M).strip()
         m = re.search(r"\[.*\]", body, re.S)
         if out.returncode != 0 or not m:
+            gaps.append((chunk[0][1], chunk[-1][1]))
             continue
         try:
             got = json.loads(m.group(0))
         except ValueError:
+            gaps.append((chunk[0][1], chunk[-1][1]))
             continue
         for row, (_, when) in zip(got, chunk):
             text = str(row.get("text", "")).strip()

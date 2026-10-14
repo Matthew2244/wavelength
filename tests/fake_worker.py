@@ -36,6 +36,9 @@ elif task["task"] == "download":
         open(flaky, "w").close()  # fails the first time only
         emit("log", text="ERROR: Unable to download: <urlopen error [Errno 54] Connection reset by peer>")
         emit("end", ok=False)
+    elif "lockedcookies" in url and task["spec"].get("cookies"):
+        emit("log", text="ERROR: Could not copy Chrome cookie database. See  https://github.com/yt-dlp/yt-dlp/issues/7271")
+        emit("end", ok=False)
     elif "busy" in url and not os.path.exists(flaky):
         open(flaky, "w").close()
         emit("log", text="ERROR: [youtube] x: HTTP Error 429: Too Many Requests")
