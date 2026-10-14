@@ -206,6 +206,10 @@ puts every file the app writes (settings, list, engine, tools) inside one folder
 Use it for any test, so Matthew's real settings and list are never touched.
 
 Release: bump `media_download/__init__.py`, commit, tag `vX.Y.Z`, push the tag.
+**Check `git log -1` shows the release commit before tagging.** On 3.0.1 a `git add`
+naming ignored paths failed, the commit never happened, and the tag went up on the
+previous commit: CI built a release still numbered 3.0.0, which became "latest" with no
+appcast, so every update check 404'd until the release and tag were deleted and redone.
 CI (`.github/workflows/build.yml`) tests on three systems and attaches both
 zips to the release. Then run `tools/release_mac.py vX.Y.Z` on the Studio to
 replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
