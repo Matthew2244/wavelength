@@ -1060,7 +1060,8 @@ class MainFrame(wx.Frame):
             play(kind, theme, vol, smap)
             return
         wait = self.next_sound_at - now
-        self.next_sound_at = max(now, self.next_sound_at) + 1.4
+        # The opening and closing tunes run to about 1.7 s; the rest fit in 1.4.
+        self.next_sound_at = max(now, self.next_sound_at) + (1.8 if kind in ("opening", "closing") else 1.4)
         if wait > 0:
             wx.CallLater(int(wait * 1000), play, kind, theme, vol, smap)
         else:

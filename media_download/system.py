@@ -624,7 +624,7 @@ def _scaled_wav(path: str, volume: float) -> str:
 def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
     """Play what resolve() chose. A sound that can't play is never an error. `wait` is for the
     closing sound on Windows, where the sound dies with the app: it plays to the end first,
-    up to 1.5 s. afplay on the Mac runs in its own session and carries on after the app has gone."""
+    up to 2 s. afplay on the Mac runs in its own session and carries on after the app has gone."""
     if not what or volume <= 0:
         return
     try:
@@ -643,7 +643,7 @@ def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
                 if wait:
                     # The sound dies with the app: give it time to finish, but never more than
-                    # a second and a half, so a long sound of your own can't freeze the window.
+                    # two seconds, so a long sound of your own can't freeze the window.
                     import time
                     import wave
                     try:
@@ -651,7 +651,7 @@ def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
                             length = w.getnframes() / float(w.getframerate())
                     except Exception:  # noqa: BLE001
                         length = 0.8
-                    time.sleep(min(length, 1.5))
+                    time.sleep(min(length, 2.0))
             else:
                 winsound.MessageBeep(winsound.MB_OK)
     except Exception:  # noqa: BLE001

@@ -6,11 +6,12 @@ the Mac) and `<event>.wav` (16-bit, 44.1 kHz, played on Windows): `opening`,
 `no_more`, `copied`, `update`, `queue_end`, `closing`.
 
 `opening` and `closing` are made by `tools/make_open_close_sounds.py`. In the
-Rhodes, kalimba and pizzicato sets they're three notes of the set's own
-`item_done` note, moved by at most seven semitones and arranged into two
-short tunes: one that climbs for opening, a different one that falls and
-settles for closing. The soft set uses Kenney's `open_002` and `close_002`,
-set 4 dB below the rest of that set.
+Rhodes, kalimba and pizzicato sets they're built from the set's own recorded
+notes (for kalimba, two more of the same hark notes, kept in
+`tools/sound_sources/`), each moved by at most seven semitones and arranged
+into two short tunes written for that instrument: one that climbs for
+opening, a different one that falls and settles for closing. The soft set
+uses Kenney's `open_002` and `close_002`, set 4 dB below the rest of that set.
 
 Every file was trimmed the same way: 10 ms of silence, a 3 ms fade-in, a
 150 ms fade-out, a 40 ms silent tail, and the peak set to -1.5 dBFS.
