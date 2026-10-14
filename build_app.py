@@ -1,7 +1,7 @@
 """Build the app for the platform this runs on: python build_app.py
 
-Mac:     dist/Media Download.app, zipped to dist/Media-Download-mac.zip
-Windows: dist/Media Download/ (folder with the .exe), zipped to dist/Media-Download-windows.zip
+Mac:     dist/Wavelength.app, zipped to dist/Wavelength-mac.zip
+Windows: dist/Wavelength/ (folder with the .exe), zipped to dist/Wavelength-windows.zip
 
 The download engine (yt-dlp and its YouTube solver) is bundled so the app works
 the moment it opens; newer engines arrive later on their own (engine.py).
@@ -15,7 +15,7 @@ import tempfile
 from media_download import APP_NAME, __version__
 
 NAME = APP_NAME
-SLUG = "Media-Download"
+SLUG = "Wavelength"
 args = [
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
     "--collect-data", "certifi", "--collect-all", "yt_dlp_ejs",
@@ -106,7 +106,7 @@ else:
     # The installer: per-person, no administrator, Start menu, uninstall in Settings.
     iscc = shutil.which("ISCC") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
     if os.path.exists(iscc):
-        iss = os.path.join("..", "packaging", "windows", "MediaDownload.iss")
+        iss = os.path.join("..", "packaging", "windows", "Wavelength.iss")
         subprocess.run([iscc, "/Q", f"/DAppVersion={__version__}", f"/DSourceDir={os.path.abspath(NAME)}", iss],
                        check=True)
         print("Built", os.path.abspath(f"{SLUG}-Setup.exe"))

@@ -1,20 +1,22 @@
-# ytdl-accessible
+# Wavelength
 
-**Media Download saves audio and video from about 1,750 sites. It works the same whether you look at it or listen to it.**
+**Wavelength finds, plays and saves audio and video from about 1,750 sites. It works the same whether you look at it or listen to it.**
 
-YouTube, Bandcamp, SoundCloud, Vimeo, the BBC, archive.org, Mixcloud, and plain links to a media file. It saves the file where you tell it and never plays anything on its own.
+YouTube, Bandcamp, SoundCloud, Vimeo, the BBC, archive.org, Mixcloud, podcasts, and plain links to a media file. Search them without a browser, play them without downloading, keep the ones you want, hear audio description for video, and open your own likes and playlists through the sign-in your browser already has. Nothing plays or downloads on its own.
+
+It was called Media Download until version 3.0. Updating keeps everything: your list, settings, sounds and permissions.
 
 What's here:
 
-- **Media Download**, an app for Mac and Windows
+- **Wavelength**, an app for Mac and Windows
 - **`ytdl`**, the same downloader as a command that talks in whole sentences
 - **`ytdescribe`**, audio description for a video (at the end)
 
 ## Get the app
 
-**Mac:** download `Media-Download-mac.zip` from the [latest release](https://github.com/Matthew2244/ytdl-accessible/releases/latest), open it, and drag Media Download into Applications. It's signed and notarized by Apple, so it opens without a warning.
+**Mac:** download `Wavelength-mac.zip` from the [latest release](https://github.com/Matthew2244/ytdl-accessible/releases/latest), open it, and drag Wavelength into Applications. It's signed and notarized by Apple, so it opens without a warning.
 
-**Windows:** download `Media-Download-Setup.exe` from the same page and run it. It installs just for you, with no administrator password, adds Media Download to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway. (`Media-Download-windows.zip` is there too, if you'd rather not install anything.)
+**Windows:** download `Wavelength-Setup.exe` from the same page and run it. It installs just for you, with no administrator password, adds Wavelength to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway. (`Wavelength-windows.zip` is there too, if you'd rather not install anything.)
 
 The app updates itself, with [Sparkle](https://sparkle-project.org) on the Mac and its twin WinSparkle on Windows: once a day it checks, shows what's new, and offers Install Update, Remind Me Later or Skip This Version (Help, Check for App Updates asks right away). Every update is signed, and the app refuses one that isn't, so nobody but the author can push an update to you. (The zip version on Windows updates itself in place instead.) The download engine inside the app, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app.
 
@@ -22,7 +24,7 @@ On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (
 
 ## Using the app
 
-![The Media Download window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
+![The Wavelength window. At the top, a Link field holding a SoundCloud link, with Download, Play and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
 1. Paste a link into the Link field and press Return, or drag links onto the window. Paste several at once and each gets its own row.
 2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Check the results you want.
@@ -50,11 +52,11 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
-**Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Media Download never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
+**Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Wavelength never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
 
 **File, Your Accounts** (Command-U) opens the things that only exist when you're signed in: YouTube's Liked videos, Watch Later, new from your subscriptions, your playlists and history; YouTube Music's liked music; and your SoundCloud likes, tracks and playlists. Open one as a list to check what to download, or play it all. Check Sign-in tests it and says plainly what's wrong if something is. If your browser is signed in to Google but not to YouTube itself, sign in at youtube.com in that browser.
 
-On a Mac, reading **Safari's** sign-in needs Full Disk Access for Media Download (System Settings, Privacy & Security, Full Disk Access). The app tells you and offers to open that page. Chrome and the others ask once for permission to use their stored key.
+On a Mac, reading **Safari's** sign-in needs Full Disk Access for Wavelength (System Settings, Privacy & Security, Full Disk Access). The app tells you and offers to open that page. Chrome and the others ask once for permission to use their stored key.
 
 **A long list** can be filtered: type in Filter (Command-Shift-F) to show only rows containing those words, like "failed" or part of a title. Escape shows everything again.
 
@@ -66,7 +68,7 @@ While anything is downloading, the Dock icon shows how many (on Windows, the tas
 
 ### The player
 
-Media Download plays things too: what you've downloaded, and links you haven't.
+Wavelength plays things too: what you've downloaded, and links you haven't.
 
 - **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
 - **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
@@ -422,9 +424,9 @@ terminal. This is the classic way a working script dies as an app.
 
 ## The classic dialog app
 
-`legacy/MediaDownload.applescript` is the first Media Download: a chain of AppleScript dialogs over the `ytdl` command. It still compiles (`check.sh` makes sure) for anyone who prefers it:
+`legacy/MediaDownload.applescript` is the first Wavelength: a chain of AppleScript dialogs over the `ytdl` command. It still compiles (`check.sh` makes sure) for anyone who prefers it:
 
-    osacompile -o "Media Download (classic).app" legacy/MediaDownload.applescript
+    osacompile -o "Wavelength (classic).app" legacy/MediaDownload.applescript
 
 ## Optional: Pushover
 

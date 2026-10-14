@@ -29,8 +29,8 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NAME = "Media Download"
-ZIP = "Media-Download-mac.zip"
+NAME = "Wavelength"
+ZIP = "Wavelength-mac.zip"
 
 
 def run(cmd, **kw):
@@ -113,13 +113,13 @@ def main():
     uploads = [out, appcast]
     # Windows: CI attached the installer; sign it here (the key never leaves this Mac) and
     # publish WinSparkle's update list beside it.
-    setup = os.path.join("dist", "Media-Download-Setup.exe")
+    setup = os.path.join("dist", "Wavelength-Setup.exe")
     if os.path.exists(setup):
         os.remove(setup)
-    got = subprocess.run(["gh", "release", "download", a.tag, "-p", "Media-Download-Setup.exe", "-D", "dist"],
+    got = subprocess.run(["gh", "release", "download", a.tag, "-p", "Wavelength-Setup.exe", "-D", "dist"],
                          capture_output=True, text=True)
     if got.returncode == 0 and os.path.exists(setup):
-        win_url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/Media-Download-Setup.exe"
+        win_url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/Wavelength-Setup.exe"
         win_cast = os.path.join("dist", "appcast-windows.xml")
         with open(win_cast, "w") as f:
             run([sys.executable, os.path.join("tools", "appcast.py"), setup, version, win_url, notes_file,

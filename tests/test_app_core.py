@@ -615,3 +615,19 @@ def test_downloads_borrow_the_sign_in_when_chosen():
     from media_download import accounts
     assert accounts.signin({"app_signin": "safari"}) == "safari" and accounts.signin({}) == ""
     assert "--cookies-from-browser" in options.download_args(spec(cookies="safari"))
+
+
+def test_old_folders_move_to_the_new_name(tmp_path, monkeypatch):
+    from media_download import engine
+    old_s, old_c = tmp_path / "Media Download", tmp_path / "Caches" / "Media Download"
+    old_s.mkdir()
+    old_c.mkdir(parents=True)
+    (old_s / "downloads.json").write_text("{}")
+    monkeypatch.setattr(engine, "SUPPORT", str(tmp_path / "Wavelength"))
+    monkeypatch.setattr(engine, "CACHE", str(tmp_path / "Caches" / "Wavelength"))
+    engine._move_old_folders()
+    assert (tmp_path / "Wavelength" / "downloads.json").exists() and not old_s.exists()
+    assert (tmp_path / "Caches" / "Wavelength").is_dir()
+    old_s.mkdir()  # never over a folder that's already there
+    engine._move_old_folders()
+    assert old_s.exists()

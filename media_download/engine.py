@@ -30,17 +30,34 @@ import zipfile
 HOME = os.path.expanduser("~")
 
 if sys.platform == "darwin":
-    SUPPORT = os.path.join(HOME, "Library", "Application Support", "Media Download")
-    CACHE = os.path.join(HOME, "Library", "Caches", "Media Download")
+    SUPPORT = os.path.join(HOME, "Library", "Application Support", "Wavelength")
+    CACHE = os.path.join(HOME, "Library", "Caches", "Wavelength")
 elif sys.platform == "win32":
-    SUPPORT = os.path.join(os.environ.get("APPDATA", HOME), "Media Download")
-    CACHE = os.path.join(os.environ.get("LOCALAPPDATA", HOME), "Media Download", "Cache")
+    SUPPORT = os.path.join(os.environ.get("APPDATA", HOME), "Wavelength")
+    CACHE = os.path.join(os.environ.get("LOCALAPPDATA", HOME), "Wavelength", "Cache")
 else:
-    SUPPORT = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.join(HOME, ".local", "share")), "media-download")
-    CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache")), "media-download")
+    SUPPORT = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.join(HOME, ".local", "share")), "wavelength")
+    CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache")), "wavelength")
+
+
+def _move_old_folders():
+    """The app was called Media Download until 3.0 (2026-10-13). Its folders (the download list,
+    imported sounds, engine, helper tools, player positions) move to the new name once, by
+    renaming, so nothing is lost or duplicated. A failure leaves them where they were."""
+    for new in (SUPPORT, CACHE):
+        old = new.replace("Wavelength", "Media Download").replace("wavelength", "media-download")
+        if old != new and os.path.isdir(old) and not os.path.exists(new):
+            try:
+                os.makedirs(os.path.dirname(new), exist_ok=True)
+                os.rename(old, new)
+            except OSError:
+                pass
+
 
 # For tests: keep every file this app writes inside one folder.
 _TEST = os.environ.get("MEDIA_DOWNLOAD_TEST_DIR")
+if not _TEST:
+    _move_old_folders()
 if _TEST:
     SUPPORT, CACHE = os.path.join(_TEST, "support"), os.path.join(_TEST, "cache")
 
@@ -203,7 +220,7 @@ def _ctx():
 
 
 def fetch(url: str, timeout: float = 60, progress=None) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Media-Download"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Wavelength"})
     with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as resp:
         total = int(resp.headers.get("Content-Length") or 0)
         buf = io.BytesIO()

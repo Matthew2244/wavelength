@@ -86,7 +86,7 @@ PY
 then FAIL=1; fi
 
 echo
-echo "The Media Download app"
+echo "The Wavelength app"
 PY="$HERE/.venv/bin/python"
 [ -x "$PY" ] || PY=python3
 if "$PY" -m pytest -q "$HERE/tests" >/tmp/md-pytest.txt 2>&1; then

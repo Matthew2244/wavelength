@@ -231,4 +231,4 @@ def for_item(path: str | None, url: str | None) -> str | None:
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit("Use Media Download.")
+    sys.exit("Use Wavelength.")

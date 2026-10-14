@@ -43,7 +43,7 @@ def _objc():
 def framework_path() -> str | None:
     if sys.platform != "darwin" or not getattr(sys, "frozen", False):
         return None
-    exe = os.path.realpath(sys.executable)  # .../Media Download.app/Contents/MacOS/Media Download
+    exe = os.path.realpath(sys.executable)  # .../Wavelength.app/Contents/MacOS/Wavelength
     path = os.path.join(os.path.dirname(os.path.dirname(exe)), "Frameworks", "Sparkle.framework")
     return path if os.path.isdir(path) else None
 

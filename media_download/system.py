@@ -661,7 +661,7 @@ def pushover(text: str, failed: bool = False) -> None:
     from .engine import PUSHOVER
     if not os.path.exists(PUSHOVER):
         return
-    base = [PUSHOVER, "send", text, "--title", "Media Download"]
+    base = [PUSHOVER, "send", text, "--title", "Wavelength"]
     if failed:
         base += ["--priority", "1"]
     sound = "ytdl-fail" if failed else "ytdl-done"

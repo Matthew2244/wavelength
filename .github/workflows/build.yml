@@ -49,18 +49,18 @@ jobs:
         name: Install quietly, run the installed app's self-test, uninstall
         shell: pwsh
         run: |
-          $p = Start-Process dist\Media-Download-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER' -Wait -PassThru
+          $p = Start-Process dist\Wavelength-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
-          $app = "$env:LOCALAPPDATA\Programs\Media Download"
-          if (-not (Test-Path "$app\Media Download.exe")) { throw "not installed where expected" }
-          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Media Download.lnk")) { throw "no Start menu entry" }
-          $t = Start-Process "$app\Media Download.exe" -ArgumentList '--self-test' -Wait -PassThru -RedirectStandardOutput selftest.txt
+          $app = "$env:LOCALAPPDATA\Programs\Wavelength"
+          if (-not (Test-Path "$app\Wavelength.exe")) { throw "not installed where expected" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Wavelength.lnk")) { throw "no Start menu entry" }
+          $t = Start-Process "$app\Wavelength.exe" -ArgumentList '--self-test' -Wait -PassThru -RedirectStandardOutput selftest.txt
           Get-Content selftest.txt
           if ($t.ExitCode -ne 0) { throw "installed self-test failed" }
           $u = Get-ChildItem "$app\unins*.exe" | Select-Object -First 1
           $p = Start-Process $u.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
           Start-Sleep -Seconds 3
-          if (Test-Path "$app\Media Download.exe") { throw "uninstall left the app behind" }
+          if (Test-Path "$app\Wavelength.exe") { throw "uninstall left the app behind" }
           "Installed, self-tested and uninstalled cleanly."
       - uses: actions/upload-artifact@v7
         with:

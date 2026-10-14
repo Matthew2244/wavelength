@@ -182,9 +182,9 @@ def test_whats_happening_names_what_is_downloading(frame, monkeypatch):
 
 def test_welcome_uses_the_first_name(frame, monkeypatch):
     monkeypatch.setattr(gui.words, "first_name", lambda: "Matthew")
-    assert frame.welcome().startswith("Welcome to Media Download, Matthew.")
+    assert frame.welcome().startswith("Welcome to Wavelength, Matthew.")
     monkeypatch.setattr(gui.words, "first_name", lambda: "")
-    assert frame.welcome().startswith("Welcome to Media Download.")
+    assert frame.welcome().startswith("Welcome to Wavelength.")
 
 
 def test_sounds_never_play_on_top_of_each_other(frame, monkeypatch):

@@ -359,7 +359,7 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
                 "so it can't be downloaded. Nothing to fix on your side.")
     if cookies_used and ("operation not permitted" in lowered or "full disk access" in lowered) \
             and "safari" in lowered:
-        return ("Reading Safari's sign-in needs Full Disk Access for Media Download: System Settings, Privacy "
+        return ("Reading Safari's sign-in needs Full Disk Access for Wavelength: System Settings, Privacy "
                 "and Security, Full Disk Access. Or choose another browser.")
     if "nodescribe:" in lowered:
         what = (text.split("NODESCRIBE:", 1)[-1].strip().splitlines() or ["a helper"])[0]

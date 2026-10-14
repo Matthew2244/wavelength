@@ -1,5 +1,5 @@
-; Media Download for Windows: the installer (Inno Setup 6).
-; Built by build_app.py on Windows:  ISCC /DAppVersion=x.y.z /DSourceDir=dist\Media Download MediaDownload.iss
+; Wavelength for Windows: the installer (Inno Setup 6).
+; Built by build_app.py on Windows:  ISCC /DAppVersion=x.y.z /DSourceDir=dist\Wavelength Wavelength.iss
 ;
 ; Installs for the current person only, into their own Programs folder, so it never asks
 ; for an administrator password. Adds a Start menu entry and an entry in Settings, Apps
@@ -10,26 +10,26 @@
   #define AppVersion "0.0.0"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\..\dist\Media Download"
+  #define SourceDir "..\..\dist\Wavelength"
 #endif
 
 [Setup]
 ; Never change AppId: it's how Windows knows a new version replaces the old one.
 AppId={{9c6c1020-46ac-439b-bfe8-e658c57419b1}
-AppName=Media Download
+AppName=Wavelength
 AppVersion={#AppVersion}
-AppVerName=Media Download {#AppVersion}
+AppVerName=Wavelength {#AppVersion}
 AppPublisher=Matthew Whitaker
 AppPublisherURL=https://github.com/Matthew2244/ytdl-accessible
 AppSupportURL=https://github.com/Matthew2244/ytdl-accessible/issues
-DefaultDirName={localappdata}\Programs\Media Download
+DefaultDirName={localappdata}\Programs\Wavelength
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=Media-Download-Setup
+OutputBaseFilename=Wavelength-Setup
 SetupIconFile=..\..\assets\icon.ico
-UninstallDisplayIcon={app}\Media Download.exe
+UninstallDisplayIcon={app}\Wavelength.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -40,7 +40,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
-Name: "desktopicon"; Description: "Put Media Download on the desktop"; Flags: unchecked
+Name: "desktopicon"; Description: "Put Wavelength on the desktop"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -50,13 +50,13 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdi
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Icons]
-Name: "{autoprograms}\Media Download"; Filename: "{app}\Media Download.exe"
-Name: "{autodesktop}\Media Download"; Filename: "{app}\Media Download.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Wavelength"; Filename: "{app}\Wavelength.exe"
+Name: "{autodesktop}\Wavelength"; Filename: "{app}\Wavelength.exe"; Tasks: desktopicon
 
 [Run]
 ; After a normal install: offer to open it. After a quiet update (WinSparkle): open it again.
-Filename: "{app}\Media Download.exe"; Description: "Open Media Download now"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\Media Download.exe"; Flags: nowait; Check: Relaunch
+Filename: "{app}\Wavelength.exe"; Description: "Open Wavelength now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Wavelength.exe"; Flags: nowait; Check: Relaunch
 
 [Code]
 // WinSparkle passes /relaunch=1 when it runs this quietly to update, so the app comes back

@@ -84,7 +84,7 @@ def start(on_shutdown) -> bool:
         if dll.win_sparkle_set_eddsa_public_key(PUBLIC_KEY.encode()) != 1:
             _state["failed"] = True
             return False
-        dll.win_sparkle_set_app_details("Matthew Whitaker", "Media Download", __version__)
+        dll.win_sparkle_set_app_details("Matthew Whitaker", "Wavelength", __version__)
         dll.win_sparkle_set_can_shutdown_callback(can)
         dll.win_sparkle_set_shutdown_request_callback(shut)
         dll.win_sparkle_set_automatic_check_for_updates(1)

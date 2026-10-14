@@ -26,9 +26,9 @@ from . import __version__
 REPO = "Matthew2244/ytdl-accessible"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 PAGE = f"https://github.com/{REPO}/releases/latest"
-MAC_ASSET = "Media-Download-mac.zip"
-WIN_ASSET = "Media-Download-windows.zip"
-APP_NAME = "Media Download"
+MAC_ASSET = "Wavelength-mac.zip"
+WIN_ASSET = "Wavelength-windows.zip"
+APP_NAME = "Wavelength"
 
 
 class UpdateError(Exception):
@@ -54,7 +54,7 @@ def _context():
 
 
 def _get(url: str, timeout: float = 15):
-    req = urllib.request.Request(url, headers={"User-Agent": f"media-download/{__version__}"})
+    req = urllib.request.Request(url, headers={"User-Agent": f"wavelength/{__version__}"})
     return urllib.request.urlopen(req, timeout=timeout, context=_context())
 
 
@@ -91,6 +91,26 @@ def installed_app() -> str | None:
     return None
 
 
+def rename_old_bundle() -> None:
+    """On the Mac, an app updated from before 3.0 can still sit in Applications as
+    "Media Download.app". Once this copy has quit, rename it to the new name, unless a
+    Wavelength.app is already there. The app's identity (bundle id, signature) is unchanged,
+    so Full Disk Access and updates carry on; renaming a running bundle would pull its files
+    out from under it, which is why this waits until it has gone."""
+    target = installed_app()
+    if sys.platform != "darwin" or not target or os.path.basename(target) != "Media Download.app":
+        return
+    parent = os.path.dirname(target)
+    new = os.path.join(parent, APP_NAME + ".app")
+    if os.path.exists(new) or not os.access(parent, os.W_OK):
+        return
+    pid = os.getpid()
+    script = (f"while kill -0 {pid} 2>/dev/null; do sleep 0.3; done; "
+              f'[ -e "{new}" ] || mv "{target}" "{new}"')
+    subprocess.Popen(["/bin/sh", "-c", script], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def how_to_update_source() -> str:
     return f'pip install -U "git+https://github.com/{REPO}"  (or git pull in a clone)'
 
@@ -112,7 +132,7 @@ def install(info: dict, relaunch: bool = True) -> str:
     if not url:
         raise UpdateError(f"the new release has no {asset}. Download it from {PAGE}")
 
-    work = tempfile.mkdtemp(prefix="media-download-update-")
+    work = tempfile.mkdtemp(prefix="wavelength-update-")
     zpath = os.path.join(work, asset)
     try:
         with _get(url, timeout=120) as r, open(zpath, "wb") as f:

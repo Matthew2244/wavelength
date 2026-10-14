@@ -1,4 +1,4 @@
-"""Media Download: the window.
+"""Wavelength: the window.
 
 wxPython, so every control is the platform's own and VoiceOver, NVDA, JAWS
 and Narrator read it natively. Tab order follows the work: the link, Download,
@@ -47,7 +47,7 @@ MORE_TIP = ("Just part of it, chapters, subtitles, a browser's sign-in, an exact
 MILESTONES = (100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000)
 
 WELCOME = (
-    "Welcome to Media Download{name}.\n\n"
+    "Welcome to Wavelength{name}.\n\n"
     "Paste a link into the Link field and press Return. It works with about 1,750 sites: "
     "YouTube, SoundCloud, Bandcamp, Vimeo, the BBC, archive.org and many more. "
     "Or type some words and press Search to find something without visiting the site.\n\n"
@@ -396,6 +396,10 @@ class MainFrame(wx.Frame):
         dlg = dialogs.Guide(self, self.cfg, self, start)
         dlg.ShowModal()
         dlg.Destroy()
+        if start == "welcome" and not self.cfg.get("app_onboarded"):
+            # Closed early is still seen: it's offered once, and Help, Welcome Tour has it after.
+            self.cfg["app_onboarded"] = True
+            engine.save_settings(self.cfg)
         keys = [k for k, _ in words.FORMAT_LABELS]
         if self.cfg.get("format") in keys:
             self.kind.SetSelection(keys.index(self.cfg["format"]))
@@ -573,7 +577,7 @@ class MainFrame(wx.Frame):
             ok = False
         if ok:
             return True
-        dlg = wx.MessageDialog(self, "Media Download can't save to %s. It may be on a drive that isn't connected, "
+        dlg = wx.MessageDialog(self, "Wavelength can't save to %s. It may be on a drive that isn't connected, "
                                "or a folder that's been moved or locked.\n\nChoose another folder?"
                                % words.pretty_folder(to), "Download folder unavailable",
                                wx.OK | wx.CANCEL | wx.OK_DEFAULT | wx.ICON_WARNING)
@@ -1043,9 +1047,9 @@ class MainFrame(wx.Frame):
         self.last_tally = 0.0
         if self.cfg.get("notify") and (done or failed):
             if failed:
-                pushover("Media Download: %d done, %d failed." % (done, failed), failed=True)
+                pushover("Wavelength: %d done, %d failed." % (done, failed), failed=True)
             else:
-                pushover("Media Download: %s finished." % words.n(done, "download"))
+                pushover("Wavelength: %s finished." % words.n(done, "download"))
         if not self.IsActive() and (done or failed):
             try:
                 n = wx.adv.NotificationMessage(APP_NAME, "%d done%s." % (done, ", %d failed" % failed
@@ -1491,7 +1495,7 @@ class MainFrame(wx.Frame):
         names = [b for b in dialogs.browser_choices(self.cfg.get("app_signin_browser") or "") if b[0]]
         keys = [b[0] for b in names]
         dlg = wx.SingleChoiceDialog(
-            self, "Which browser are you signed in with? Media Download borrows that sign-in for this "
+            self, "Which browser are you signed in with? Wavelength borrows that sign-in for this "
             "download only. Nothing is sent anywhere else.", "Retry Using a Browser's Sign-in",
             [b[1] for b in names])
         last = self.cfg.get("app_signin_browser") or ""
@@ -1796,7 +1800,7 @@ class MainFrame(wx.Frame):
             wx.MessageBox("Some helper tools are missing: %s. Install them with this system's package manager."
                           % "; ".join(names), "Helper tools", wx.OK | wx.ICON_INFORMATION, self)
             return
-        msg = ("Media Download needs %s:\n\n%s\n\nGet %s now? It's a one-time download of about %d MB, "
+        msg = ("Wavelength needs %s:\n\n%s\n\nGet %s now? It's a one-time download of about %d MB, "
                "kept in the app's own folder." % ("a helper tool" if len(names) == 1 else "some helper tools",
                                                   "\n".join(names), "it" if len(names) == 1 else "them",
                                                   40 * len(names)))
@@ -1958,6 +1962,7 @@ class MainFrame(wx.Frame):
             self.player.Destroy()
             self.player = None
         winsparkle.cleanup()
+        update.rename_old_bundle()
         event.Skip()
 
     def _quit_for_update(self):

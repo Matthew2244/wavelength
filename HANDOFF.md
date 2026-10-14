@@ -1,22 +1,38 @@
-# Handoff: ytdl-accessible
+# Handoff: ytdl-accessible (Wavelength, ytdl, ytdescribe)
 
 Read this before changing anything. It describes the current state. `CLAUDE.md`
 in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
+
+## The name: Wavelength (since 3.0.0, 2026-10-13)
+
+Matthew renamed it ("this grew into something bigger"). Everything people see says
+Wavelength: windows, menus, messages, `Wavelength.app`, `Wavelength.exe`, the installer,
+`Wavelength-mac.zip` / `-windows.zip` / `-Setup.exe`. **Deliberately unchanged:**
+the bundle id `io.github.matthew2244.mediadownload` (Sparkle keeps updating old copies,
+and Full Disk Access granted to the old name still applies), the Windows installer
+AppId (an update replaces the old install; `[InstallDelete]` removes the old exe and
+shortcuts), the GitHub repo name (the appcast URL lives there), the `media_download`
+package, the `MEDIA_DOWNLOAD_*` test variables, and the **Media Downloads** folder
+(nobody's files move). Old copies move over by themselves: `engine._move_old_folders`
+renames the support and cache folders once, and `update.rename_old_bundle` renames a
+Sparkle-updated `Media Download.app` to `Wavelength.app` after it quits (never while
+running: its files would vanish from under it). No Windows zip copies existed, so the
+old zip updater got no bridge.
 
 ## What exists
 
 | thing | where | note |
 |---|---|---|
-| Media Download (the app) | `media_download/` | wxPython, Mac and Windows; installed at `/Applications/Media Download.app` on the Studio |
+| Wavelength (the app; Media Download until 3.0) | `media_download/` | wxPython, Mac and Windows; installed at `/Applications/Wavelength.app` on both Macs |
 | `ytdl` | `ytdl` | the command; `~/bin/ytdl` is a symlink into the repo |
 | `ytdescribe` | `ytdescribe` | audio description; `~/bin/ytdescribe` likewise |
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.7.0 is the latest release, signed and
+**Where it stands (2026-10-13):** 3.0.0 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.7.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+3.0.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -326,7 +342,22 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    menu) probes one result and rewrites its row. YouTube's own "sort by upload
    date" (`sp=CAI%3D`) is ignored now, so Search's Order sorts what's loaded.
    The saved download list no longer stops at 500 rows.
-25. **Your accounts** (`accounts.py`, `dialogs.AccountsDialog`, Settings,
+25. **Welcome tour and Set Up Accounts** (`dialogs.Guide`). Offered once to someone new
+   (`app_onboarded`; anyone with downloads in `app_stats` is marked done silently), and
+   any time from Help, Welcome Tour and File, Set Up Accounts. Each page's words sit in a
+   read-only text box that takes the focus, so a screen reader reads the step on arrival
+   (no timed announcements). Browsers come from `accounts.installed()`: every browser the
+   engine supports that's on this computer, with profiles (Chrome-family `Local State`
+   names, Firefox profile folders), the default browser first (LaunchServices on the Mac,
+   UserChoice on Windows, xdg-settings on Linux). `permission_steps` and
+   `settings_page_url` say what each system needs: Safari's Full Disk Access on the Mac,
+   the keychain "Safe Storage" prompt for Chromium browsers on the Mac, closing the
+   browser on Windows, where newer Chrome, Edge and Brave lock their sign-in (App-Bound
+   Encryption) and Firefox is offered instead; `signin_check` counts cookies it couldn't
+   decrypt and names the lock. **Lists and Your Accounts have no default action**
+   (Matthew): Return presses nothing; Your Accounts offers Play All, Choose What to Play
+   (a list whose main button plays) and Download only from its menu.
+26. **Your accounts** (`accounts.py`, `dialogs.AccountsDialog`, Settings,
    Signing in). Browser sign-in only (`--cookies-from-browser`), never a
    password: `app_signin` makes `_job_from_ui`, search, stream, the player's
    list probe and find_description all carry it. Collections are plain URLs
@@ -344,7 +375,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Chrome from a script**: reading its cookies raises a Keychain prompt on
    Matthew's screen. Vimeo likes (410) and Bandcamp collections (unsupported)
    are deliberately absent.
-26. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
+27. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
    has no limits"). It used to stop at 25. Now it fetches a page of
    `SEARCH_PAGE` (25) at a time with `--playlist-items start-end`, and the next
    page comes from More Results (Command-Shift-M) or by itself on reaching the
@@ -357,15 +388,17 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    used to stop at 300; CrashCourse's 1,705 all listed). **No caps on results
    anywhere is a standing decision** (Matthew, 2026-10-13): where a search
    can't be unlimited in one go, it pages.
-27. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
+28. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
    2026-10-13): Download Checked, Check All, Uncheck All, "3 checked". The
    classic app's lists are selection lists, so it says "select" there.
-28. From the classic app, still true for the command: a GUI-launched process gets
+29. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **3.0.0** (2026-10-13): renamed Wavelength; welcome tour and Set Up Accounts;
+  every browser and profile; play-first Your Accounts; no default action in lists.
 - **2.7.0** (2026-10-13): your accounts: browser sign-in for everything, File,
   Your Accounts, Check Sign-in, the Full Disk Access offer; a quick test of a
   newly chosen browser.

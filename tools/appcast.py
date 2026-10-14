@@ -61,7 +61,7 @@ def main():
     print("""<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Media Download</title>
+    <title>Wavelength</title>
 {item}
   </channel>
 </rss>""".format(item=item))

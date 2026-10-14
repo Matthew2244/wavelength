@@ -781,7 +781,7 @@ class SoundPicker(wx.Dialog):
         if i == wx.NOT_FOUND or not self.choices[i][0].startswith("custom:"):
             return
         spec, words_ = self.choices[i]
-        dlg = wx.MessageDialog(self, "Remove %s from Media Download? Your original file isn't touched."
+        dlg = wx.MessageDialog(self, "Remove %s from Wavelength? Your original file isn't touched."
                                % words_.replace("Your sound: ", ""), "Remove Imported Sound",
                                wx.OK | wx.CANCEL | wx.CANCEL_DEFAULT)
         dlg.SetOKCancelLabels("&Remove", "Cancel")
@@ -835,7 +835,7 @@ class AccountsDialog(wx.Dialog):
         self.browser = wx.Choice(self, choices=[b[1] for b in blist])
         self.browser.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
         labelled(self, s, "Borrow the sign-in from:", self.browser, _label,
-                 "The browser you're signed in with. Media Download reads its sign-in when it needs it; no password "
+                 "The browser you're signed in with. Wavelength reads its sign-in when it needs it; no password "
                  "is asked for or kept. The same choice is in Settings.")
         self.status = wx.StaticText(self, label="Choose one, then Play All, Choose What to Play, or Download "
                                                "Everything from its right-click menu. Nothing happens until you "
@@ -983,13 +983,14 @@ class Guide(wx.Dialog):
                 ("SoundCloud", "https://soundcloud.com/signin", "soundcloud")]
 
     def __init__(self, parent, cfg: dict, main, start: str = "welcome"):
-        super().__init__(parent, title="Welcome to Media Download" if start == "welcome" else "Set Up Accounts",
+        super().__init__(parent, title="Welcome to Wavelength" if start == "welcome" else "Set Up Accounts",
                          size=(720, 560), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         from . import accounts
         self.cfg, self.main, self.acc = cfg, main, accounts
         self.order = (["welcome", "folder", "format", "sounds", "accounts"] if start == "welcome" else []) + \
             ["browser", "permission", "services", "done"]
-        self.skip_accounts = False
+        # The tour starts on "Not now" for accounts, so its step count starts without them.
+        self.skip_accounts = start == "welcome"
         self.book = wx.Simplebook(self)
         self.pages, self.texts = {}, {}
         for key in self.order:
@@ -1031,7 +1032,7 @@ class Guide(wx.Dialog):
 
     def _page_welcome(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "welcome", s, "Welcome to Media Download.\n\nIt saves audio and video from about 1,750 sites, "
+        self._text(p, "welcome", s, "Welcome to Wavelength.\n\nIt saves audio and video from about 1,750 sites, "
                    "plays them, and says what it's doing. This short tour sets up where things go, what to save, the "
                    "sounds, and, if you want, your accounts. Every step can be changed later in Settings.\n\n"
                    "Press Next to start, or Close to skip the tour.")
@@ -1094,7 +1095,7 @@ class Guide(wx.Dialog):
 
     def _page_accounts(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "accounts", s, "Your accounts (you can skip this).\n\nMedia Download can use the sign-in your "
+        self._text(p, "accounts", s, "Your accounts (you can skip this).\n\nWavelength can use the sign-in your "
                    "browser already has, for YouTube, SoundCloud and the other sites. Then members-only and private "
                    "videos work, and you can open your Liked videos, Watch Later, subscriptions and likes. It never "
                    "asks for a password and never keeps one.\n\nSet them up now, or any time later with File, Set "
@@ -1102,6 +1103,8 @@ class Guide(wx.Dialog):
         self.now = wx.RadioButton(p, label="Set up my accounts now", style=wx.RB_GROUP)
         self.later = wx.RadioButton(p, label="Not now")
         self.later.SetValue(True)
+        for rb in (self.now, self.later):  # the step count follows the choice at once
+            rb.Bind(wx.EVT_RADIOBUTTON, lambda e: setattr(self, "skip_accounts", not self.now.GetValue()))
         s.Add(self.now, 0, wx.ALL, 6)
         s.Add(self.later, 0, wx.ALL, 6)
         p.SetSizer(s)
@@ -1223,7 +1226,7 @@ class Guide(wx.Dialog):
         where = "Step %d of %d. " % (steps.index(key) + 1, len(steps)) if key in steps else ""
         if key == "permission":
             lines = self.acc.permission_steps(self._browser())
-            body = ("Letting Media Download read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
+            body = ("Letting Wavelength read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
                     ("\n".join("%d. %s" % (i + 1, l) for i, l in enumerate(lines)) if lines else
                      "%s needs no permission on this computer." % self.acc.spec_words(self._browser())) +
                     "\n\nPress Check Again to try it.")
@@ -1243,7 +1246,7 @@ class Guide(wx.Dialog):
         elif key == "done":
             b = self.acc.signin(self.cfg)
             self.texts[key].SetValue(
-                "All set.\n\n" + ("Media Download uses %s's sign-in. File, Your Accounts (%s-U) opens your liked "
+                "All set.\n\n" + ("Wavelength uses %s's sign-in. File, Your Accounts (%s-U) opens your liked "
                                    "videos, Watch Later, subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD)
                                    if b and not self.skip_accounts else
                                    "No accounts for now. File, Set Up Accounts brings this back.\n\n") +

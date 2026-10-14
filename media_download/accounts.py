@@ -1,4 +1,4 @@
-"""Your accounts: what you can open once Media Download borrows your browser's sign-in.
+"""Your accounts: what you can open once Wavelength borrows your browser's sign-in.
 
 No password is ever asked for or kept. The download engine reads the sign-in your browser
 already has (--cookies-from-browser) each time it needs it, and sends it only to that site.
@@ -82,14 +82,14 @@ def explain_signin(log: str, browser: str, service: str = "") -> str | None:
                 "Edge and Brave do this; Firefox doesn't. Sign in to your services in Firefox and choose it instead."
                 % name)
     if "operation not permitted" in low or "permission denied" in low or "full disk access" in low:
-        return ("Media Download isn't allowed to read %s's sign-in. On a Mac, add Media Download under System "
+        return ("Wavelength isn't allowed to read %s's sign-in. On a Mac, add Wavelength under System "
                 "Settings, Privacy & Security, Full Disk Access, then try again." % name)
     if "could not find" in low and "cookies database" in low:
         return "%s doesn't seem to be on this computer, or has never been opened. Choose another browser." % name
     if "login details are needed" in low or "playlist does not exist" in low or "sign in to confirm" in low \
             or "missing required authentication" in low:
         where = service or "that site"
-        return ("%s isn't signed in to %s. Open %s in %s, sign in there, then try again; Media Download borrows "
+        return ("%s isn't signed in to %s. Open %s in %s, sign in there, then try again; Wavelength borrows "
                 "that sign-in and never asks for a password." % (name, where, where, name))
     return None
 
@@ -296,24 +296,24 @@ def _windows_exe(key: str) -> str:
 
 
 def permission_steps(spec: str) -> list[str]:
-    """What this system needs before Media Download can read this browser's sign-in, step by
+    """What this system needs before Wavelength can read this browser's sign-in, step by
     step; empty when nothing is needed."""
     key = (spec or "").split(":", 1)[0]
     name = NAMES.get(key, key)
     if sys.platform == "darwin" and key == "safari":
-        return ["Safari keeps its sign-in in a protected place, so macOS asks you to allow Media Download in.",
+        return ["Safari keeps its sign-in in a protected place, so macOS asks you to allow Wavelength in.",
                 "Press Open System Settings below. It opens Privacy & Security, Full Disk Access.",
-                "Find Media Download in the list and turn it on. If it isn't listed, press the Add button, "
-                "choose Applications, then Media Download.",
-                "macOS may ask for your password, and may ask to quit Media Download. If it does, choose Later, "
+                "Find Wavelength in the list and turn it on. If it isn't listed, press the Add button, "
+                "choose Applications, then Wavelength.",
+                "macOS may ask for your password, and may ask to quit Wavelength. If it does, choose Later, "
                 "then come back here and press Check Again."]
     if sys.platform == "darwin" and key != "firefox":
         return ["%s locks its sign-in with a key in your keychain." % name,
-                "When you press Check Again, macOS asks whether Media Download may use \"%s Safe Storage\". "
+                "When you press Check Again, macOS asks whether Wavelength may use \"%s Safe Storage\". "
                 "Type your Mac's password if asked, then choose Always Allow, so it doesn't ask every time."
                 % ("Chrome" if key == "chrome" else "Microsoft Edge" if key == "edge" else name)]
     if sys.platform == "win32" and key != "firefox":
-        return ["On Windows, %s has to be closed completely while Media Download reads its sign-in: close every "
+        return ["On Windows, %s has to be closed completely while Wavelength reads its sign-in: close every "
                 "%s window, and check it isn't still running near the clock." % (name, name),
                 "Newer versions of %s on Windows lock their sign-in so no other app can read it. If Check Again "
                 "says so, Firefox works: sign in to your services in Firefox and choose it here." % name]
