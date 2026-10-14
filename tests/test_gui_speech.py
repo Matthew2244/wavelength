@@ -17,6 +17,8 @@ def frame(tmp_path_factory):
     os.environ["MEDIA_DOWNLOAD_TEST_DIR"] = str(tmp_path_factory.mktemp("gui"))
     gui.MainFrame.startup_checks = lambda self: None
     gui.dialogs.message_log = []  # a message window would wait for a key press, in front of whoever is here
+    gui.dialogs.Search.PREFETCH = False  # these tests feed pages by hand; one test turns it back on
+    gui.manager_mod.SPARE = False  # no waiting worker started by the window's own checks
     app = wx.App(False)
     f = gui.MainFrame()
     f.timer.Stop()
@@ -1012,6 +1014,7 @@ def test_player_speed_keys_and_ends(frame, monkeypatch):
         assert pl.speed == 0.25
     finally:
         pl.set_speed(1.0)
+        pl.timer.Stop()  # the app's own close stops it; a bare Destroy leaves it firing
         pl.Destroy()
 
 
@@ -1054,4 +1057,81 @@ def test_player_starts_at_speed_in_one_step(frame, monkeypatch):
         assert pl.media.calls == [("rate", pl.speed)]
     finally:
         pl.media, pl.loaded = real, False
+        pl.timer.Stop()  # the app's own close stops it; a bare Destroy leaves it firing
         pl.Destroy()
+
+
+def test_search_fetches_the_next_page_ahead(frame, monkeypatch):
+    """More is instant: the next page is fetched while the person reads this one."""
+    import threading
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui.dialogs.Search, "PREFETCH", True)
+    frame.on_search(None, query="")
+    dlg = frame.search_win
+    page = gui.dialogs.SEARCH_PAGE
+    asked, gate = [], threading.Event()
+
+    def fake_search(q, site_key, start, count=page):
+        asked.append(start)
+        if start == 2 * page + 1:
+            gate.wait(5)  # the page after next is still on its way when More is pressed
+        return [{"url": "https://y.example/%d" % n, "title": "R%d" % n} for n in range(start, start + page)]
+    dlg.run_search = fake_search
+    dlg.query.SetValue("organ")
+    dlg.on_search(None)
+    for _ in range(50):
+        _drain()
+        if len(asked) >= 2 and getattr(dlg, "ahead", None) and dlg.ahead["done"]:
+            break
+    assert asked == [1, page + 1] and len(dlg.results) == page  # page 2 fetched, not shown
+    dlg.more()
+    _drain()
+    assert len(dlg.results) == 2 * page and not dlg.loading  # served from what was fetched ahead
+    for _ in range(50):
+        _drain()
+        if 2 * page + 1 in asked:
+            break
+    dlg.more()  # page 3 is still coming: More waits for it rather than asking twice
+    assert dlg.loading
+    gate.set()
+    for _ in range(100):
+        _drain()
+        if len(dlg.results) == 3 * page:
+            break
+    assert len(dlg.results) == 3 * page and asked.count(2 * page + 1) == 1
+    dlg.Destroy()
+    _drain()
+
+
+def test_a_waiting_worker_is_used_once_and_only_while_it_matches(monkeypatch):
+    from media_download import manager
+    started = []
+
+    class FakeProc:
+        def __init__(self):
+            self.stdin, self.alive, self.got = self, True, []
+            started.append(self)
+
+        def write(self, text):
+            self.got.append(text)
+
+        def close(self):
+            pass
+
+        def poll(self):
+            return None if self.alive else 0
+    monkeypatch.setattr(manager, "SPARE", True)
+    monkeypatch.setattr(manager, "_start_worker", FakeProc)
+    monkeypatch.setattr(manager, "_kill", lambda p: setattr(p, "alive", False))
+    monkeypatch.setattr(manager, "_spare", {"proc": None, "key": None})
+    engines = [("2026.8.19", "/x")]
+    monkeypatch.setattr(manager.engine, "installed_engines", lambda: list(engines))
+    manager.warm()
+    spare = started[0]
+    p = manager._popen({"task": "search"})
+    assert p is spare and spare.got and len(started) == 2  # used, and the next one started
+    engines.insert(0, ("2026.9.1", "/y"))  # the engine updated while the next one waited
+    p2 = manager._popen({"task": "probe"})
+    assert p2 is not started[1] and not started[1].alive  # the stale one is never used
+    monkeypatch.setattr(manager, "SPARE", False)
+    manager._drop_spare()

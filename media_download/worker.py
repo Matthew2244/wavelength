@@ -641,6 +641,13 @@ def main() -> int:
     _out = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
     os.dup2(2, 1)
     sys.stdout = sys.stderr
+    # The engine first, then the task: the app keeps one worker started and waiting, so this
+    # part is already done by the time there's something to do.
+    try:
+        from . import engine
+        yt_dlp = engine.load_engine()
+    except Exception as exc:  # noqa: BLE001
+        yt_dlp, engine_error = None, exc
     try:
         task = json.loads(sys.stdin.readline())
     except ValueError:
@@ -648,8 +655,8 @@ def main() -> int:
         emit("end", ok=False)
         return 2
     try:
-        from . import engine
-        yt_dlp = engine.load_engine()
+        if yt_dlp is None:
+            raise engine_error
         emit("engine", version=yt_dlp.version.__version__)
         TASKS[task["task"]](yt_dlp, task)
     except KeyboardInterrupt:

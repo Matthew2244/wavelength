@@ -1772,6 +1772,7 @@ class Search(wx.Frame):
     nothing. As a modeless dialog on the Mac it borrowed whichever menu bar was up last, so
     Command-Delete in the results could remove a download from the main list, and Command-W
     after a preview closed the player instead. Its own menus settle both."""
+    PREFETCH = True  # the next page is fetched while this one is read; tests that feed pages turn it off
 
     def __init__(self, parent, query: str, site: str, run_search, play=None, player=None, on_done=None):
         super().__init__(parent, title="Search", size=(760, 600))
@@ -2012,7 +2013,8 @@ class Search(wx.Frame):
             announce(self.status.GetLabel())
             return
         self.status.SetLabel("Getting more results...")
-        self._fetch(q, site_key, self._site_name(site_key), self.next_start)
+        if not self._take_ahead(q, site_key, self.next_start):
+            self._fetch(q, site_key, self._site_name(site_key), self.next_start)
 
     def _near_end(self):
         """Reaching the last row asks for more by itself, the way a feed does."""
@@ -2094,6 +2096,48 @@ class Search(wx.Frame):
         if not (start == 1 and self.results):
             announce(self.status.GetLabel())
         self._count()
+        if self.has_more and self.PREFETCH:
+            self._fetch_ahead(q, site_key, self.next_start)
+
+    def _fetch_ahead(self, q, site_key, start):
+        """Get the next page now, quietly, so More (or reaching the last row) is instant. Each
+        page costs more than the last, since the engine re-reads the earlier ones to reach it:
+        measured 1.6 s for YouTube's first page and 2.3 s for its second, SoundCloud 3.9 and 5.0."""
+        ahead = {"key": (q, site_key, start), "res": None, "done": False, "wanted": False}
+        self.ahead = ahead
+
+        def work():
+            ahead["res"] = self.run_search(q, site_key, start)
+            wx.CallAfter(self._ahead_ready, ahead)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ahead_ready(self, ahead):
+        if not self:
+            return
+        ahead["done"] = True
+        if ahead["wanted"] and getattr(self, "ahead", None) is ahead:
+            self.ahead = None
+            q, site_key, start = ahead["key"]
+            self._show(q, site_key, self._site_name(site_key), start, ahead["res"])
+
+    def _take_ahead(self, q, site_key, start) -> bool:
+        """Serve the next page from the one fetched ahead: at once if it's here, else as soon as
+        it lands. A page that failed ahead of time is fetched again rather than reported stale."""
+        ahead = getattr(self, "ahead", None)
+        if not ahead or ahead["key"] != (q, site_key, start):
+            return False
+        if ahead["done"] and getattr(ahead["res"], "error", ""):
+            self.ahead = None
+            return False
+        self.loading = True
+        self.go.Disable()
+        self.more_btn.Disable()
+        if ahead["done"]:
+            self.ahead = None
+            wx.CallAfter(self._show, q, site_key, self._site_name(site_key), start, ahead["res"])
+        else:
+            ahead["wanted"] = True
+        return True
 
     def reorder(self, speak=False):
         """Sort what's loaded by the Order choice, keeping checks and the selected result."""

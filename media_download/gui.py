@@ -26,6 +26,7 @@ from . import APP_NAME, __version__, accounts, describe, dialogs, engine, geomet
 from . import system
 from .system import sound_map, sound_volume
 from .jobs import ACTIVE, Job
+from . import manager as manager_mod
 from .manager import Manager, run_task
 from .system import (announce, dock_badge, keep_awake, mac_accessibility_label, open_path, play, pushover,
                      windows_name, reveal, taskbar_progress)
@@ -1937,6 +1938,8 @@ class MainFrame(wx.Frame):
             threading.Thread(target=work, daemon=True).start()
         self.quiet_update_check()
         self.started = True
+        # A worker started and waiting, so the first play, search or link is quick too.
+        wx.CallLater(1500, lambda: manager_mod.warm())
         # A link copied before opening the app is offered too, the commonest way in.
         if self.cfg.get("app_clipboard", True) and self.IsActive() and not self._modal_open():
             wx.CallLater(800, self._check_clipboard)

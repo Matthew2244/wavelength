@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.4.0 is the latest release (speed keys on every keyboard layout: [ ] or < >, N for normal; says Slowest or Fastest at the ends; fixes the Mac player's clock freezing after starting at a speed, and a speed change starting a paused player). 3.3.3 (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.5.0 is the latest release (quicker: a worker kept waiting with the engine loaded takes about half a second off every play, search, lookup and download; Search fetches the next page ahead, so More is instant). 3.4.0 (speed keys on every keyboard layout: [ ] or < >, N for normal; says Slowest or Fastest at the ends; fixes the Mac player's clock freezing after starting at a speed, and a speed change starting a paused player). 3.3.3 (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -540,6 +540,18 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    on German, French and Nordic layouts, so a bare-key check never fired there. < and >
    (Shift-Comma, Shift-Period; their own key on ISO keyboards) and N work on every layout.
    Option-N is a dead key for accents and is not "normal".
+37. **Load times, measured 2026-10-14** (`MainLoop` timing, never `SafeYield`): window ready
+   0.5 s from source; a YouTube link pasted to finished file 2.7 s; playing a link without
+   downloading 1.2 to 2.7 s; first search page 1.6 s (YouTube) to 3.9 s (SoundCloud). Two
+   things cut: **one worker is kept started and waiting** (`manager.warm`, `_take_spare`),
+   the engine already loaded, so a play, search, lookup or download no longer pays 0.56 s
+   (packaged app; 0.3 s from source) of startup first. A waiting worker is used only while
+   its worker command and installed engines match, is stopped at quit, and exits by itself
+   when the app dies (its stdin closes). And **Search fetches the next page while you read**
+   (`_fetch_ahead`), so More went from 2.2 to 3.9 s to under 0.2 s; each page costs more than
+   the last because the engine re-reads earlier ones. Tests that feed pages by hand set
+   `Search.PREFETCH = False` and `manager_mod.SPARE = False`; anything destroying a
+   PlayerFrame in a test must stop `pl.timer` first, or a later yield crashes in wx.
 
 ## Tested
 

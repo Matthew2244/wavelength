@@ -13,6 +13,7 @@ stops the next link from being looked up.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import signal
@@ -33,7 +34,7 @@ def worker_command() -> list[str]:
     return [sys.executable, "-m", "media_download", "--worker"]
 
 
-def _popen(task: dict) -> subprocess.Popen:
+def _start_worker() -> subprocess.Popen:
     kw = dict(stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
               text=True, encoding="utf-8", bufsize=1)
     if sys.platform == "win32":
@@ -41,9 +42,69 @@ def _popen(task: dict) -> subprocess.Popen:
     else:
         kw["start_new_session"] = True  # its own group, so Stop ends ffmpeg too
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
-    proc = subprocess.Popen(worker_command(), env=env, **kw)
+    return subprocess.Popen(worker_command(), env=env, **kw)
+
+
+# One worker kept started, with the engine already loaded, waiting for its task. Every play,
+# search, lookup and download used to start from nothing: about 0.3 s from source and 0.6 s in
+# the packaged app before the site was even asked (measured 2026-10-14). A waiting worker that
+# no longer matches (the engine updated, or a different worker program) is never used.
+_spare = {"proc": None, "key": None}
+_spare_lock = threading.Lock()
+SPARE = True
+
+
+def _spare_key():
+    try:
+        engines = tuple(v for v, _ in engine.installed_engines())
+    except Exception:  # noqa: BLE001
+        engines = None
+    return tuple(worker_command()), engines
+
+
+def _take_spare():
+    with _spare_lock:
+        proc, key = _spare["proc"], _spare["key"]
+        _spare["proc"] = _spare["key"] = None
+    if proc is None:
+        return None
+    _loose.discard(proc)
+    if proc.poll() is None and key == _spare_key():
+        return proc
+    _kill(proc)
+    return None
+
+
+def warm() -> None:
+    """Start a waiting worker if there isn't one. Cheap to call often."""
+    if not SPARE:
+        return
+    with _spare_lock:
+        if _spare["proc"] is not None and _spare["proc"].poll() is None:
+            return
+        try:
+            proc = _start_worker()
+        except Exception:  # noqa: BLE001 - a spare is only ever a head start
+            return
+        _spare["proc"], _spare["key"] = proc, _spare_key()
+        _loose.add(proc)
+
+
+@atexit.register
+def _drop_spare() -> None:
+    with _spare_lock:
+        proc = _spare["proc"]
+        _spare["proc"] = _spare["key"] = None
+    if proc is not None:
+        _loose.discard(proc)
+        _kill(proc)
+
+
+def _popen(task: dict) -> subprocess.Popen:
+    proc = _take_spare() or _start_worker()
     proc.stdin.write(json.dumps(task) + "\n")
     proc.stdin.close()
+    warm()  # the next one, ready for whatever comes after
     return proc
 
 
@@ -62,6 +123,8 @@ _loose: set = set()  # workers started outside the queue (search, lookups): stop
 
 
 def stop_loose() -> None:
+    with _spare_lock:
+        _spare["proc"] = _spare["key"] = None
     for p in list(_loose):
         _kill(p)
 
