@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.3.3 is the latest release (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.4.0 is the latest release (speed keys on every keyboard layout: [ ] or < >, N for normal; says Slowest or Fastest at the ends; fixes the Mac player's clock freezing after starting at a speed, and a speed change starting a paused player). 3.3.3 (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -526,6 +526,20 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    and no help tag on the Mac, on purpose. Anything run on every move through a list must
    not touch other controls or the layout unless something changed: Search relabelled Play
    Selected and re-laid out the window on every arrow press.
+35. **On the Mac, Play straight followed by a playback rate freezes AVFoundation's clock.**
+   Measured on a bare MediaCtrl at 1.5: 7 starts in 12 froze `Tell()` for seconds (the
+   sound carried on; the time, slider, captions, audio description and saved place
+   stopped). A burst of rate changes (] five times quickly) did it too. Setting the rate
+   alone starts the player on the Mac and never froze in 24 runs, so `_play()` does that
+   there; Windows keeps Play, then the rate. And because a rate starts a paused Mac player,
+   changing the speed while paused used to start it silently, so Space then paused it:
+   speed keys are said at once but reach the media 150 ms after the last press, and only
+   while it's playing. Trace `Tell()` every quarter second to see this; a single reading
+   can't tell a frozen clock from a slow one.
+36. **Speed keys go by the character typed, not the key.** [ ] and \ need Option or AltGr
+   on German, French and Nordic layouts, so a bare-key check never fired there. < and >
+   (Shift-Comma, Shift-Period; their own key on ISO keyboards) and N work on every layout.
+   Option-N is a dead key for accents and is not "normal".
 
 ## Tested
 

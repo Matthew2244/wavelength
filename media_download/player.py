@@ -2,8 +2,8 @@
 
 Built for listening first and looking second, and fine for both:
 - Space plays and pauses; Left and Right skip (the length is a setting), Shift for a
-  minute; Command-Left and Right change item; [ and ] change speed, without changing
-  pitch; T says the time; C turns captions on and off. Every one is also in the
+  minute; Command-Left and Right change item; [ and ] (or < and >) change speed, without
+  changing pitch, and N or backslash makes it normal; T says the time; C turns captions on and off. Every one is also in the
   Playback menu and on a labelled button.
 - Nothing is spoken unless asked for (T, or a new item starting while the window is in
   the background). The title, time and captions are large on screen.
@@ -69,6 +69,30 @@ def captions_for(path: str) -> list:
     except OSError:
         pass
     return []
+
+
+# Speed keys by the character typed, not the key: [ ] and \ need Option or AltGr on many
+# layouts (German, French, Nordic...), so a bare-key check never fired there. < and > are
+# YouTube's keys and sit on Comma and Period, like the Windows Player menu's; N is on every
+# layout.
+SPEED_CHARS = {"[": "slower", "<": "slower", "]": "faster", ">": "faster", "\\": "normal", "n": "normal",
+               "N": "normal"}
+
+
+def speed_key(event) -> str | None:
+    """'slower', 'faster' or 'normal' for a key press, or None. Command or Control means a
+    shortcut for something else, so those never count."""
+    if event.ControlDown() or event.RawControlDown() or event.MetaDown():
+        return None
+    ch = event.GetUnicodeKey()
+    key = event.GetKeyCode()
+    typed = chr(ch) if ch and ch != wx.WXK_NONE else (chr(key) if 0 < key < 256 else "")
+    if event.ShiftDown() and key in (ord(","), ord(".")) and typed in (",", "."):
+        typed = "<" if key == ord(",") else ">"  # the key code is the unshifted one
+    if typed in ("n", "N") and event.GetModifiers() not in (0, wx.MOD_SHIFT):
+        return None  # Option-N is a dead key for accents, not "normal"
+    what = SPEED_CHARS.get(typed)
+    return what
 
 
 def speed_words(v: float) -> str:
@@ -195,7 +219,7 @@ class PlayerFrame(wx.Frame):
         self.speed_choice.SetSelection(SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL)
         mac_accessibility_label(self.speed_choice, "Speed")
         self.speed_choice.SetToolTip("How fast it plays, a quarter speed to three times, without changing the pitch. "
-                                     "Remembered. [ and ] step it; backslash goes back to normal.")
+                                     "Remembered. [ and ], or < and >, step it; N goes back to normal.")
         vlab = wx.StaticText(p, label="Volume:")
         self.volume = wx.Slider(p, value=int(self.base_volume * 100), minValue=0, maxValue=100, size=(160, -1))
         mac_accessibility_label(self.volume, "Volume")
@@ -271,7 +295,7 @@ class PlayerFrame(wx.Frame):
             item = m.Append(wid, label)
             self.Bind(wx.EVT_MENU, lambda e: fn(), item)
             return item
-        # Plain keys (Space, arrows, T, C, [ and ]) are handled by on_key and written into the
+        # Plain keys (Space, arrows, T, C, speed) are handled by on_key and written into the
         # names so the menu teaches them; menus can't carry bare keys on every system.
         add("Play or Pause (Space)", self.toggle)
         add("Back (Left Arrow)", lambda: self.skip(-self.skip_len()))
@@ -282,9 +306,9 @@ class PlayerFrame(wx.Frame):
         add("Previous Item\tCtrl+Left", lambda: self.go(-1))
         add("Next Item\tCtrl+Right", lambda: self.go(+1))
         m.AppendSeparator()
-        add("Slower ([)", lambda: self.step_speed(-1))
-        add("Faster (])", lambda: self.step_speed(+1))
-        add("Normal Speed (\\)", lambda: self.set_speed(1.0))
+        add("Slower ([ or <)", lambda: self.step_speed(-1))
+        add("Faster (] or >)", lambda: self.step_speed(+1))
+        add("Normal Speed (N)", lambda: self.set_speed(1.0))
         add("Louder\tCtrl+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.1)))
         add("Quieter\tCtrl+Down", lambda: self.set_volume(max(0.0, self.base_volume - 0.1)))
         add("A Little Louder\tCtrl+Shift+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.02)))
@@ -515,8 +539,7 @@ class PlayerFrame(wx.Frame):
         is_video = self._is_video()
         self._show_video(is_video)
         self.media.SetVolume(self.out_volume())
-        self.media.Play()
-        self.media.SetPlaybackRate(self.speed)
+        self._play()
         self._load_description()
         key = self._key()
         resume = self.positions.get(key) if self.cfg.get("app_resume", True) and not live else 0
@@ -599,8 +622,7 @@ class PlayerFrame(wx.Frame):
         if self.ad_paused:
             self.ad_paused = False
             if resume and self.loaded:
-                self.media.Play()  # the item stays wherever it was paused
-                self.media.SetPlaybackRate(self.speed)
+                self._play()  # the item stays wherever it was paused
 
     def cycle_ad(self):
         order = [m for m, _ in AD_MODES]
@@ -666,6 +688,19 @@ class PlayerFrame(wx.Frame):
             cue("queue_end")
             self._update_buttons()
 
+    def _play(self):
+        """Start, at the chosen speed. On the Mac a rate starts the player by itself, and Play
+        straight followed by a rate froze AVFoundation's clock for seconds 7 times in 12 at 1.5
+        (the sound went on; the time, slider, captions and saved place stopped). Measured on a
+        bare MediaCtrl, 2026-10-14; setting the rate alone never froze. Windows' player isn't
+        started by a rate, and resets it on Play, so there it's Play, then the rate."""
+        if sys.platform == "darwin" and self.speed != 1.0:
+            self.media.SetPlaybackRate(self.speed)
+        else:
+            self.media.Play()
+            if self.speed != 1.0:
+                self.media.SetPlaybackRate(self.speed)
+
     def playing(self) -> bool:
         return self.media.GetState() == wx.media.MEDIASTATE_PLAYING
 
@@ -689,8 +724,7 @@ class PlayerFrame(wx.Frame):
                     self.media.SetVolume(self.out_volume())
             self.say("Paused at %s." % words.clock_words(self.media.Tell() / 1000))
         else:
-            self.media.Play()
-            self.media.SetPlaybackRate(self.speed)  # some systems reset the rate on play
+            self._play()
             if self.sleep_left:
                 self.sleep_at, self.sleep_left = time.time() + self.sleep_left, 0.0
             self.say("Playing.")
@@ -729,15 +763,29 @@ class PlayerFrame(wx.Frame):
         if value in SPEEDS:
             self.speed_choice.SetSelection(SPEEDS.index(value))
         if self.loaded:
-            self.media.SetPlaybackRate(value)
+            # Said at once, handed to the media a beat after the last press: on the Mac a burst of
+            # rate changes (] five times quickly) could freeze AVFoundation's clock for seconds,
+            # stopping the time, the slider and the saved place. Measured 2026-10-14.
+            if getattr(self, "_rate_later", None):
+                self._rate_later.Stop()
+            self._rate_later = wx.CallLater(150, self._apply_rate)
         self.cfg["app_speed"] = value
         engine.save_settings(self.cfg)
         self.say("Speed: %s." % speed_words(value))
 
+    def _apply_rate(self):
+        # Only while playing: on the Mac, setting a rate starts a paused player, so changing the
+        # speed while paused used to start it silently and Space then paused it. Play sets it.
+        if self and self.loaded and self.playing():
+            self.media.SetPlaybackRate(self.speed)
+
     def step_speed(self, d: int):
         k = SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL
-        k = max(0, min(len(SPEEDS) - 1, k + d))
-        self.set_speed(SPEEDS[k])
+        to = max(0, min(len(SPEEDS) - 1, k + d))
+        if to == k and self.speed in SPEEDS:  # at the end: say so, rather than the same speed again
+            self.say("%s, %s." % ("Slowest" if d < 0 else "Fastest", speed_words(self.speed).lower()))
+            return
+        self.set_speed(SPEEDS[to])
 
     def out_volume(self) -> float:
         return 0.0 if self.muted else self.base_volume
@@ -957,7 +1005,7 @@ class PlayerFrame(wx.Frame):
             event.Skip()
 
     def on_key(self, event):
-        """Plain keys for playing: Space, arrows, T, C, [ and ]. Not while typing or in the queue."""
+        """Plain keys for playing: Space, arrows, T, C, speed. Not while typing or in the queue."""
         focus = self.FindFocus()
         for native in (self.slider, self.volume):  # wx doesn't see a focused slider; the Mac does
             if mac_has_focus(native):
@@ -973,7 +1021,11 @@ class PlayerFrame(wx.Frame):
             event.Skip()
             return
         mods = event.GetModifiers()
-        if key == wx.WXK_SPACE and not isinstance(focus, (wx.Button, wx.Choice, wx.CheckBox)) and mods == 0:
+        speed = speed_key(event)
+        if speed:
+            {"slower": lambda: self.step_speed(-1), "faster": lambda: self.step_speed(+1),
+             "normal": lambda: self.set_speed(1.0)}[speed]()
+        elif key == wx.WXK_SPACE and not isinstance(focus, (wx.Button, wx.Choice, wx.CheckBox)) and mods == 0:
             self.toggle()
         elif key in (wx.WXK_LEFT, wx.WXK_RIGHT) and focus is not self.volume:
             # On the position slider too: steps of the skip length, not the slider's own.
@@ -994,12 +1046,6 @@ class PlayerFrame(wx.Frame):
             self.toggle_captions()
         elif mods == 0 and key in (ord("D"), ord("d")):
             self.cycle_ad()
-        elif mods == 0 and key == ord("["):
-            self.step_speed(-1)
-        elif mods == 0 and key == ord("]"):
-            self.step_speed(+1)
-        elif mods == 0 and key == ord("\\"):
-            self.set_speed(1.0)
         elif key == wx.WXK_ESCAPE:
             self.Close()
         else:

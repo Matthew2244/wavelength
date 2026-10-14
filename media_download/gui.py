@@ -1903,7 +1903,8 @@ class MainFrame(wx.Frame):
                 lines.extend(found)
                 lines.append("")
         lines.append("In the player: Space plays and pauses, Left and Right skip, Shift with them a minute, "
-                     "T says the time, C captions, D audio description, [ and ] speed, Escape closes. "
+                     "T says the time, C captions, D audio description, [ and ] or < and > speed, N normal speed, "
+                     "Escape closes. "
                      "%s goes back to the downloads window, and %s from there to the player."
                      % (key_words("Ctrl+1"), key_words("Ctrl+2")))
         self.details.SetValue("Keyboard shortcuts\n\n" + "\n".join(lines).strip())

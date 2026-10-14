@@ -947,3 +947,111 @@ def test_check_list_rows_read_once(frame):
     lst.Destroy()
     assert seen == [[("AXCheckBox", "1. Blue in Green", "0"), ("AXTextField", None, "")],
                     [("AXCheckBox", "2. All Blues", "1"), ("AXTextField", None, "")]]
+
+
+def _press(code=0, uni=0, shift=False, alt=False, cmd=False, ctrl=False):
+    k = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+    k.SetKeyCode(code)
+    k.SetUnicodeKey(uni)
+    k.SetShiftDown(shift)
+    k.SetAltDown(alt)
+    k.SetControlDown(cmd)
+    k.SetRawControlDown(ctrl)
+    return k
+
+
+def test_speed_keys_on_any_layout():
+    from media_download.player import speed_key
+    # US: the bare keys
+    assert speed_key(_press(ord("["), ord("["))) == "slower"
+    assert speed_key(_press(ord("]"), ord("]"))) == "faster"
+    assert speed_key(_press(ord("\\"), ord("\\"))) == "normal"
+    assert speed_key(_press(ord("N"), ord("n"))) == "normal"
+    # < and >: by character, and by Shift-Comma / Shift-Period when only the key code is known
+    assert speed_key(_press(ord(","), ord("<"), shift=True)) == "slower"
+    assert speed_key(_press(ord("."), ord(">"), shift=True)) == "faster"
+    assert speed_key(_press(ord(","), 0, shift=True)) == "slower"
+    assert speed_key(_press(ord("."), 0, shift=True)) == "faster"
+    # German Mac: [ is Option-5, < has its own key
+    assert speed_key(_press(ord("5"), ord("["), alt=True)) == "slower"
+    assert speed_key(_press(ord("<"), ord("<"))) == "slower"
+    # Not speed: plain comma and period, Option-N (an accent), and anything with Command or Control
+    assert speed_key(_press(ord(","), ord(","))) is None
+    assert speed_key(_press(ord("N"), 0, alt=True)) is None
+    assert speed_key(_press(ord("]"), ord("]"), cmd=True)) is None
+    assert speed_key(_press(ord("N"), ord("n"), ctrl=True)) is None
+    assert speed_key(_press(ord("T"), ord("t"))) is None
+
+
+def test_player_speed_keys_and_ends(frame, monkeypatch):
+    from media_download import player
+    monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
+    said = []
+    monkeypatch.setattr(player, "announce", lambda t: said.append(t))
+    pl = player.PlayerFrame(frame)
+    try:
+        monkeypatch.setattr(pl, "FindFocus", lambda: pl.play_btn)
+        pl.set_speed(1.0)
+        pl.on_key(_press(ord("]"), ord("]")))
+        assert pl.speed == 1.1 and said[-1] == "Speed: 1.1 times."
+        pl.on_key(_press(ord(","), ord("<"), shift=True))
+        assert pl.speed == 1.0
+        pl.on_key(_press(ord("."), ord(">"), shift=True))
+        pl.on_key(_press(ord("N"), ord("n")))
+        assert pl.speed == 1.0 and said[-1] == "Speed: Normal."
+        pl.set_speed(3.0)
+        pl.on_key(_press(ord("]"), ord("]")))
+        assert pl.speed == 3.0 and said[-1] == "Fastest, 3 times."
+        pl.set_speed(0.25)
+        pl.on_key(_press(ord("["), ord("[")))
+        assert said[-1] == "Slowest, 0.25 times."
+        # Typing in a text field is typing, not speed
+        field = wx.TextCtrl(pl.panel)
+        monkeypatch.setattr(pl, "FindFocus", lambda: field)
+        pl.on_key(_press(ord("N"), ord("n")))
+        assert pl.speed == 0.25
+    finally:
+        pl.set_speed(1.0)
+        pl.Destroy()
+
+
+class _FakeMedia:
+    def __init__(self, playing):
+        self.calls, self._playing = [], playing
+
+    def Play(self):
+        self.calls.append("Play")
+
+    def SetPlaybackRate(self, r):
+        self.calls.append(("rate", r))
+
+    def GetState(self):
+        return wx.media.MEDIASTATE_PLAYING if self._playing else wx.media.MEDIASTATE_PAUSED
+
+
+def test_player_starts_at_speed_in_one_step(frame, monkeypatch):
+    """Play then a rate, back to back, froze the Mac's media clock 7 times in 12; a paused player
+    must stay paused when the speed changes (a rate alone starts it on the Mac)."""
+    import wx.media  # noqa: F401
+    from media_download import player
+    monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(player, "announce", lambda t: None)
+    pl = player.PlayerFrame(frame)
+    real = pl.media
+    try:
+        for plat, speed, want in [("darwin", 1.5, [("rate", 1.5)]), ("darwin", 1.0, ["Play"]),
+                                  ("win32", 1.5, ["Play", ("rate", 1.5)]), ("win32", 1.0, ["Play"])]:
+            monkeypatch.setattr(player.sys, "platform", plat)
+            pl.media, pl.speed = _FakeMedia(False), speed
+            pl._play()
+            assert pl.media.calls == want, (plat, speed)
+        pl.loaded = True
+        pl.media = _FakeMedia(False)
+        pl._apply_rate()
+        assert pl.media.calls == []  # paused stays paused; Play applies the speed later
+        pl.media = _FakeMedia(True)
+        pl._apply_rate()
+        assert pl.media.calls == [("rate", pl.speed)]
+    finally:
+        pl.media, pl.loaded = real, False
+        pl.Destroy()
