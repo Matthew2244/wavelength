@@ -515,7 +515,8 @@ def custom_dir() -> str:
 def custom_sounds() -> list[tuple[str, str]]:
     """Imported sounds: (file name, the name people see)."""
     try:
-        names = sorted(f for f in os.listdir(custom_dir()) if f.lower().endswith((".wav", ".mp3", ".aiff", ".m4a")))
+        names = sorted(f for f in os.listdir(custom_dir()) if f.lower().endswith((".wav", ".mp3", ".aiff", ".m4a"))
+                       and ".part." not in f)
     except OSError:
         return []
     return [(f, os.path.splitext(f)[0]) for f in names]
@@ -571,8 +572,8 @@ def _scaled_wav(path: str, volume: float) -> str:
     with wave.open(path, "rb") as r:
         params = r.getparams()
         frames = r.readframes(r.getnframes())
-    if params.sampwidth != 2:
-        return path
+    if params.sampwidth != 2 or params.nframes > params.framerate * 30:
+        return path  # 16-bit only, and not a long file on the main thread
     samples = array.array("h", frames)
     if sys.byteorder != "little":
         samples.byteswap()
@@ -581,9 +582,11 @@ def _scaled_wav(path: str, volume: float) -> str:
     if sys.byteorder != "little":
         samples.byteswap()
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    with wave.open(out, "wb") as w:
+    tmp = out + ".tmp"
+    with wave.open(tmp, "wb") as w:  # whole or not at all: a half-written copy would be reused forever
         w.setparams(params)
         w.writeframes(samples.tobytes())
+    os.replace(tmp, out)
     return out
 
 
@@ -626,17 +629,24 @@ def import_sound(src: str) -> tuple[str | None, str]:
     stem = re.sub(r"[^\w\- ]+", "", os.path.splitext(os.path.basename(src))[0]).strip()[:60] or "sound"
     os.makedirs(custom_dir(), exist_ok=True)
     name, k = stem, 2
-    while any(os.path.splitext(f)[0] == name for f, _ in custom_sounds()):
+    while any(os.path.splitext(f)[0].lower() == name.lower() for f, _ in custom_sounds()):  # Mac and Windows ignore case
         name, k = "%s %d" % (stem, k), k + 1
     ffmpeg = find_tool("ffmpeg")
     if ffmpeg:
         out = os.path.join(custom_dir(), name + ".wav")
-        r = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", src, "-vn", "-ac", "2", "-ar", "44100",
-                            "-c:a", "pcm_s16le", out], capture_output=True, text=True, timeout=300, **hidden_window())
-        if r.returncode == 0 and os.path.exists(out) and os.path.getsize(out) > 100:
-            return name + ".wav", "Imported %s." % name
+        part = out + ".part.wav"
         try:
-            os.remove(out)
+            # The first 30 seconds: a sound for an action, never a whole song or mix.
+            r = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", src, "-vn", "-t", "30", "-ac", "2", "-ar", "44100",
+                                "-c:a", "pcm_s16le", part], capture_output=True, text=True, timeout=120,
+                               **hidden_window())
+            if r.returncode == 0 and os.path.exists(part) and os.path.getsize(part) > 100:
+                os.replace(part, out)
+                return name + ".wav", "Imported %s." % name
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            os.remove(part)
         except OSError:
             pass
         return None, "That file couldn't be read as sound."
@@ -645,7 +655,10 @@ def import_sound(src: str) -> tuple[str | None, str]:
     if ext not in ok:
         return None, ("Only %s files can be imported until the helper tools are here (Help, Get Helper Tools)."
                       % " or ".join(e[1:].upper() for e in ok))
-    shutil.copyfile(src, os.path.join(custom_dir(), name + ext))
+    try:
+        shutil.copyfile(src, os.path.join(custom_dir(), name + ext))
+    except OSError as exc:
+        return None, "That file couldn't be copied: %s." % exc.strerror
     return name + ext, "Imported %s." % name
 
 

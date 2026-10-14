@@ -107,7 +107,8 @@ class Job:
         if self.transcript:
             bits.append("with a text transcript")
         if self.cookies:
-            bits.append("using %s sign-in" % self.cookies.capitalize())
+            from .accounts import spec_words
+            bits.append("using %s's sign-in" % spec_words(self.cookies))
         return ", ".join(bits)
 
     def reset_progress(self):

@@ -549,3 +549,22 @@ def test_play_first_list_has_no_default_and_plays_all(frame):
     dlg._count()
     assert dlg.ok.GetLabel() == "Play Checked (1)" and [e["title"] for e in dlg.chosen()] == ["T1"]
     dlg.Destroy()
+
+
+def test_window_fits_a_small_screen(frame):
+    from media_download import geometry
+    area = wx.Display(0).GetClientArea()
+    cfg = wx.Config("wavelength-test-geometry")
+    cfg.Write("w", "%d,%d,%d,%d" % (area.x + 10, area.y + 10, area.width + 900, area.height + 900))
+    assert geometry.restore(frame, cfg, "w")
+    r = frame.GetRect()
+    assert r.width <= area.width and r.height <= area.height and area.Contains(r.GetTopLeft())
+    cfg.DeleteAll()
+
+
+def test_long_lines_rewrap(frame):
+    dlg = wx.Dialog(frame, size=(400, 300))
+    t = gui.dialogs.WrapText(dlg, "")
+    t.SetLabel("word " * 80)
+    assert t.GetLabel() == "word " * 80  # the whole text, whatever the wrapping
+    dlg.Destroy()

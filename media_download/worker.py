@@ -543,7 +543,8 @@ def do_describe(yt_dlp, task):
             emit("stage", text="Getting a small copy of the picture")
             logger = Logger()
             args = ["-f", "bv*[height<=480][height>=200]/b[height<=480]/bv*/b", "-P", work, "-o", "video.%(ext)s",
-                    "--no-playlist"] + tool_flags()
+                    "--no-playlist"] + (["--cookies-from-browser", spec["cookies"]] if spec.get("cookies") else []) \
+                + tool_flags()
             got = {}
             ydl = _make_ydl(yt_dlp, args, logger, {"post_hooks": [lambda p: got.__setitem__("path", p)]})
             with ydl:
@@ -571,8 +572,15 @@ def do_describe(yt_dlp, task):
             emit("log", text="ERROR: Claude didn't return any description")
             emit("end", ok=False)
             return
-        folder = os.path.join(spec["dest"], spec["subfolder"]) if spec.get("subfolder") else spec["dest"]
-        for path in describe.write_outputs(rows, folder, title):
+        source = spec.get("source_path") or ""
+        if source and os.path.exists(source):
+            # Beside the video, named after it, which is where the player looks for it.
+            folder, stem = os.path.dirname(source), os.path.splitext(os.path.basename(source))[0]
+        else:
+            from .options import _safe_folder
+            folder = os.path.join(spec["dest"], _safe_folder(spec["subfolder"])) if spec.get("subfolder") else spec["dest"]
+            stem = None
+        for path in describe.write_outputs(rows, folder, title, stem):
             emit("file", path=path)
         emit("described", url=spec["url"], count=len(rows))
         emit("end", ok=True)

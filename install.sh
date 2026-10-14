@@ -18,7 +18,7 @@ fail() { printf '%s\n' "$*" >&2; exit 1; }
 # ---------------------------------------------------------------- uninstall
 
 if [ "$UNINSTALL" = yes ]; then
-  say "Removing ytdl-accessible."
+  say "Removing Wavelength, ytdl and ytdescribe."
   for d in "$HOME/bin" "$HOME/.local/bin" /usr/local/bin; do
     for t in ytdl ytdescribe; do
       if [ -L "$d/$t" ] && [ "$(readlink "$d/$t")" = "$HERE/$t" ]; then
@@ -26,7 +26,8 @@ if [ "$UNINSTALL" = yes ]; then
       fi
     done
   done
-  for a in "/Applications/Wavelength.app" "$HOME/Applications/Wavelength.app"; do
+  for a in "/Applications/Wavelength.app" "$HOME/Applications/Wavelength.app" \
+           "/Applications/Media Download.app" "$HOME/Applications/Media Download.app"; do
     [ -d "$a" ] && rm -rf "$a" && say "  removed $a"
   done
   say ""
@@ -35,7 +36,7 @@ if [ "$UNINSTALL" = yes ]; then
   exit 0
 fi
 
-say "Installing ytdl-accessible."
+say "Installing Wavelength, ytdl and ytdescribe."
 say ""
 
 # ---------------------------------------------------------------- 1. checks
@@ -112,7 +113,7 @@ say "Step 4 of 4. Getting the Wavelength app."
 APPDIR="/Applications"
 [ -w "$APPDIR" ] || APPDIR="$HOME/Applications"
 mkdir -p "$APPDIR"
-ZIPURL="https://github.com/Matthew2244/ytdl-accessible/releases/latest/download/Wavelength-mac.zip"
+ZIPURL="https://github.com/Matthew2244/wavelength/releases/latest/download/Wavelength-mac.zip"
 TMPD="$(mktemp -d)"
 if curl -fsSL -o "$TMPD/app.zip" "$ZIPURL" && ditto -x -k "$TMPD/app.zip" "$TMPD/x" && [ -d "$TMPD/x/Wavelength.app" ]; then
   rm -rf "$APPDIR/Wavelength.app"
@@ -122,7 +123,7 @@ if curl -fsSL -o "$TMPD/app.zip" "$ZIPURL" && ditto -x -k "$TMPD/app.zip" "$TMPD
   [ -x "$LSREG" ] && "$LSREG" -f "$APPDIR/Wavelength.app" >/dev/null 2>&1
 else
   say "  Couldn't download the app. Get it by hand from:"
-  say "  https://github.com/Matthew2244/ytdl-accessible/releases/latest"
+  say "  https://github.com/Matthew2244/wavelength/releases/latest"
   say "  The ytdl command works either way."
 fi
 rm -rf "$TMPD"

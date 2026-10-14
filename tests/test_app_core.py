@@ -628,6 +628,24 @@ def test_old_folders_move_to_the_new_name(tmp_path, monkeypatch):
     engine._move_old_folders()
     assert (tmp_path / "Wavelength" / "downloads.json").exists() and not old_s.exists()
     assert (tmp_path / "Caches" / "Wavelength").is_dir()
-    old_s.mkdir()  # never over a folder that's already there
+    # A move that failed once left a fresh new folder: bring over what's missing, never overwrite.
+    old_s.mkdir()
+    (old_s / "downloads.json").write_text('{"old": 1}')
+    (old_s / "sounds").mkdir()
     engine._move_old_folders()
-    assert old_s.exists()
+    assert (tmp_path / "Wavelength" / "downloads.json").read_text() == "{}"  # the new one kept
+    assert (tmp_path / "Wavelength" / "sounds").is_dir() and (old_s / "downloads.json").exists()
+
+
+def test_app_never_undoes_a_change_made_by_the_command(tmp_path, monkeypatch):
+    import json as _json
+    from media_download import engine
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(_json.dumps({"format": "best", "notify": False}))
+    monkeypatch.setattr(engine, "CONFIG", str(cfg_file))
+    cfg = engine.load_settings()
+    cfg_file.write_text(_json.dumps({"format": "mp3", "notify": False}))  # `ytdl --set format=mp3` meanwhile
+    cfg["app_volume"] = 0.5  # the app changes only this
+    engine.save_settings(cfg)
+    saved = _json.loads(cfg_file.read_text())
+    assert saved["format"] == "mp3" and saved["app_volume"] == 0.5

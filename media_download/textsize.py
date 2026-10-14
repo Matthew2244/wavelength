@@ -8,7 +8,14 @@ Controls with a size of their own (the player's title, captions and clock) grow 
 """
 from __future__ import annotations
 
+import sys
+
 import wx
+
+# On Windows buttons, checkboxes and popups grow too; on the Mac a bigger font inside those
+# fixed-height controls is clipped, and a popup menu drew blank at 22 points.
+_GROW = (wx.StaticText, wx.TextCtrl, wx.ListBox, wx.CheckListBox) + (
+    (wx.Button, wx.CheckBox, wx.RadioButton, wx.Choice) if sys.platform == "win32" else ())
 
 current = 0   # chosen point size; 0 until the main window sets it
 default = 0   # the system's size, for proportion
@@ -25,7 +32,7 @@ def apply(win) -> None:
     if not current or not default or not win:
         return
     for c in _walk(win):
-        if not isinstance(c, (wx.StaticText, wx.TextCtrl, wx.ListBox, wx.CheckListBox)):
+        if not isinstance(c, _GROW):
             continue
         f = c.GetFont()
         base = getattr(c, "_base_pt", None)

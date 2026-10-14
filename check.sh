@@ -12,7 +12,7 @@ FAIL=0
 ok()   { printf '  ok    %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; FAIL=1; }
 
-echo "Checking ytdl-accessible."
+echo "Checking Wavelength, ytdl and ytdescribe."
 echo
 
 echo "Python syntax"

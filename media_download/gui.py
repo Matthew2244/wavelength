@@ -36,10 +36,11 @@ def M(label: str) -> str:
     return label.replace("&", "") if sys.platform == "darwin" else label
 
 
-HELP_URL = "https://github.com/Matthew2244/ytdl-accessible#readme"
+HELP_URL = "https://github.com/Matthew2244/wavelength#readme"
 DAY = 24 * 3600
 CMD = "Command" if sys.platform == "darwin" else "Control"
 FOLDER_APP = "Finder" if sys.platform == "darwin" else "File Explorer"
+ENTER = "Return" if sys.platform == "darwin" else "Enter"  # what the key is called on each system
 
 MORE_TIP = ("Just part of it, chapters, subtitles, a browser's sign-in, an exact stream, a file name. "
             "For the next download only.")
@@ -48,7 +49,7 @@ MILESTONES = (100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000)
 
 WELCOME = (
     "Welcome to Wavelength{name}.\n\n"
-    "Paste a link into the Link field and press Return. It works with about 1,750 sites: "
+    "Paste a link into the Link field and press " + ENTER + ". It works with about 1,750 sites: "
     "YouTube, SoundCloud, Bandcamp, Vimeo, the BBC, archive.org and many more. "
     "Or type some words and press Search to find something without visiting the site.\n\n"
     "Downloads appear in the list below, newest at the bottom. Select one to read everything about it here. "
@@ -84,9 +85,11 @@ class Drop(wx.DropTarget):
 
 class MainFrame(wx.Frame):
     def __init__(self):
-        super().__init__(None, title=APP_NAME, size=(900, 780))
+        super().__init__(None, title=APP_NAME, size=(900, 680))
         self.cfg = engine.load_settings()
-        self.ui = wx.Config(APP_NAME)
+        # Window places and the text size. Kept under the old name on purpose: renaming the store
+        # with the app would have quietly reset someone's Bigger Text after the update.
+        self.ui = wx.Config("Media Download")
         self.next_opts: dict = {}
         self.rows: list[int] = []
         self.row_text: list[str] = []
@@ -116,13 +119,13 @@ class MainFrame(wx.Frame):
         self._texts.append(lab)
         self.link = wx.TextCtrl(p, style=wx.TE_PROCESS_ENTER)
         self.link.SetHint("Paste a link, type words to search, or drag links here")
-        self.link.SetToolTip("Paste a link and press Return to download it. Paste several at once and each "
-                             "gets its own row. Or type words and press Return to search.")
+        self.link.SetToolTip("Paste a link and press %s to download it. Paste several at once and each "
+                             "gets its own row. Or type words and press %s to search." % (ENTER, ENTER))
         mac_accessibility_label(self.link, "Link or search words")
         self.download_btn = wx.Button(p, label=M("Dow&nload"))
-        self.download_btn.SetToolTip("Download the link in the Link field (Return).")
+        self.download_btn.SetToolTip("Download the link in the Link field (%s)." % ENTER)
+        self.play_link_btn = wx.Button(p, label=M("&Play Link"))  # made before Search: Tab follows the layout
         self.search_btn = wx.Button(p, label=M("Sear&ch..."))
-        self.play_link_btn = wx.Button(p, label=M("&Play"))
         self.play_link_btn.SetToolTip("Play the link without downloading it. Paste several to play them in turn "
                                       "(%s-Shift-Return)." % CMD)
         self.search_btn.SetToolTip("Search YouTube, SoundCloud or YouTube Music by words (%s-F)." % CMD)
@@ -198,7 +201,7 @@ class MainFrame(wx.Frame):
         self.list = wx.ListBox(p, style=wx.LB_SINGLE)
         mac_accessibility_label(self.list, "Downloads")
         windows_name(self.list, "Downloads")
-        self.list.SetToolTip("Select a download to read about it below. Return opens the file; "
+        self.list.SetToolTip("Select a download to read about it below. " + ENTER + " opens the file; "
                              "Delete removes the row (never the file).")
         s.Add(self.list, 3, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
@@ -210,7 +213,7 @@ class MainFrame(wx.Frame):
         s.Add(self.details, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.play_btn = wx.Button(p, label=M("Play"))
+        self.play_btn = wx.Button(p, label=M("Play Selected"))
         self.play_btn.SetToolTip("Play the selected download here (%s-P)." % CMD)
         self.open_btn = wx.Button(p, label=M("&Open"))
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
@@ -269,7 +272,9 @@ class MainFrame(wx.Frame):
         self.SetDropTarget(Drop(self))
         self.list.SetDropTarget(Drop(self))
 
-        geometry.restore(self, self.ui, "window")
+        if not geometry.restore(self, self.ui, "window"):
+            geometry.fit_on_screen(self)
+            self.Centre()
         self.milestone = ""
         self._update_folder_text()
         self._update_height_enabled()
@@ -287,6 +292,7 @@ class MainFrame(wx.Frame):
             self.tell("%s didn't finish last time. Choose Resume Unfinished in the Downloads menu to carry on."
                       % words.n(unfinished, "download"))
         engine.clean_temp()
+        self.started = False
         wx.CallLater(800, self.startup_checks)
 
     # -------------------------------------------------------- menus
@@ -450,8 +456,9 @@ class MainFrame(wx.Frame):
             return
         entries = lst["entries"]
         dlg = dialogs.CheckList(self, lst.get("title") or "Your list",
-                                "%s: %s. Check the ones to play with Space, or press Return to play them all. "
-                                "Nothing is downloaded unless you choose Download Checked Instead."
+                                "%s: %s. Check the ones to play with Space, then Play Checked; with nothing "
+                                "checked it says Play All. Nothing is downloaded unless you choose Download "
+                                "Checked Instead."
                                 % (lst.get("title") or "Your list", words.n(len(entries), "item")),
                                 entries, checked=False, mode="play")
         go = dlg.ShowModal() == wx.ID_OK
@@ -845,8 +852,9 @@ class MainFrame(wx.Frame):
         self.folder_text.SetToolTip(to)
         self.panel.Layout()
 
-    def on_folder(self, _):
-        with wx.DirDialog(self, "Choose where downloads are saved", self.cfg["to"]) as dlg:
+    def on_folder(self, _, parent=None):
+        # `parent`: the window asking (the welcome tour), so the question sits on top of it
+        with wx.DirDialog(parent or self, "Choose where downloads are saved", self.cfg["to"]) as dlg:
             if dlg.ShowModal() == wx.ID_OK:
                 self.cfg["to"] = dlg.GetPath()
                 engine.save_settings(self.cfg)
@@ -1060,9 +1068,20 @@ class MainFrame(wx.Frame):
 
     # -------------------------------------------------------- playlists
 
+    def _modal_open(self) -> bool:
+        return any(isinstance(w, wx.Dialog) and w.IsModal() for w in wx.GetTopLevelWindows())
+
     def _ask_next_playlist(self):
         if self.asking or not self.pending_playlists:
             return
+        if self._modal_open():
+            # Never pop a question up over another window someone is in: wait until it closes.
+            if not getattr(self, "said_waiting_question", False):
+                self.said_waiting_question = True
+                self.tell("A playlist needs your answer; it asks when this window closes.")
+            wx.CallLater(800, self._ask_next_playlist)
+            return
+        self.said_waiting_question = False
         self.asking = True
         job, data = self.pending_playlists.pop(0)
         try:
@@ -1288,6 +1307,9 @@ class MainFrame(wx.Frame):
         if self.player is None:
             self.player = PlayerFrame(self)
             textsize.apply(self.player)
+        came_from = wx.Window.FindFocus()
+        if came_from and wx.GetTopLevelParent(came_from) is not self.player:
+            self.player.came_from = came_from  # Escape goes back here, not to some other window
         self.player.set_queue(items, start)
         if focus:
             self.player.Show()
@@ -1404,7 +1426,8 @@ class MainFrame(wx.Frame):
         def make():
             video = path if path and os.path.splitext(path)[1].lower() in (".mp4", ".m4v", ".mov", ".mkv", ".webm") \
                 else ""
-            job = Job(url=url, dest=self.cfg["to"], task="describe", source_path=video)
+            job = Job(url=url, dest=os.path.dirname(video) if video else self.cfg["to"], task="describe",
+                      source_path=video, cookies=accounts.signin(self.cfg))
             job.title = title
             job.probed = True
             self.mgr.add(job)
@@ -1511,7 +1534,7 @@ class MainFrame(wx.Frame):
         job.cookies = choice
         job.engine_retry = False
         self.mgr.retry(job)
-        self.tell("Trying again with %s's sign-in: %s." % (choice.capitalize(), words.job_name(job)))
+        self.tell("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice), words.job_name(job)))
 
     def on_retry_failed(self, _):
         with self.mgr.lock:
@@ -1675,6 +1698,13 @@ class MainFrame(wx.Frame):
         event.Skip()
         if not event.GetActive() or not self.cfg.get("app_clipboard", True):
             return
+        if not getattr(self, "started", False) or self._modal_open():
+            return  # not over the welcome tour or the first questions
+        wx.CallLater(800, self._check_clipboard)  # after VoiceOver has read the window coming forward
+
+    def _check_clipboard(self):
+        if not self or not self.IsActive() or self._modal_open():
+            return
         if self.link.GetValue().strip():
             return
         text = self._clipboard_text().strip()
@@ -1698,8 +1728,8 @@ class MainFrame(wx.Frame):
             return
         self.link.SetValue(url)
         self.link.SelectAll()
-        self.tell("Link from the clipboard, %s. Press Return in the Link field to download it."
-                  % words.site_name(url))
+        self.tell(("Link from the clipboard, %s. Press %s in the Link field to download it."
+                   % (words.site_name(url), ENTER)))
 
     # -------------------------------------------------------- text size (low vision)
 
@@ -1711,17 +1741,24 @@ class MainFrame(wx.Frame):
             if w:
                 textsize.apply(w)
         sb = self.GetStatusBar()
-        if sb:  # the status bar is the only place tell() shows for the eye
+        if sb:  # the status bar is the only place tell() shows for the eye: big enough to read
             f = sb.GetFont()
             f.SetPointSize(self.text_pt)
             sb.SetFont(f)
+            sb.SetMinHeight(int(sb.GetCharHeight() * 1.6))
+            self.SendSizeEvent()
         for c in [self.list, self.details, self.link] + self._texts:
             f = c.GetFont()
             f.SetPointSize(self.text_pt)
             c.SetFont(f)
         for c in self._texts:
             c.InvalidateBestSize()
-            c.SetMinSize(c.GetBestSize())
+            if c in (getattr(self, "folder_text", None), getattr(self, "opts_text", None)):
+                # These change with the folder and the options: pinned to today's width, a longer one
+                # tomorrow was cut off and pushed the buttons beside them off the window.
+                c.SetMinSize((60, c.GetBestSize().height))
+            else:
+                c.SetMinSize(c.GetBestSize())
         self._fit_choices()
         self.panel.Layout()
 
@@ -1740,8 +1777,8 @@ class MainFrame(wx.Frame):
     def show_shortcuts(self):
         """Read from the menus themselves, so the list can't fall behind them (it had: Play,
         Remove, Close Window and a dozen more were missing)."""
-        lines = ["Return in the Link field: download the link, or search if it's words.",
-                 "In the list: Return opens the file, Delete removes the row.",
+        lines = ["%s in the Link field: download the link, or search if it's words." % ENTER,
+                 "In the list: %s opens the file, Delete removes the row." % ENTER,
                  "On any list, its right-click menu: %s-K, or %s." % (
                      "Command" if sys.platform == "darwin" else "Control",
                      "VO-Shift-M with VoiceOver" if sys.platform == "darwin" else "Shift-F10 or the Menu key"), ""]
@@ -1785,6 +1822,7 @@ class MainFrame(wx.Frame):
                     wx.CallAfter(self.SetStatusText, sentence)
             threading.Thread(target=work, daemon=True).start()
         self.quiet_update_check()
+        self.started = True
 
     def get_helpers(self, ask=True, missing=None):
         missing = missing if missing is not None else engine.missing_tools()
@@ -1935,6 +1973,16 @@ class MainFrame(wx.Frame):
     # -------------------------------------------------------- closing
 
     def on_close(self, event):
+        playing = self.player is not None and self.player.loaded and self.player.playing()
+        if playing and not self.mgr.busy() and event.CanVeto() and not getattr(self, "force_close", False):
+            dlg = wx.MessageDialog(self, "Something is playing. Quit Wavelength anyway?", "Quit while playing?",
+                                   wx.OK | wx.CANCEL | wx.CANCEL_DEFAULT)
+            dlg.SetOKCancelLabels("&Quit", "Cancel")
+            go = dlg.ShowModal() == wx.ID_OK
+            dlg.Destroy()
+            if not go:
+                event.Veto()
+                return
         if self.mgr.busy() and event.CanVeto() and not getattr(self, "force_close", False):
             c = self.mgr.counts()
             k = sum(c.get(s, 0) for s in ("downloading", "converting", "looking", "waiting"))
@@ -1992,6 +2040,11 @@ def key_words(accel: str) -> str:
 class App(wx.App):
     def OnInit(self):
         self.SetAppName(APP_NAME)
+        if sys.platform == "win32":  # follow Windows' dark mode, as the Mac already does by itself
+            try:
+                self.MSWEnableDarkMode()
+            except Exception:  # noqa: BLE001 - older Windows: stay light
+                pass
         self.frame = MainFrame()
         self.frame.Show()
         urls = [a for a in sys.argv[1:] if a.startswith("http")]

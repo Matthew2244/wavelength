@@ -201,6 +201,8 @@ class PlayerFrame(wx.Frame):
         self.download_btn = wx.Button(p, label="Download This")
         self.download_btn.SetToolTip("Keep a copy of what's playing, in the main window's format.")
         self.show_btn = wx.Button(p, label="Show File")
+        self.show_btn.SetToolTip("Shows the playing file in %s (%s-R)." % (
+            "Finder" if sys.platform == "darwin" else "File Explorer", "Command" if sys.platform == "darwin" else "Control"))
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         row.Add(self.speed_choice, 0, wx.RIGHT, 16)
         row.Add(vlab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
@@ -340,7 +342,9 @@ class PlayerFrame(wx.Frame):
             state = ("Playing" if i == self.index else "Next" if i == self.index + 1 else
                      "Played" if i < self.index else "Later")
             when = words.uploaded(it)
-            rows.append("%s: %s%s" % (state, it.get("title") or it.get("url") or it.get("path"),
+            name = it.get("title") or (os.path.basename(it["path"]) if it.get("path") else
+                                       words.short_link(it.get("url") or ""))  # never a whole address or path
+            rows.append("%s: %s%s" % (state, name,
                                       ", " + when if when else ""))
         self.qlist.Set(rows)
         if 0 <= self.index < len(rows):
@@ -1012,8 +1016,13 @@ class PlayerFrame(wx.Frame):
         if event.CanVeto():
             event.Veto()
         # Back to Search if it's open (a preview started there), else the downloads window.
-        back = getattr(self.main, "search_win", None) or self.main
-        back.Raise()
+        back = getattr(self, "came_from", None)
+        if back:  # back to the control it was opened from, in whichever window that was
+            top = wx.GetTopLevelParent(back)
+            top.Raise()
+            back.SetFocus()
+        else:
+            (getattr(self.main, "search_win", None) or self.main).Raise()
 
     def _fit_caption(self):
         """Grow the caption to however many lines it wrapped to, so a long description or a

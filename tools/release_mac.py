@@ -101,7 +101,7 @@ def main():
     # Sparkle's update list: this release, its download, and the EdDSA signature of exactly
     # this zip. Installed copies read it from releases/latest/download/appcast.xml.
     version = a.tag.lstrip("v")
-    url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/{ZIP}"
+    url = f"https://github.com/Matthew2244/wavelength/releases/download/{a.tag}/{ZIP}"
     notes = subprocess.run(["gh", "release", "view", a.tag, "--json", "body", "--jq", ".body"],
                            capture_output=True, text=True).stdout
     notes_file = os.path.join("dist", "release-notes.md")
@@ -119,7 +119,7 @@ def main():
     got = subprocess.run(["gh", "release", "download", a.tag, "-p", "Wavelength-Setup.exe", "-D", "dist"],
                          capture_output=True, text=True)
     if got.returncode == 0 and os.path.exists(setup):
-        win_url = f"https://github.com/Matthew2244/ytdl-accessible/releases/download/{a.tag}/Wavelength-Setup.exe"
+        win_url = f"https://github.com/Matthew2244/wavelength/releases/download/{a.tag}/Wavelength-Setup.exe"
         win_cast = os.path.join("dist", "appcast-windows.xml")
         with open(win_cast, "w") as f:
             run([sys.executable, os.path.join("tools", "appcast.py"), setup, version, win_url, notes_file,

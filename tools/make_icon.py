@@ -1,8 +1,11 @@
 """Draw the app icon: python tools/make_icon.py  ->  assets/icon.png, icon.icns, icon.ico
 
-A downward arrow landing on a sound wave, white on a deep blue-to-teal square.
-High contrast on purpose, so it reads at 16 pixels and to low vision.
+Wavelength: one bold sound wave, white on a deep indigo-to-teal square. (The arrow of the
+Media Download icon went with the old name: the app plays, searches and describes now, not
+only downloads.) High contrast and a thick line on purpose, so it reads at 16 pixels and to
+low vision; the wave's ends are rounded, so it doesn't fray when scaled down.
 """
+import math
 import os
 import subprocess
 import tempfile
@@ -13,30 +16,32 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 S = 1024
 img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 grad = Image.new("RGBA", (S, S))
-top, bottom = (24, 52, 140), (10, 150, 160)
+top, bottom = (36, 28, 120), (8, 146, 158)
 px = grad.load()
 for y in range(S):
-    t = y / (S - 1)
-    c = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,)
     for x in range(S):
-        px[x, y] = c
+        t = (0.75 * y + 0.25 * x) / (S - 1)
+        px[x, y] = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,)
 mask = Image.new("L", (S, S), 0)
 ImageDraw.Draw(mask).rounded_rectangle((100, 100, S - 100, S - 100), radius=185, fill=255)
 img.paste(grad, (0, 0), mask)
-d = ImageDraw.Draw(img)
+
+# The wave, drawn four times larger and shrunk, for smooth edges.
+B = 4
+big = Image.new("RGBA", (S * B, S * B), (0, 0, 0, 0))
+d = ImageDraw.Draw(big)
 W = (255, 255, 255, 255)
-# the arrow
-d.rectangle((452, 210, 572, 520), fill=W)
-d.polygon([(332, 480), (692, 480), (512, 680)], fill=W)
-# the sound wave it lands on
-import math
-pts = []
-for i in range(0, 601):
-    x = 212 + i
-    env = math.sin(math.pi * i / 600)
-    y = 790 - 70 * env * math.sin(i / 600 * 2 * math.pi * 4.5)
-    pts.append((x, y))
-d.line(pts, fill=W, width=34, joint="curve")
+x0, x1, mid, amp, width = 230, 794, 512, 150, 78
+# A thick line drawn as one stroke comes out striped where the wave is steep, so the wave is
+# stamped as round dots close enough to overlap into one solid, round-ended stroke.
+r = width * B / 2
+for i in range(0, 20001):
+    t = i / 20000
+    x = x0 + (x1 - x0) * t
+    env = 0.35 + 0.65 * math.sin(math.pi * t)  # taller in the middle, like a sound
+    y = mid - amp * env * math.sin(t * 2 * math.pi * 2)
+    d.ellipse((x * B - r, y * B - r, x * B + r, y * B + r), fill=W)
+img.alpha_composite(big.resize((S, S), Image.LANCZOS))
 out = os.path.join(ROOT, "assets")
 os.makedirs(out, exist_ok=True)
 img.save(os.path.join(out, "icon.png"))

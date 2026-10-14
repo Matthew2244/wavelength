@@ -58,9 +58,18 @@ def _kill(proc: subprocess.Popen) -> None:
         pass
 
 
+_loose: set = set()  # workers started outside the queue (search, lookups): stopped when the app quits
+
+
+def stop_loose() -> None:
+    for p in list(_loose):
+        _kill(p)
+
+
 def run_task(task: dict, on_event=None, timeout: float = 300) -> list[dict]:
     """Run one short task (search, recognise) to the end. Returns its events."""
     proc = _popen(task)
+    _loose.add(proc)
     events = []
     timer = threading.Timer(timeout, _kill, (proc,))
     timer.start()
@@ -76,6 +85,7 @@ def run_task(task: dict, on_event=None, timeout: float = 300) -> list[dict]:
     finally:
         timer.cancel()
         proc.wait()
+        _loose.discard(proc)
     return events
 
 
@@ -383,7 +393,12 @@ class Manager:
             if self.procs.get(job.id) != (run, None) or job.run != run or job.state not in ACTIVE:
                 self._release(job, run)
                 return None  # stopped, removed or restarted before it started
-            proc = _popen(task)
+            try:
+                proc = _popen(task)
+            except Exception as exc:  # noqa: BLE001 - a missing or blocked worker must still be said
+                job.spawn_error = "The download worker couldn't start (%s). Retry, or reinstall the app." % exc
+                self._release(job, run)
+                return None
             self.procs[job.id] = (run, proc)
             return proc
 
@@ -403,10 +418,16 @@ class Manager:
 
     def _run_probe(self, job: Job, run: int) -> None:
         playlist, ok, log = None, False, []
+        limit = None
         try:
             proc = self._spawn(job, {"task": "probe", "spec": job.spec()}, run)
             if proc is None:
                 return
+            # A lookup that never answers (a stalled site, a sign-in prompt nobody sees) must not
+            # hold one of the few lookup slots forever.
+            limit = threading.Timer(900, _kill, (proc,))
+            limit.daemon = True
+            limit.start()
             for ev in self._events(job, proc):
                 e = ev.get("ev")
                 if e == "info" and job.run == run:
@@ -426,6 +447,8 @@ class Manager:
                 elif e == "end":
                     ok = ev.get("ok", False)
         finally:
+            if limit:
+                limit.cancel()
             with self.lock:
                 self.probing -= 1
                 stopped = job.state != "looking" or job.run != run
@@ -445,7 +468,9 @@ class Manager:
                     else:
                         job.state = "failed"
                         job.log_tail = log[-12:]
-                        job.reason = words.explain_failure("\n".join(log), bool(job.cookies), job.site, job.cookies)
+                        job.reason = (getattr(job, "spawn_error", "") or
+                                      words.explain_failure("\n".join(log), bool(job.cookies), job.site, job.cookies))
+                        job.spawn_error = ""
                         job.finished = time.time()
                         self.batch_counts["failed"] += 1
                 self.dirty = True
@@ -546,7 +571,9 @@ class Manager:
                             retry_engine = True
                         else:
                             job.state = "failed"
-                            job.reason = words.explain_failure(text, bool(job.cookies), job.site, job.cookies)
+                            job.reason = (getattr(job, "spawn_error", "") or
+                                          words.explain_failure(text, bool(job.cookies), job.site, job.cookies))
+                            job.spawn_error = ""
                             self.batch_counts["failed"] += 1
                     self.dirty = True
         if retry_engine:
@@ -559,6 +586,7 @@ class Manager:
     def _update_engine_then_retry(self, job: Job) -> None:
         """A failure is the moment a newer yt-dlp is worth having. Update once, retry once."""
         with self.lock:
+            run = job.run  # Stop then Retry meanwhile makes this retry stale (Stop retires the run)
             job.state = "converting"
             job.stage = "Checking for a newer download engine"
             first = not self.updating_engine
@@ -574,8 +602,8 @@ class Manager:
                 time.sleep(0.5)
             outcome = "updated"
         with self.lock:
-            if job.state != "converting":
-                return  # stopped meanwhile
+            if job.state != "converting" or job.run != run:
+                return  # stopped (and perhaps started again) meanwhile
             # Retry once either way: with a new engine, or the same one, since
             # many failures are passing network trouble. engine_retry is set, so
             # a second failure is reported rather than retried again.
@@ -639,4 +667,5 @@ class Manager:
                     j.reason = "The app closed before this finished."
         for p in procs:
             _kill(p)
+        stop_loose()
         self.save()

@@ -46,12 +46,23 @@ def _move_old_folders():
     renaming, so nothing is lost or duplicated. A failure leaves them where they were."""
     for new in (SUPPORT, CACHE):
         old = new.replace("Wavelength", "Media Download").replace("wavelength", "media-download")
-        if old != new and os.path.isdir(old) and not os.path.exists(new):
-            try:
+        if old == new or not os.path.isdir(old):
+            continue
+        try:
+            if not os.path.exists(new):
                 os.makedirs(os.path.dirname(new), exist_ok=True)
                 os.rename(old, new)
-            except OSError:
-                pass
+                continue
+            # A move that failed once (a file locked on Windows) left a fresh new folder behind:
+            # bring over anything it doesn't have yet, item by item, instead of giving up for good.
+            for name in os.listdir(old):
+                src, dst = os.path.join(old, name), os.path.join(new, name)
+                if not os.path.exists(dst):
+                    os.rename(src, dst)
+            if not os.listdir(old):
+                os.rmdir(old)
+        except OSError:
+            pass
 
 
 # For tests: keep every file this app writes inside one folder.
@@ -136,11 +147,18 @@ def load_settings() -> dict:
         pass
     if not cfg.get("to"):
         cfg["to"] = default_folder()
+    _loaded.clear()
+    _loaded.update(json.loads(json.dumps(cfg)))
     return cfg
 
 
+_loaded: dict = {}  # the settings as this app last read or wrote them
+
+
 def save_settings(cfg: dict) -> None:
-    """Write back, keeping any key the command knows and this app does not."""
+    """Write back only what this app changed, keeping everything else in the file as it is now.
+    The `ytdl` command shares the file: writing every key the app loaded at startup undid a
+    `ytdl --set` made while the app was open."""
     try:
         with open(CONFIG) as fh:
             current = json.load(fh)
@@ -148,7 +166,10 @@ def save_settings(cfg: dict) -> None:
             current = {}
     except (OSError, ValueError):
         current = {}
-    current.update(cfg)
+    missing = object()
+    changed = {k: v for k, v in cfg.items() if _loaded.get(k, missing) != v}
+    current.update(changed)
+    _loaded.update(json.loads(json.dumps(changed)))
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
     tmp = CONFIG + ".tmp"
     with open(tmp, "w") as fh:

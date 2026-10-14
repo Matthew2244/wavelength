@@ -20,8 +20,8 @@ AppName=Wavelength
 AppVersion={#AppVersion}
 AppVerName=Wavelength {#AppVersion}
 AppPublisher=Matthew Whitaker
-AppPublisherURL=https://github.com/Matthew2244/ytdl-accessible
-AppSupportURL=https://github.com/Matthew2244/ytdl-accessible/issues
+AppPublisherURL=https://github.com/Matthew2244/wavelength
+AppSupportURL=https://github.com/Matthew2244/wavelength/issues
 DefaultDirName={localappdata}\Programs\Wavelength
 DisableProgramGroupPage=yes
 DisableDirPage=auto
@@ -48,6 +48,11 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdi
 [InstallDelete]
 ; A new version may drop files the old one had; start clean inside the app folder only.
 Type: filesandordirs; Name: "{app}\_internal"
+; The app was called Media Download until 3.0: an update over it removes the old program and its
+; shortcuts, so nobody is left with two of them.
+Type: files; Name: "{app}\Media Download.exe"
+Type: files; Name: "{autoprograms}\Media Download.lnk"
+Type: files; Name: "{autodesktop}\Media Download.lnk"
 
 [Icons]
 Name: "{autoprograms}\Wavelength"; Filename: "{app}\Wavelength.exe"

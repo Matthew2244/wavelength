@@ -16,7 +16,7 @@ import sys
 
 from . import __version__
 
-APPCAST = "https://github.com/Matthew2244/ytdl-accessible/releases/latest/download/appcast-windows.xml"
+APPCAST = "https://github.com/Matthew2244/wavelength/releases/latest/download/appcast-windows.xml"
 PUBLIC_KEY = "TJlHNK3idLU77+cj97Pwh4xeuvFhhIVm32CLFwN5Dz0="
 
 _state = {"dll": None, "callbacks": None, "failed": False}

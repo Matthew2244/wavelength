@@ -28,6 +28,33 @@ def browser_choices(current: str = "", none_words: str = "Don't use a browser's 
 CMD = "Command" if sys.platform == "darwin" else "Control"
 
 
+class WrapText(wx.StaticText):
+    """A line of text that re-wraps to its window's width whenever the window or the text changes,
+    so a long status or intro never runs off the edge, at any text size."""
+
+    def __init__(self, parent, label=""):
+        super().__init__(parent, label=label)
+        self._full = label
+        parent.Bind(wx.EVT_SIZE, self._on_size)
+
+    def SetLabel(self, text):
+        self._full = text
+        self._rewrap()
+
+    def GetLabel(self):
+        return self._full
+
+    def _rewrap(self):
+        width = self.GetParent().GetClientSize().width - 30
+        super().SetLabel(self._full)
+        if width > 120:
+            self.Wrap(width)
+
+    def _on_size(self, event):
+        event.Skip()
+        wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
+
+
 def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True):
     """A label and its control on one row. The label is also the control's spoken name on the Mac.
 
@@ -134,7 +161,8 @@ class MoreOptions(wx.Dialog):
         frow.Add(self.stream_text, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         self.pick = wx.Button(self, label="Choose Exact Stream...")
         self.pick.SetToolTip("Look the link up and choose one exact audio or video stream from a list.")
-        self.clear_pick = wx.Button(self, label="Use the Format Instead")
+        self.clear_pick = wx.Button(self, label="Forget the Exact Stream")
+        self.clear_pick.SetToolTip("Go back to the format chosen in the main window instead of the exact stream.")
         frow.Add(self.pick, 0, wx.RIGHT, 6)
         frow.Add(self.clear_pick, 0)
         s.Add(frow, 0, wx.EXPAND | wx.ALL, 6)
@@ -164,7 +192,7 @@ class MoreOptions(wx.Dialog):
 
     def on_pick(self, _):
         if not self.link or not words.looks_like_link(self.link):
-            wx.MessageBox("Put a link in the Link field first, then choose Choose Exact Stream again.",
+            wx.MessageBox("Put a link in the Link field first, then press Choose Exact Stream again.",
                           "No link yet", wx.OK | wx.ICON_INFORMATION, self)
             return
         self.stream_text.SetLabel("Looking up the link. This takes a few seconds.")
@@ -249,7 +277,8 @@ def options_summary(opts: dict) -> str:
     if opts.get("transcript"):
         bits.append("a text transcript")
     if opts.get("cookies"):
-        bits.append("%s sign-in" % opts["cookies"].capitalize())
+        from . import accounts
+        bits.append("%s's sign-in" % accounts.spec_words(opts["cookies"]))
     if opts.get("name"):
         bits.append('named "%s"' % opts["name"])
     if opts.get("extra"):
@@ -515,7 +544,7 @@ def order_results(results, how):
 
 
 def entry_words(i: int, e: dict) -> str:
-    bits = ["%d. %s" % (i, e.get("title") or e.get("url"))]
+    bits = ["%d. %s" % (i, e.get("title") or words.short_link(e.get("url") or ""))]  # never a whole address
     if e.get("duration"):
         bits.append(words.duration(e["duration"]))
     if e.get("uploader"):
@@ -641,7 +670,7 @@ class SoundPicker(wx.Dialog):
         self.map = dict(sound_map)
         self.theme, self.volume = theme, volume
         s = wx.BoxSizer(wx.VERTICAL)
-        s.Add(wx.StaticText(self, label="Choose an action, then its sound. Play, or Return in either list, plays "
+        s.Add(WrapText(self, label="Choose an action, then its sound. Play, or Return in either list, plays "
                                         "the action's sound; nothing plays by itself."), 0, wx.ALL, 8)
         cols = wx.BoxSizer(wx.HORIZONTAL)
         left = wx.BoxSizer(wx.VERTICAL)
@@ -663,8 +692,8 @@ class SoundPicker(wx.Dialog):
         self.play_btn = wx.Button(self, label="Play")
         self.play_btn.SetToolTip("Plays the selected action's sound (Return in either list).")
         imp = wx.Button(self, label="Import a Sound File...")
-        imp.SetToolTip("Any audio file: MP3, WAV, AIFF, M4A, FLAC, Ogg and more. It's copied into the app's "
-                       "own folder and can then be chosen for any action.")
+        imp.SetToolTip("Any audio file: MP3, WAV, AIFF, M4A, FLAC, Ogg and more. Its first 30 seconds are copied "
+                       "into the app's own folder (your file isn't touched) and can be chosen for any action.")
         self.remove_btn = wx.Button(self, label="Remove Imported Sound")
         self.remove_btn.SetToolTip("Deletes the selected imported sound from the app (never your original file). "
                                    "Actions using it go back to the set's own sound.")
@@ -837,7 +866,7 @@ class AccountsDialog(wx.Dialog):
         labelled(self, s, "Borrow the sign-in from:", self.browser, _label,
                  "The browser you're signed in with. Wavelength reads its sign-in when it needs it; no password "
                  "is asked for or kept. The same choice is in Settings.")
-        self.status = wx.StaticText(self, label="Choose one, then Play All, Choose What to Play, or Download "
+        self.status = WrapText(self, label="Choose one, then Play All, Choose What to Play, or Download "
                                                "Everything from its right-click menu. Nothing happens until you "
                                                "pick. Check Sign-in tests YouTube first.")
         s.Add(self.status, 0, wx.ALL, 8)
@@ -932,11 +961,17 @@ class AccountsDialog(wx.Dialog):
         url = self._address()
         if url:
             menus.open_web(url)
+            self._feedback("Opening the web page.")
 
     def copy_link(self):
         url = self._address()
-        if url:
-            menus.copy_text(url)
+        if url and menus.copy_text(url):
+            self._feedback("Link copied.")
+
+    def _feedback(self, text):
+        from .system import announce
+        self.status.SetLabel(text)
+        announce(text)
 
     def on_check(self):
         from .system import announce
@@ -1002,7 +1037,9 @@ class Guide(wx.Dialog):
         s.Add(self.book, 1, wx.EXPAND | wx.ALL, 6)
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.back = wx.Button(self, label="Back")
+        self.back.SetToolTip("The step before.")
         self.next = wx.Button(self, label="Next")
+        self.next.SetToolTip("The next step; on the last one, Finish.")
         self.close = wx.Button(self, wx.ID_CANCEL, "Close")
         self.close.SetToolTip("Leaves now, keeping what's already chosen. Help, Welcome Tour, or File, Set Up "
                               "Accounts, brings this back any time.")
@@ -1034,7 +1071,7 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "welcome", s, "Welcome to Wavelength.\n\nIt saves audio and video from about 1,750 sites, "
                    "plays them, and says what it's doing. This short tour sets up where things go, what to save, the "
-                   "sounds, and, if you want, your accounts. Every step can be changed later in Settings.\n\n"
+                   "sounds, and, if you want, your accounts. Everything here can be changed later.\n\n"
                    "Press Next to start, or Close to skip the tour.")
         p.SetSizer(s)
 
@@ -1045,7 +1082,8 @@ class Guide(wx.Dialog):
         self.folder_words = wx.StaticText(p, label="")
         s.Add(self.folder_words, 0, wx.ALL, 6)
         b = wx.Button(p, label="Change Folder...")
-        b.Bind(wx.EVT_BUTTON, lambda e: (self.main.on_folder(None), self._fill_folder()))
+        b.SetToolTip("Choose another folder for downloads.")
+        b.Bind(wx.EVT_BUTTON, lambda e: (self.main.on_folder(None, parent=self), self._fill_folder()))
         s.Add(b, 0, wx.ALL, 6)
         self._fill_folder()
         p.SetSizer(s)
@@ -1071,8 +1109,7 @@ class Guide(wx.Dialog):
         from .system import THEMES
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "sounds", s, "Sounds.\n\nThe app plays a short sound when downloads finish or fail, when "
-                   "something's added, when search results arrive, and more. Rising means good news; falling means "
-                   "it stopped or failed. Pick a set, and press Play a Sample to hear it. Settings, Choose Sounds "
+                   "something's added, when search results arrive, and more, each with its own sound. Pick a set, and press Play a Sample to hear it. Settings, Choose Sounds "
                    "lets you pick each one, or your own.")
         self.sounds_on = wx.CheckBox(p, label="Play sounds")
         self.sounds_on.SetValue(bool(self.cfg.get("app_sounds", True)))
@@ -1084,6 +1121,7 @@ class Guide(wx.Dialog):
         self.theme.SetSelection(self.theme_keys.index(t) if t in self.theme_keys else 0)
         labelled(p, s, "Sound set:", self.theme, lab)
         b = wx.Button(p, label="Play a Sample")
+        b.SetToolTip("Plays the set's Finished sound, so you can hear it.")
         b.Bind(wx.EVT_BUTTON, lambda e: self._sample())
         s.Add(b, 0, wx.ALL, 6)
         fit_choices(p)
@@ -1139,7 +1177,7 @@ class Guide(wx.Dialog):
         row.Add(self.open_settings, 0, wx.RIGHT, 6)
         row.Add(self.check_again, 0)
         s.Add(row, 0, wx.ALL, 6)
-        self.perm_status = wx.StaticText(p, label="")
+        self.perm_status = WrapText(p, label="")
         s.Add(self.perm_status, 0, wx.ALL, 6)
         self.open_settings.Bind(wx.EVT_BUTTON, lambda e: self._open_settings())
         self.check_again.Bind(wx.EVT_BUTTON, lambda e: self._check_readable())
@@ -1167,7 +1205,7 @@ class Guide(wx.Dialog):
         self.sc_name = wx.TextCtrl(p, value=self.cfg.get("app_profile_soundcloud", ""))
         labelled(p, s, "Your SoundCloud profile name (optional):", self.sc_name, plab,
                  "The part after soundcloud.com/ in your profile's address, for your likes, tracks and playlists.")
-        self.svc_status = wx.StaticText(p, label="")
+        self.svc_status = WrapText(p, label="")
         s.Add(self.svc_status, 0, wx.ALL, 6)
         self.open_svc.Bind(wx.EVT_BUTTON, lambda e: self._open_service())
         self.check_svc.Bind(wx.EVT_BUTTON, lambda e: self._check_youtube())
@@ -1240,8 +1278,10 @@ class Guide(wx.Dialog):
                 "Sign in to your services in %s.\n\nChoose a service and press Open It in the Browser: its page "
                 "opens in %s. Sign in there as you normally would, then come back here. Check YouTube asks YouTube "
                 "whether the sign-in works. A browser signed in to Google but not to YouTube itself needs signing in "
-                "at youtube.com too.\n\nOther sites work the same way: whatever you're signed in to in %s, Media "
-                "Download can use." % (name, name, name))
+                "at youtube.com too.\n\nOther sites work the same way: whatever you're signed in to in %s, Wavelength "
+                "can use." % (name, name, name) + (
+                    "\n\nOn Windows, close %s completely before pressing Check YouTube: it can't be read while it's "
+                    "open." % name if sys.platform == "win32" and not self._browser().startswith("firefox") else ""))
             self.svc_status.SetLabel("")
         elif key == "done":
             b = self.acc.signin(self.cfg)
@@ -1260,6 +1300,11 @@ class Guide(wx.Dialog):
         self.Layout()
         self.texts[key].SetInsertionPoint(0)
         self.texts[key].SetFocus()
+        if sys.platform == "win32":
+            # NVDA and JAWS read only the line the caret is on in a text box; say the whole step.
+            from .system import announce
+            text = self.texts[key].GetValue()
+            wx.CallLater(500, lambda: self and announce(text))
 
     # ---- the checks
     def _open_settings(self):
@@ -1323,7 +1368,7 @@ class CheckList(wx.Dialog):
         self.choice = "play" if mode == "play" else "download"
         self.main = parent
         s = wx.BoxSizer(wx.VERTICAL)
-        s.Add(wx.StaticText(self, label=intro), 0, wx.ALL, 8)
+        s.Add(WrapText(self, label=intro), 0, wx.ALL, 8)
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
         mac_accessibility_label(self.list, "Items")
         if checked:
@@ -1334,7 +1379,9 @@ class CheckList(wx.Dialog):
         s.Add(self.count, 0, wx.ALL, 6)
         row = wx.BoxSizer(wx.HORIZONTAL)
         b_all = wx.Button(self, label="Check All")
+        b_all.SetToolTip("Checks every item in the list.")
         b_none = wx.Button(self, label="Uncheck All")
+        b_none.SetToolTip("Unchecks every item, to start choosing from nothing.")
         row.Add(b_all, 0, wx.RIGHT, 6)
         row.Add(b_none, 0)
         s.Add(row, 0, wx.ALL, 6)
@@ -1359,11 +1406,14 @@ class CheckList(wx.Dialog):
         self.list.SetFocus()
         if entries:
             self.list.SetSelection(0)
+        if sys.platform == "darwin":  # VoiceOver doesn't read a dialog's text on its own; NVDA does
+            from .system import announce
+            wx.CallLater(600, lambda: self and announce(intro))
 
     def _set_all(self, on):
         for i in range(self.list.GetCount()):
             self.list.Check(i, on)
-        self._count()
+        self._count(speak=True)  # the count is plain text that Tab skips, so say it
 
     def _count(self, speak=False):
         k = len(self.list.GetCheckedItems())
@@ -1382,7 +1432,8 @@ class CheckList(wx.Dialog):
     def _download_instead(self):
         if not self.list.GetCheckedItems():
             from .system import announce
-            announce("Check the ones to download first, with Space.")
+            self.count.SetLabel("Check the ones to download first, with Space.")  # seen as well as heard
+            announce(self.count.GetLabel())
             return
         self.choice = "download"
         self.EndModal(wx.ID_OK)
@@ -1414,15 +1465,21 @@ class PlaylistQuestion(wx.Dialog):
         s.Add(msg, 0, wx.ALL, 10)
         row = wx.BoxSizer(wx.HORIZONTAL)
         b_all = wx.Button(self, self.ALL, "Download All %d" % count)
+        b_all.SetToolTip("Adds every item to the downloads list, each its own row, in a folder named after the set.")
         b_choose = wx.Button(self, self.CHOOSE, "Choose Items...")
+        b_choose.SetToolTip("Lists every item, to check the ones you want.")
         row.Add(b_all, 0, wx.ALL, 4)
         row.Add(b_choose, 0, wx.ALL, 4)
         if can_single:
             b_one = wx.Button(self, self.ONE, "Just That One")
+            b_one.SetToolTip("Only the one item the link pointed at.")
             row.Add(b_one, 0, wx.ALL, 4)
             b_one.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(self.ONE))
         cancel = wx.Button(self, wx.ID_CANCEL, "Cancel")
-        row.Add(cancel, 0, wx.ALL, 4)
+        if sys.platform == "darwin":
+            row.Insert(0, cancel, 0, wx.ALL, 4)  # Cancel before the choices on the Mac, after them on Windows
+        else:
+            row.Add(cancel, 0, wx.ALL, 4)
         s.Add(row, 0, wx.ALL, 6)
         self.SetEscapeId(wx.ID_CANCEL)
         b_all.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(self.ALL))
@@ -1432,6 +1489,9 @@ class PlaylistQuestion(wx.Dialog):
         textsize.apply(self)  # View, Bigger Text reaches every window
         s.SetSizeHints(self)
         (b_one if can_single else b_choose).SetFocus()
+        if sys.platform == "darwin":  # the question itself is plain text VoiceOver won't read unasked
+            from .system import announce
+            wx.CallLater(600, lambda: self and announce(msg.GetLabel()))
 
 
 class Search(wx.Frame):
@@ -1470,6 +1530,8 @@ class Search(wx.Frame):
         top.Add(on_lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.site, 0, wx.RIGHT, 6)
         self.go = wx.Button(p, label="Search")
+        self.go.SetToolTip("Searches for the words (%s in the field does the same)." % ("Return" if sys.platform ==
+                                                                                       "darwin" else "Enter"))
         top.Add(self.go, 0)
         s.Add(top, 0, wx.EXPAND | wx.ALL, 8)
         orow = wx.BoxSizer(wx.HORIZONTAL)
@@ -1482,7 +1544,7 @@ class Search(wx.Frame):
         orow.Add(olab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         orow.Add(self.order, 0)
         s.Add(orow, 0, wx.LEFT | wx.RIGHT, 8)
-        self.status = wx.StaticText(p, label="Type words and press Return.")
+        self.status = WrapText(p, label="Type words and press Return.")
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
         mac_accessibility_label(self.list, "Results")
@@ -1725,7 +1787,11 @@ class Search(wx.Frame):
         else:
             self.status.SetLabel("That's every result %s has for %s: %s." % (site, q,
                                                                              words.n(len(self.results), "result")))
-        announce(self.status.GetLabel())
+        if start == 1 and self.results:
+            # Focus just moved to the list; let the screen reader read the row first.
+            wx.CallLater(600, lambda: self and announce(self.status.GetLabel()))
+        else:
+            announce(self.status.GetLabel())
         self._count()
 
     def reorder(self, speak=False):
@@ -1814,7 +1880,7 @@ class DescribeDialog(wx.Dialog):
         self.more_left = False
         self.looking = True
         s = wx.BoxSizer(wx.VERTICAL)
-        self.status = wx.StaticText(self, label="Looking for audio description for %s..." % (title or url))
+        self.status = WrapText(self, label="Looking for audio description for %s..." % (title or url))
         s.Add(self.status, 0, wx.ALL, 10)
         self.list = wx.ListBox(self, style=wx.LB_SINGLE)
         mac_accessibility_label(self.list, "What's available")
@@ -1823,6 +1889,7 @@ class DescribeDialog(wx.Dialog):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(self, label="Play")
         self.dl_btn = wx.Button(self, label="Download")
+        self.dl_btn.SetToolTip("Saves the selected described track or version, and closes this window.")
         self.play_btn.SetToolTip("Closes this window and plays the selected one in the player.")
         self.make_btn = wx.Button(self, label="Make Description")
         self.make_btn.SetToolTip("Claude reads frames from the video at each change of shot and writes what it "
@@ -1883,12 +1950,14 @@ class DescribeDialog(wx.Dialog):
         else:
             msg = "No audio description found for %s." % self.title
         self.status.SetLabel(msg)
-        self.status.Wrap(700)
+        self.status.Wrap(max(300, self.GetClientSize().width - 40))
         from .system import announce
-        announce(msg)
         if opts:
             self.list.SetSelection(0)
             self.list.SetFocus()
+            wx.CallLater(600, lambda: self and announce(msg))  # after the focused row is read
+        else:
+            announce(msg)
         self._buttons()
         self.Layout()
 

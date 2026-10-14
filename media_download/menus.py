@@ -116,19 +116,22 @@ def copy_text(text: str) -> bool:
 
 # The player, from any window: the same keys everywhere (Command-Option on the Mac,
 # Control-Alt on Windows), so it can be paused or turned down without going to it.
+_WIN = sys.platform == "win32"
+# On Windows, Ctrl+Alt is AltGr on many keyboards (German [ ] \\ are AltGr+8, 9, ß) and some graphics
+# drivers rotate the screen on Ctrl+Alt+arrows, so Windows gets keys neither touches.
 PLAYER_KEYS = [
     ("Play or Pause", "toggle", "Ctrl+Alt+P"),
-    ("Previous Item", "prev", "Ctrl+Alt+Left"),
-    ("Next Item", "next", "Ctrl+Alt+Right"),
-    ("Back", "back", "Ctrl+Alt+,"),
-    ("Forward", "forward", "Ctrl+Alt+."),
+    ("Previous Item", "prev", "Ctrl+Alt+PageUp" if _WIN else "Ctrl+Alt+Left"),
+    ("Next Item", "next", "Ctrl+Alt+PageDown" if _WIN else "Ctrl+Alt+Right"),
+    ("Back", "back", "Ctrl+Alt+Home" if _WIN else "Ctrl+Alt+,"),
+    ("Forward", "forward", "Ctrl+Alt+End" if _WIN else "Ctrl+Alt+."),
     None,
-    ("Louder", "louder", "Ctrl+Alt+Up"),
-    ("Quieter", "quieter", "Ctrl+Alt+Down"),
-    ("Mute or Unmute", "mute", "Ctrl+Alt+0"),
-    ("Faster", "faster", "Ctrl+Alt+]"),
-    ("Slower", "slower", "Ctrl+Alt+["),
-    ("Normal Speed", "normal", "Ctrl+Alt+\\"),
+    ("Louder", "louder", "Ctrl+Alt+U" if _WIN else "Ctrl+Alt+Up"),
+    ("Quieter", "quieter", "Ctrl+Alt+D" if _WIN else "Ctrl+Alt+Down"),
+    ("Mute or Unmute", "mute", "Ctrl+Alt+K" if _WIN else "Ctrl+Alt+0"),
+    ("Faster", "faster", "Ctrl+Alt+." if _WIN else "Ctrl+Alt+]"),
+    ("Slower", "slower", "Ctrl+Alt+," if _WIN else "Ctrl+Alt+["),
+    ("Normal Speed", "normal", "Ctrl+Alt+N" if _WIN else "Ctrl+Alt+\\"),
     None,
     ("Say the Time", "time", "Ctrl+Alt+T"),
     ("Say the Speed and Volume", "levels", "Ctrl+Alt+V"),

@@ -23,7 +23,7 @@ import zipfile
 
 from . import __version__
 
-REPO = "Matthew2244/ytdl-accessible"
+REPO = "Matthew2244/wavelength"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 PAGE = f"https://github.com/{REPO}/releases/latest"
 MAC_ASSET = "Wavelength-mac.zip"
@@ -104,10 +104,12 @@ def rename_old_bundle() -> None:
     new = os.path.join(parent, APP_NAME + ".app")
     if os.path.exists(new) or not os.access(parent, os.W_OK):
         return
-    pid = os.getpid()
-    script = (f"while kill -0 {pid} 2>/dev/null; do sleep 0.3; done; "
-              f'[ -e "{new}" ] || mv "{target}" "{new}"')
-    subprocess.Popen(["/bin/sh", "-c", script], start_new_session=True,
+    # Wait for this copy to quit, then for any Sparkle install to finish (an update installs at
+    # this very path on quit), then rename only if nothing has appeared at the new name meanwhile.
+    script = ('while kill -0 "$1" 2>/dev/null; do sleep 0.3; done; sleep 3; n=0; '
+              'while pgrep -f "Sparkle|Autoupdate" >/dev/null 2>&1 && [ $n -lt 300 ]; do sleep 1; n=$((n+1)); done; '
+              'sleep 2; [ -e "$3" ] || [ ! -d "$2" ] || mv "$2" "$3"')
+    subprocess.Popen(["/bin/sh", "-c", script, "rename", str(os.getpid()), target, new], start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

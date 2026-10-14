@@ -112,10 +112,11 @@ def srt_time(seconds: float) -> str:
     return "%02d:%02d:%02d,%03d" % (h, m, s, ms)
 
 
-def write_outputs(rows: list, folder: str, title: str) -> list[str]:
-    """The .srt the player reads and a .txt anyone can read. Both say they're machine-made."""
+def write_outputs(rows: list, folder: str, title: str, stem: str | None = None) -> list[str]:
+    """The .srt the player reads and a .txt anyone can read. Both say they're machine-made.
+    `stem` names them after a video file (beside it, as for_item expects); else the title does."""
     from .options import _safe_folder
-    base = os.path.join(folder, _safe_folder(title)[:150] + SUFFIX)
+    base = os.path.join(folder, (stem if stem else _safe_folder(title)[:150]) + SUFFIX)
     os.makedirs(folder, exist_ok=True)
     blocks = ["1\n%s --> %s\n[%s]" % (srt_time(0), srt_time(0.5), HEADER)] if not rows else []
     for i, row in enumerate(rows):
@@ -206,9 +207,14 @@ def remember(url: str, srt: str) -> None:
     except (OSError, ValueError):
         data = {}
     data[url] = srt
-    os.makedirs(os.path.dirname(_registry()), exist_ok=True)
-    with open(_registry(), "w") as fh:
-        json.dump(data, fh)
+    try:  # written whole or not at all; a failure here must never fail a finished description
+        os.makedirs(os.path.dirname(_registry()), exist_ok=True)
+        tmp = _registry() + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(data, fh)
+        os.replace(tmp, _registry())
+    except OSError:
+        pass
 
 
 def for_item(path: str | None, url: str | None) -> str | None:

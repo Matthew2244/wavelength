@@ -5,13 +5,22 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 
 ## The name: Wavelength (since 3.0.0, 2026-10-13)
 
+**The repo is Matthew2244/wavelength** (renamed from ytdl-accessible the same day, at
+Matthew's word). GitHub redirects every old address, release downloads included:
+verified that the old appcast URL answers 301 to the new repo and serves 3.0.0, so
+copies built with the old feed URL keep updating. **Never create a new repo called
+ytdl-accessible**: it would end that redirect. The local checkout is still
+`~/ytdl-accessible` (the `ytdl` symlinks point into it); only the remote changed.
+`wx.Config` stays **"Media Download"**: it holds window places and the text size, and
+renaming it with the app would have quietly reset someone's Bigger Text.
+
 Matthew renamed it ("this grew into something bigger"). Everything people see says
 Wavelength: windows, menus, messages, `Wavelength.app`, `Wavelength.exe`, the installer,
 `Wavelength-mac.zip` / `-windows.zip` / `-Setup.exe`. **Deliberately unchanged:**
 the bundle id `io.github.matthew2244.mediadownload` (Sparkle keeps updating old copies,
 and Full Disk Access granted to the old name still applies), the Windows installer
 AppId (an update replaces the old install; `[InstallDelete]` removes the old exe and
-shortcuts), the GitHub repo name (the appcast URL lives there), the `media_download`
+shortcuts), the `media_download`
 package, the `MEDIA_DOWNLOAD_*` test variables, and the **Media Downloads** folder
 (nobody's files move). Old copies move over by themselves: `engine._move_old_folders`
 renames the support and cache folders once, and `update.rename_old_bundle` renames a
@@ -29,12 +38,12 @@ left behind. The MacBook's moves on its first launch.
 | `ytdl` | `ytdl` | the command; `~/bin/ytdl` is a symlink into the repo |
 | `ytdescribe` | `ytdescribe` | audio description; `~/bin/ytdescribe` likewise |
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
-| public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
+| public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-13):** 3.0.0 is the latest release, signed and
+**Where it stands (2026-10-13):** 3.0.1 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-3.0.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+3.0.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -95,7 +104,7 @@ installer and can't install a zip.
 
 **The engine.** yt-dlp and yt-dlp-ejs are bundled. Newer ones are fetched from
 PyPI (wheels, sha256 checked, yt-dlp-ejs at the exact version yt-dlp pins) into
-`~/Library/Application Support/Media Download/engine/<version>/`, proved by
+`~/Library/Application Support/Wavelength/engine/<version>/`, proved by
 starting it (`--probe-engine`), and preferred when newer than the bundled copy.
 Two are kept. Daily check at launch; also on a failure that a newer engine could
 fix (`worth_updating_for`), then one retry.
@@ -399,6 +408,19 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **3.0.1** (2026-10-13): a full sweep by three independent reviews (screen readers
+  on both systems; low vision, sighted and first run; bugs and the rename), about 40
+  fixes. Among them: the Windows installer now really removes the old Media Download
+  exe and shortcuts (the first try was skipped by an existing [InstallDelete]
+  section); the bundle rename waits for any Sparkle install; settings write back only
+  what the app changed (a `ytdl --set` made meanwhile survives); lookups time out at
+  15 minutes; a worker that can't start says so; questions never pop up over another
+  modal window; Bigger Text grows Windows controls too; long lines re-wrap
+  (`WrapText`); windows fit a 1366x768 screen; Windows dark mode; Windows-safe player
+  keys; the new icon (one bold wave). **Return decisions** (Matthew left them to the
+  builder): Return opens the file in the downloads list and plays the item in the
+  player's queue, like Finder and any playlist; the Guide's Next stays default. Lists
+  that offer downloads or play-everything have no default.
 - **3.0.0** (2026-10-13): renamed Wavelength; welcome tour and Set Up Accounts;
   every browser and profile; play-first Your Accounts; no default action in lists.
 - **2.7.0** (2026-10-13): your accounts: browser sign-in for everything, File,

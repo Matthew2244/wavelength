@@ -14,7 +14,7 @@ What's here:
 
 ## Get the app
 
-**Mac:** download `Wavelength-mac.zip` from the [latest release](https://github.com/Matthew2244/ytdl-accessible/releases/latest), open it, and drag Wavelength into Applications. It's signed and notarized by Apple, so it opens without a warning.
+**Mac:** download `Wavelength-mac.zip` from the [latest release](https://github.com/Matthew2244/wavelength/releases/latest), open it, and drag Wavelength into Applications. It's signed and notarized by Apple, so it opens without a warning.
 
 **Windows:** download `Wavelength-Setup.exe` from the same page and run it. It installs just for you, with no administrator password, adds Wavelength to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway. (`Wavelength-windows.zip` is there too, if you'd rather not install anything.)
 
@@ -48,7 +48,7 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **Right-click menus** are on every list: the downloads, search results, a playlist's items, the player's queue and audio description. With VoiceOver, press VO-Shift-M. On Windows, press Shift-F10 or the Menu key. Command-K (Control-K on Windows) opens the same menu from the keyboard. Each menu only lists what makes sense for that row: Play, Open the Web Page, Copy Link, Copy Title, Download Again As another format, Download This One Now while Search stays open, Everything from This Channel, Check from Here to the End, and more.
 
-**Sounds.** The app plays a sound for each thing that happens: finished, failed, one of several finished, added, stopped, trying again by itself, search results, nothing more found, copied, an update ready, and the end of the player's queue. It comes with four sets: a Rhodes electric piano (the default), a kalimba, pizzicato strings made from [Kenney's Music Jingles](https://kenney.nl/assets/music-jingles), and soft clicks from [Kenney's Interface Sounds](https://kenney.nl/assets/interface-sounds). Kenney's packs are CC0, free for anyone to use. Settings, Sounds picks the set, and a slider sets how loud they are (all the way down is silent); Play a Sample plays one. **Choose Sounds** lists every action. For each, pick any sound from any set, a sound file of your own, or no sound at all. **Import a Sound File** takes MP3, WAV, AIFF, M4A, FLAC, Ogg and more, and copies it into the app's own folder. Nothing plays by itself while you choose: press Play, or Return. That way a sound never talks over your screen reader. Rising means good news, falling means it stopped or failed.
+**Sounds.** The app plays a sound for each thing that happens: finished, failed, one of several finished, added, stopped, trying again by itself, search results, nothing more found, copied, an update ready, and the end of the player's queue. It comes with four sets: a Rhodes electric piano (the default), a kalimba, pizzicato strings made from [Kenney's Music Jingles](https://kenney.nl/assets/music-jingles), and soft clicks from [Kenney's Interface Sounds](https://kenney.nl/assets/interface-sounds). Kenney's packs are CC0, free for anyone to use. Settings, Sounds picks the set, and a slider sets how loud they are (all the way down is silent); Play a Sample plays one. **Choose Sounds** lists every action. For each, pick any sound from any set, a sound file of your own, or no sound at all. **Import a Sound File** takes MP3, WAV, AIFF, M4A, FLAC, Ogg and more, and copies it into the app's own folder. Nothing plays by itself while you choose: press Play, or Return. That way a sound never talks over your screen reader. Each action has its own sound, so you can tell them apart by ear.
 
 **Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
@@ -74,7 +74,7 @@ Wavelength plays things too: what you've downloaded, and links you haven't.
 - **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
 - **Play what you've downloaded:** select a row and press Play (Command-P), or Play All Finished (Command-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
 - **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from a quarter to three times, without changing pitch, and backslash puts it back to normal. Command-Up and Command-Down change the volume (with Shift, in small steps), M mutes and unmutes, and V says the speed and volume. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
-- **From any window:** the Player menu in the main window and Search pauses, skips, changes item, turns it up or down, mutes, speeds up or slows down, and says the time, all with the same Command-Option keys everywhere (Control-Alt on Windows): Command-Option-P plays and pauses, Command-Option-Up and Down change the volume, Command-Option-[ and ] the speed.
+- **From any window:** the Player menu in the main window and Search pauses, skips, changes item, turns it up or down, mutes, speeds up or slows down, and says the time, all with the same keys in every window. On the Mac: Command-Option-P plays and pauses, Command-Option-Up and Down change the volume, Command-Option-[ and ] the speed. On Windows, where Control-Alt also types characters on many keyboards and can rotate the screen with the arrows: Control-Alt-P plays and pauses, Control-Alt-U and D change the volume, Control-Alt-Period and Comma the speed, Control-Alt-K mutes, and Control-Alt-Page Up and Page Down change item. The Player menu lists them all.
 - **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.
 - **Captions** show in large type under the picture, from subtitles you downloaded or the stream's own.
 - Nothing is spoken unless you ask (T), a new item starts while the player is in the background, or the queue runs out. Speed, volume and where you put the window are remembered.
@@ -151,8 +151,8 @@ When a download fails in a way a newer engine might fix, the app checks for one,
 The same downloader, for a terminal.
 
 ```bash
-git clone https://github.com/Matthew2244/ytdl-accessible.git
-cd ytdl-accessible
+git clone https://github.com/Matthew2244/wavelength.git
+cd wavelength
 ./install.sh
 ```
 

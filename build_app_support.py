@@ -9,7 +9,7 @@ SPARKLE_SHA = "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c"
 # Keychain (Sparkle's generate_keys); without it no Sparkle-installed copy accepts an update.
 SPARKLE_PUBLIC_KEY = "TJlHNK3idLU77+cj97Pwh4xeuvFhhIVm32CLFwN5Dz0="
 FEED = os.environ.get("MEDIA_DOWNLOAD_TEST_FEED") or \
-    "https://github.com/Matthew2244/ytdl-accessible/releases/latest/download/appcast.xml"
+    "https://github.com/Matthew2244/wavelength/releases/latest/download/appcast.xml"
 
 
 def sparkle_dir() -> str:
