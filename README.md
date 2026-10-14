@@ -50,6 +50,12 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
+**Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Media Download never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
+
+**File, Your Accounts** (Command-U) opens the things that only exist when you're signed in: YouTube's Liked videos, Watch Later, new from your subscriptions, your playlists and history; YouTube Music's liked music; and your SoundCloud likes, tracks and playlists. Open one as a list to check what to download, or play it all. Check Sign-in tests it and says plainly what's wrong if something is. If your browser is signed in to Google but not to YouTube itself, sign in at youtube.com in that browser.
+
+On a Mac, reading **Safari's** sign-in needs Full Disk Access for Media Download (System Settings, Privacy & Security, Full Disk Access). The app tells you and offers to open that page. Chrome and the others ask once for permission to use their stored key.
+
 **A long list** can be filtered: type in Filter (Command-Shift-F) to show only rows containing those words, like "failed" or part of a title. Escape shows everything again.
 
 Downloads go to **Downloads > Media Downloads** on your computer until you choose somewhere else with Change Folder. While anything is downloading, the computer won't go to sleep (so an overnight playlist finishes; Settings can turn that off). If the folder isn't there, say on a drive that's unplugged, or a download won't fit on the disk, it tells you before starting.

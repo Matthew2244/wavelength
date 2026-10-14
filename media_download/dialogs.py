@@ -371,6 +371,16 @@ class Settings(wx.Dialog):
         self.captions = wx.CheckBox(body, label="Show captions under videos when there are some")
         self.captions.SetValue(bool(cfg.get("app_captions", True)))
         s.Add(self.captions, 0, wx.ALL, 6)
+        heading(body, s, "Signing in")
+        self.signin_vals = [b[0] for b in BROWSERS]
+        _label = wx.StaticText(body, label="Use a browser's sign-in:")
+        self.signin = wx.Choice(body, choices=[b[1] for b in BROWSERS])
+        sv = cfg.get("app_signin", "") or ""
+        self.signin.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
+        labelled(body, s, "Use a browser's sign-in:", self.signin, _label,
+                 "Every download, search and stream borrows the sign-in this browser already has, so members-only, "
+                 "private and age-checked things work, and File, Your Accounts opens your likes, Watch Later and "
+                 "playlists. No password is asked for or kept; the sign-in goes only to the site it belongs to.")
         heading(body, s, "Everything else")
         self.clip = wx.CheckBox(body, label="Offer a link I've copied when I switch to the app")
         self.clip.SetValue(bool(cfg.get("app_clipboard", True)))
@@ -433,6 +443,7 @@ class Settings(wx.Dialog):
 
     def on_ok(self, _):
         self.cfg.update({
+            "app_signin": self.signin_vals[self.signin.GetSelection()],
             "app_sound_theme": self._theme_now(), "app_sound_volume": self._vol_now(),
             "app_sound_map": {k: v for k, v in self.sound_map.items() if v}, "app_sounds_off": [],
             "app_parallel": self.parallel_vals[self.parallel.GetSelection()],
@@ -789,6 +800,163 @@ class SoundPicker(wx.Dialog):
     def chosen_map(self) -> dict:
         return {k: v for k, v in self.map.items() if v}
 
+
+
+class AccountsDialog(wx.Dialog):
+    """Your accounts: the places that exist only when you're signed in (Liked videos, Watch
+    Later, subscriptions, your SoundCloud likes...). Open one as a list to check and download, or
+    play it. Acting closes this window first, so the player never opens over a modal one."""
+
+    def __init__(self, parent, cfg: dict, check):
+        super().__init__(parent, title="Your Accounts", size=(700, 520),
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        from . import accounts
+        self.cfg, self.check = cfg, check
+        self.keys = [c[0] for c in accounts.COLLECTIONS]
+        self.result = None  # ("list" | "play", address), read once the window has closed
+        s = wx.BoxSizer(wx.VERTICAL)
+        self.signin_vals = [b[0] for b in BROWSERS]
+        _label = wx.StaticText(self, label="Borrow the sign-in from:")
+        self.browser = wx.Choice(self, choices=[b[1] for b in BROWSERS])
+        sv = accounts.signin(cfg)
+        self.browser.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
+        labelled(self, s, "Borrow the sign-in from:", self.browser, _label,
+                 "The browser you're signed in with. Media Download reads its sign-in when it needs it; no password "
+                 "is asked for or kept. The same choice is in Settings.")
+        self.status = wx.StaticText(self, label="Choose what to open. Check Sign-in tests YouTube first.")
+        s.Add(self.status, 0, wx.ALL, 8)
+        lab = wx.StaticText(self, label="Your things:")
+        s.Add(lab, 0, wx.LEFT | wx.RIGHT, 8)
+        self.list = wx.ListBox(self, style=wx.LB_SINGLE, choices=[accounts.row_words(k, cfg) for k in self.keys])
+        mac_accessibility_label(self.list, "Your things")
+        windows_name(self.list, "Your things")
+        s.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        open_b = wx.Button(self, label="Open as a List")
+        open_b.SetToolTip("Lists everything in it, to check what to download (Return).")
+        play_b = wx.Button(self, label="Play")
+        play_b.SetToolTip("Plays it all in the player, without downloading.")
+        check_b = wx.Button(self, label="Check Sign-in")
+        check_b.SetToolTip("Asks YouTube for your Liked videos with this browser's sign-in, and says what happened.")
+        prof_b = wx.Button(self, label="Change Profile Name...")
+        prof_b.SetToolTip("The SoundCloud profile name used for your likes, tracks and playlists.")
+        for b in (open_b, play_b, check_b, prof_b):
+            row.Add(b, 0, wx.RIGHT, 6)
+        s.Add(row, 0, wx.ALL, 6)
+        brow, _, _ = buttons(self, "", "Close")
+        s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
+        self.SetSizer(s)
+        textsize.apply(self)
+        fit_choices(self)
+        open_b.Bind(wx.EVT_BUTTON, lambda e: self.act("list"))
+        play_b.Bind(wx.EVT_BUTTON, lambda e: self.act("play"))
+        check_b.Bind(wx.EVT_BUTTON, lambda e: self.on_check())
+        prof_b.Bind(wx.EVT_BUTTON, lambda e: self.ask_profile("soundcloud", force=True))
+        self.browser.Bind(wx.EVT_CHOICE, lambda e: self._save_browser())
+        self.list.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.act("list"))
+        self.list.Bind(wx.EVT_KEY_DOWN, self.on_key)
+        menus.attach(self.list, lambda: [menus.item("Open as a List", lambda: self.act("list")),
+                                         menus.item("Play", lambda: self.act("play")),
+                                         menus.item("Open the Web Page", self.open_page),
+                                         menus.item("Copy Link", self.copy_link)])
+        self.list.SetSelection(0)
+        self.list.SetFocus()
+
+    def _browser(self):
+        return self.signin_vals[self.browser.GetSelection()]
+
+    def _save_browser(self):
+        from . import engine
+        self.cfg["app_signin"] = self._browser()
+        engine.save_settings(self.cfg)
+
+    def on_key(self, event):
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.act("list")
+        else:
+            event.Skip()
+
+    def ask_profile(self, service, force=False) -> bool:
+        from . import accounts, engine
+        key = "app_profile_" + service
+        if self.cfg.get(key) and not force:
+            return True
+        dlg = wx.TextEntryDialog(self, "Type %s, or paste your profile's address." % accounts.PROFILE_WORDS[service],
+                                 "%s profile name" % service.capitalize(), self.cfg.get(key, ""))
+        ok = dlg.ShowModal() == wx.ID_OK
+        name = accounts.profile_name(dlg.GetValue(), service) if ok else ""
+        dlg.Destroy()
+        if not name:
+            return False
+        self.cfg[key] = name
+        engine.save_settings(self.cfg)
+        self.list.Set([accounts.row_words(k, self.cfg) for k in self.keys])
+        return True
+
+    def _address(self):
+        from . import accounts
+        i = self.list.GetSelection()
+        if i == wx.NOT_FOUND:
+            return None
+        key = self.keys[i]
+        needs = accounts.COLLECTIONS[i][4]
+        if needs and not self.ask_profile(needs):
+            return None
+        self.list.SetSelection(i)
+        return accounts.address(key, self.cfg)
+
+    def act(self, how):
+        if not self._browser():
+            self.status.SetLabel("Choose the browser you're signed in with first.")
+            from .system import announce
+            announce(self.status.GetLabel())
+            self.browser.SetFocus()
+            return
+        url = self._address()
+        if url:
+            self._save_browser()
+            self.result = (how, url)
+            self.EndModal(wx.ID_OK)
+
+    def open_page(self):
+        url = self._address()
+        if url:
+            menus.open_web(url)
+
+    def copy_link(self):
+        url = self._address()
+        if url:
+            menus.copy_text(url)
+
+    def on_check(self):
+        from .system import announce
+        if not self._browser():
+            self.status.SetLabel("Choose the browser you're signed in with first.")
+            announce(self.status.GetLabel())
+            return
+        self._save_browser()
+        self.status.SetLabel("Checking your YouTube sign-in in %s..." % self._browser().capitalize())
+        announce(self.status.GetLabel())
+        browser = self._browser()
+        threading.Thread(target=lambda: wx.CallAfter(self._checked, self.check(browser)), daemon=True).start()
+
+    def _checked(self, said):
+        if not self:
+            return
+        from .system import announce
+        self.status.SetLabel(said)
+        self.status.Wrap(max(300, self.GetClientSize().width - 30))
+        self.Layout()
+        announce(said)
+        if "Full Disk Access" in said and sys.platform == "darwin":
+            dlg = wx.MessageDialog(self, said + "\n\nOpen that page of System Settings now?", "Permission needed",
+                                   wx.OK | wx.CANCEL | wx.OK_DEFAULT)
+            dlg.SetOKCancelLabels("&Open System Settings", "Cancel")
+            go = dlg.ShowModal() == wx.ID_OK
+            dlg.Destroy()
+            if go:
+                import subprocess
+                subprocess.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"])
 
 
 class CheckList(wx.Dialog):

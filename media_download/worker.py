@@ -327,9 +327,10 @@ def do_search(yt_dlp, task):
         query = prefix % urllib.parse.quote_plus(task["query"])
     else:
         query = "%s%d:%s" % (prefix, end, task["query"])
+    signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
     try:
-        ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "%d-%d" % (start, end)] + tool_flags(),
-                        logger)
+        ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "%d-%d" % (start, end)] + signin
+                        + tool_flags(), logger)
         with ydl:
             info = ydl.extract_info(query, download=False)
     except Exception as exc:  # noqa: BLE001
@@ -448,7 +449,8 @@ def do_find_description(yt_dlp, task):
     logger = Logger()
     info = None
     try:
-        ydl = _make_ydl(yt_dlp, ["--no-playlist"] + tool_flags(), logger)
+        signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
+        ydl = _make_ydl(yt_dlp, ["--no-playlist"] + signin + tool_flags(), logger)
         with ydl:
             info = ydl.extract_info(task["url"], download=False)
     except Exception as exc:  # noqa: BLE001
@@ -488,6 +490,17 @@ def _described_versions(yt_dlp, title, start, count, logger):
     except Exception as exc:  # noqa: BLE001
         logger.warning(str(exc))
     return describe.rank_candidates(title, found), held
+
+
+def do_signin_check(yt_dlp, task):
+    """Can this browser's sign-in be read at all? (Safari's needs Full Disk Access on a Mac.)"""
+    try:
+        from yt_dlp.cookies import extract_cookies_from_browser
+        jar = extract_cookies_from_browser(task["browser"])
+        emit("signin", ok=True, count=len(jar))
+    except Exception as exc:  # noqa: BLE001
+        emit("signin", ok=False, error=str(exc)[:400])
+    emit("end", ok=True)
 
 
 def do_find_versions(yt_dlp, task):
@@ -586,7 +599,7 @@ def do_recognise(yt_dlp, task):
 
 
 TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
-         "find_versions": do_find_versions, "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
+         "find_versions": do_find_versions, "signin_check": do_signin_check, "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
          "describe": do_describe}
 
 

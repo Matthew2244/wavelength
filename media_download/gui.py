@@ -13,6 +13,7 @@ if asked for in Settings. Nothing ever moves focus on its own.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -21,7 +22,7 @@ import webbrowser
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, describe, dialogs, engine, geometry, menus, sparkle, textsize, update, winsparkle, words
+from . import APP_NAME, __version__, accounts, describe, dialogs, engine, geometry, menus, sparkle, textsize, update, winsparkle, words
 from . import system
 from .system import sound_map, sound_volume
 from .jobs import ACTIVE, Job
@@ -297,6 +298,7 @@ class MainFrame(wx.Frame):
         self._m(f, "&Search...\tCtrl+F", self.on_search)
         self._m(f, "Download &Links from the Clipboard\tCtrl+Shift+V", self.on_paste_links)
         self._m(f, "Download Links from a &Text File...\tCtrl+O", self.on_open_list)
+        self._m(f, "Your &Accounts...\tCtrl+U", self.on_accounts)
         f.AppendSeparator()
         self._m(f, "&Change Download Folder...", self.on_folder)
         self._m(f, "Open Download &Folder\tCtrl+Shift+O", lambda e: self._open_folder())
@@ -387,6 +389,66 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, handler, item)
         return item
 
+    def on_accounts(self, _=None):
+        dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
+        dlg.ShowModal()
+        result = dlg.result
+        dlg.Destroy()
+        if not result:
+            return
+        how, url = result
+        # After the window has gone: the player must never open over a modal window.
+        if how == "play":
+            wx.CallAfter(self.play_links, [{"url": url, "cookies": accounts.signin(self.cfg)}])
+        else:
+            wx.CallAfter(self.add_links, [url])
+
+    def signin_readable(self, browser: str) -> str | None:
+        """None if the browser's sign-in can be read; else a sentence saying why not."""
+        got = {}
+        run_task({"task": "signin_check", "browser": browser}, lambda ev: got.update(ev) if ev.get("ev") == "signin"
+                 else None, timeout=120)
+        if got.get("ok"):
+            return None
+        return (accounts.explain_signin(got.get("error", ""), browser)
+                or "%s's sign-in couldn't be read: %s" % (browser.capitalize(), got.get("error", "no answer")))
+
+    def _signin_result(self, browser: str, said: str | None) -> None:
+        """Right after a browser is chosen: a sign-in that can't be read is said once, here,
+        instead of failing every download."""
+        if not said:
+            self.tell("Using %s's sign-in." % browser.capitalize())
+            return
+        mac_fda = "Full Disk Access" in said and sys.platform == "darwin"
+        dlg = wx.MessageDialog(self, said + ("\n\nOpen that page of System Settings now?" if mac_fda else ""),
+                               "Sign-in can't be read", (wx.OK | wx.CANCEL | wx.OK_DEFAULT) if mac_fda else wx.OK)
+        if mac_fda:
+            dlg.SetOKCancelLabels("&Open System Settings", "Cancel")
+        go = dlg.ShowModal() == wx.ID_OK
+        dlg.Destroy()
+        if go and mac_fda:
+            subprocess.Popen(["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"])
+
+    def check_signin(self, browser: str) -> str:
+        """Ask YouTube for Liked videos with this browser's sign-in; a sentence for the answer."""
+        found = {"log": []}
+
+        def on(ev):
+            if ev.get("ev") == "playlist":
+                found["n"] = len(ev.get("entries") or [])
+            elif ev.get("ev") == "log":
+                found["log"].append(ev.get("text", ""))
+        unreadable = self.signin_readable(browser)
+        if unreadable:
+            return unreadable
+        run_task({"task": "probe", "spec": {"url": "https://www.youtube.com/playlist?list=LL", "dest": engine.TEMP,
+                                            "kind": "best", "cookies": browser}}, on, timeout=300)
+        if "n" in found:
+            return "Signed in: YouTube answered with your Liked videos, %s." % words.n(found["n"], "video")
+        log = "\n".join(found["log"])
+        return (accounts.explain_signin(log, browser, "YouTube")
+                or words.explain_failure(log, True, "YouTube"))
+
     def player_do(self, action: str):
         """The Player menu, from any window. Says so when nothing is playing, rather than nothing."""
         pl = self.player
@@ -436,7 +498,7 @@ class MainFrame(wx.Frame):
                    format_id=o.get("format_id", ""), format_audio_only=bool(o.get("format_audio_only")),
                    start=o.get("start", ""), end=o.get("end", ""), chapters=bool(o.get("chapters")),
                    subtitles=bool(o.get("subtitles")), transcript=bool(o.get("transcript")),
-                   cookies=o.get("cookies", ""), name=o.get("name", ""),
+                   cookies=o.get("cookies", "") or accounts.signin(self.cfg), name=o.get("name", ""),
                    extra=o.get("extra", ""), cover_art=bool(self.cfg.get("app_cover_art", True)))
 
     def folder_ready(self) -> bool:
@@ -598,7 +660,8 @@ class MainFrame(wx.Frame):
         def on(ev):
             if ev.get("ev") == "results":
                 res.extend(ev.get("results") or [])
-        run_task({"task": "search", "query": query, "site": site, "start": start, "count": count}, on, timeout=600)
+        run_task({"task": "search", "query": query, "site": site, "start": start, "count": count,
+                  "cookies": accounts.signin(self.cfg)}, on, timeout=600)
         return res
 
     def on_search(self, _, query=None):
@@ -758,13 +821,18 @@ class MainFrame(wx.Frame):
         job = self._job_from_ui(url)
         run_task({"task": "probe", "spec": job.spec()}, on, timeout=180)
         if "log" in out and "formats" not in out:
-            out["error"] = words.explain_failure(out["log"], False, words.site_name(url))
+            out["error"] = words.explain_failure(out["log"], False, words.site_name(url), accounts.signin(self.cfg))
         return out
 
     def on_settings(self, _):
+        before = accounts.signin(self.cfg)
         dlg = dialogs.Settings(self, self.cfg)
         if dlg.ShowModal() == wx.ID_OK:
             engine.save_settings(self.cfg)
+            now = accounts.signin(self.cfg)
+            if now and now != before:  # test the new browser's sign-in once, off the main thread
+                threading.Thread(target=lambda: wx.CallAfter(self._signin_result, now, self.signin_readable(now)),
+                                 daemon=True).start()
             if self.player is not None:
                 self.player.settings_changed()
             self.tell("Settings saved. Up to %d downloads at once." % self.mgr.parallel())
@@ -1253,7 +1321,8 @@ class MainFrame(wx.Frame):
                 elif ev.get("ev") == "candidates":
                     res["candidates"] = ev.get("items") or []
                     res["searched"] = ev.get("searched") or 0
-            run_task({"task": "find_description", "url": u, "title": title}, on, timeout=600)
+            run_task({"task": "find_description", "url": u, "title": title, "cookies": accounts.signin(self.cfg)},
+                     on, timeout=600)
             return res
 
         def run_more(t, start):

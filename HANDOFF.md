@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.6.1 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.7.0 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.6.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.7.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -326,7 +326,25 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    menu) probes one result and rewrites its row. YouTube's own "sort by upload
    date" (`sp=CAI%3D`) is ignored now, so Search's Order sorts what's loaded.
    The saved download list no longer stops at 500 rows.
-25. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
+25. **Your accounts** (`accounts.py`, `dialogs.AccountsDialog`, Settings,
+   Signing in). Browser sign-in only (`--cookies-from-browser`), never a
+   password: `app_signin` makes `_job_from_ui`, search, stream, the player's
+   list probe and find_description all carry it. Collections are plain URLs
+   (`accounts.COLLECTIONS`), opened through `add_links` or `play_links` after
+   the modal closes. Verified 2026-10-13: SoundCloud likes with Safari's sign-in
+   (208 items); YouTube LL/WL/feeds refused because Matthew's Safari is signed
+   in to Google but not youtube.com (no LOGIN_INFO or __Secure-3PSID cookies on
+   .youtube.com), and the app says exactly that. **The installed app can't read
+   Safari's cookies without Full Disk Access** ("Operation not permitted" on
+   Containers/com.apple.Safari/.../Cookies.binarycookies, shown with
+   `--signin-check safari OUTFILE` started by `open`, so macOS judges the app,
+   not a terminal). A terminal-run python reads them fine, which proves
+   nothing. The app tests a newly chosen browser at once (`signin_check`
+   worker task) and offers the Full Disk Access page. **Never test with
+   Chrome from a script**: reading its cookies raises a Keychain prompt on
+   Matthew's screen. Vimeo likes (410) and Bandcamp collections (unsupported)
+   are deliberately absent.
+26. **Search has no ceiling** (Matthew, 2026-10-13: "I wanna make sure the app
    has no limits"). It used to stop at 25. Now it fetches a page of
    `SEARCH_PAGE` (25) at a time with `--playlist-items start-end`, and the next
    page comes from More Results (Command-Shift-M) or by itself on reaching the
@@ -339,15 +357,22 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    used to stop at 300; CrashCourse's 1,705 all listed). **No caps on results
    anywhere is a standing decision** (Matthew, 2026-10-13): where a search
    can't be unlimited in one go, it pages.
-26. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
+27. **The words are "check", "checked", "unchecked", never "tick"** (Matthew,
    2026-10-13): Download Checked, Check All, Uncheck All, "3 checked". The
    classic app's lists are selection lists, so it says "select" there.
-27. From the classic app, still true for the command: a GUI-launched process gets
+28. From the classic app, still true for the command: a GUI-launched process gets
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
 ## Tested
 
+- **2.7.0** (2026-10-13): your accounts: browser sign-in for everything, File,
+  Your Accounts, Check Sign-in, the Full Disk Access offer; a quick test of a
+  newly chosen browser.
+- **2.7.0** (2026-10-13): your accounts: browser sign-in for everything, File,
+  Your Accounts, Check Sign-in, the Full Disk Access offer; a quick test of a
+  newly chosen browser. `tools/train.py` 23 of 23 (one run before it was 22:
+  a transient miss that wasn't captured).
 - **2.6.1** (2026-10-13): player speeds a quarter to 3x (AVFoundation measured
   2.98x at 3.0, pitch kept), M mute (session only), V says speed and volume,
   Shift for small volume steps, and a Player menu (`menus.PLAYER_KEYS`,

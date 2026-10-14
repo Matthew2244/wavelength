@@ -445,7 +445,7 @@ class Manager:
                     else:
                         job.state = "failed"
                         job.log_tail = log[-12:]
-                        job.reason = words.explain_failure("\n".join(log), bool(job.cookies), job.site)
+                        job.reason = words.explain_failure("\n".join(log), bool(job.cookies), job.site, job.cookies)
                         job.finished = time.time()
                         self.batch_counts["failed"] += 1
                 self.dirty = True
@@ -546,7 +546,7 @@ class Manager:
                             retry_engine = True
                         else:
                             job.state = "failed"
-                            job.reason = words.explain_failure(text, bool(job.cookies), job.site)
+                            job.reason = words.explain_failure(text, bool(job.cookies), job.site, job.cookies)
                             self.batch_counts["failed"] += 1
                     self.dirty = True
         if retry_engine:

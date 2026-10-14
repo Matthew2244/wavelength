@@ -496,3 +496,23 @@ def test_speeds_quarter_to_three():
     from media_download import player
     assert player.SPEEDS[0] == 0.25 and player.SPEEDS[-1] == 3.0 and player.SPEEDS[player.NORMAL] == 1.0
     assert player.speed_words(2.5) == "2.5 times" and player.speed_words(1.0) == "Normal"
+
+
+def test_accounts_window(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t: None)
+    cfg = dict(frame.cfg, app_signin="")
+    dlg = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "checked")
+    monkeypatch.setattr(dlg, "EndModal", lambda code: None)
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    dlg.list.SetSelection(0)
+    dlg.act("list")
+    assert dlg.result is None  # no browser chosen yet: it says so instead
+    dlg.browser.SetSelection(dlg.signin_vals.index("safari"))
+    dlg.act("play")
+    assert dlg.result == ("play", "https://www.youtube.com/playlist?list=LL") and cfg["app_signin"] == "safari"
+    dlg.Destroy()
+    frame.cfg["app_signin"] = "firefox"
+    try:
+        assert frame._job_from_ui("https://x.com/a").cookies == "firefox"
+    finally:
+        frame.cfg["app_signin"] = ""

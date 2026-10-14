@@ -395,7 +395,8 @@ class PlayerFrame(wx.Frame):
             elif ev.get("ev") == "log":
                 found.setdefault("log", []).append(ev.get("text", ""))
         want = item.get("want") or "audio"
-        run_task({"task": "stream", "url": item["url"], "want": want, "cookies": item.get("cookies", ""),
+        run_task({"task": "stream", "url": item["url"], "want": want,
+                  "cookies": item.get("cookies") or self.main.cfg.get("app_signin", ""),
                   "format": item.get("format", "")}, on,
                  timeout=120)
         wx.CallAfter(self._resolved, item, found)
@@ -411,7 +412,8 @@ class PlayerFrame(wx.Frame):
             threading.Thread(target=self._list, args=(item,), daemon=True).start()
             return
         if not found.get("url"):
-            reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]))
+            reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]),
+                                           item.get("cookies") or self.main.cfg.get("app_signin", ""))
             if any("NOPLAYABLE" in x for x in found.get("log", [])):
                 reason = "This one can't be played without downloading it first."
             self.fail(reason)
@@ -441,7 +443,8 @@ class PlayerFrame(wx.Frame):
         def on(ev):
             if ev.get("ev") == "playlist":
                 got.update(ev)
-        run_task({"task": "probe", "spec": {"url": item["url"], "dest": engine.TEMP, "kind": "best"}}, on,
+        run_task({"task": "probe", "spec": {"url": item["url"], "dest": engine.TEMP, "kind": "best",
+                                            "cookies": item.get("cookies") or self.main.cfg.get("app_signin", "")}}, on,
                  timeout=180)
         wx.CallAfter(self._listed, item, got)
 

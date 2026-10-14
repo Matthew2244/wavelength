@@ -327,7 +327,16 @@ def worth_updating_for(text: str) -> bool:
     return not any(word in lowered for word in hopeless)
 
 
-def explain_failure(text: str, cookies_used: bool = False, site: str | None = None) -> str:
+def explain_failure(text: str, cookies_used: bool = False, site: str | None = None, browser: str = "") -> str:
+    if browser:  # a borrowed sign-in that didn't work says which browser and what to do
+        from .accounts import explain_signin
+        said = explain_signin(text, browser, site or "")
+        if said:
+            return said
+    return _explain_failure(text, cookies_used, site)
+
+
+def _explain_failure(text: str, cookies_used: bool = False, site: str | None = None) -> str:
     """The useful sentence, not yt-dlp's error, whenever we recognise it.
 
     `site` keeps the wording honest: blaming YouTube for a Bandcamp failure is

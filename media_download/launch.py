@@ -28,6 +28,19 @@ def main(argv=None) -> int:
         from yt_dlp.version import __version__
         print(__version__)
         return 0
+    if argv[:1] == ["--signin-check"] and len(argv) > 2:
+        # Tests: can the app itself (started by the system, so macOS judges it and not a
+        # terminal) read this browser's sign-in? Writes "ok N" or the error to the file given.
+        from . import engine
+        engine.load_engine()
+        try:
+            from yt_dlp.cookies import extract_cookies_from_browser
+            said = "ok %d" % len(extract_cookies_from_browser(argv[1]))
+        except Exception as exc:  # noqa: BLE001
+            said = "error %s" % exc
+        with open(argv[2], "w") as fh:
+            fh.write(said)
+        return 0
     if argv[:1] == ["--self-test"]:
         from .selftest import run
         return run()

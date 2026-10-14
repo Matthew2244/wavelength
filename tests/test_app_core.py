@@ -589,3 +589,29 @@ def test_when_finished_said_plainly():
     assert words.when_words(now - 86400, now) == "yesterday at 6:00 PM"
     assert words.when_words(_t.mktime((2026, 10, 2, 20, 0, 0, 0, 0, -1)), now) == "on October 2 at 8:00 PM"
     assert words.when_words(_t.mktime((2025, 1, 5, 9, 5, 0, 0, 0, -1)), now) == "on January 5, 2025 at 9:05 AM"
+
+
+def test_accounts_addresses_and_sign_in_words():
+    from media_download import accounts
+    cfg = {}
+    assert accounts.address("youtube_liked", cfg) == "https://www.youtube.com/playlist?list=LL"
+    assert accounts.address("soundcloud_likes", cfg) is None  # needs a profile name first
+    assert "asks for your profile name" in accounts.row_words("soundcloud_likes", cfg)
+    cfg["app_profile_soundcloud"] = accounts.profile_name("https://soundcloud.com/forss/likes", "soundcloud")
+    assert accounts.address("soundcloud_likes", cfg) == "https://soundcloud.com/forss/likes"
+    assert accounts.profile_name("@forss", "soundcloud") == "forss"
+    said = accounts.explain_signin("ERROR: Login details are needed to download this content", "safari", "YouTube")
+    assert said.startswith("Safari isn't signed in to YouTube") and "password" in said
+    said = accounts.explain_signin("PermissionError: [Errno 1] Operation not permitted: 'Cookies.binarycookies'",
+                                   "safari")
+    assert "Full Disk Access" in said
+    assert accounts.explain_signin("HTTP Error 404", "safari") is None
+    # a failed download with a borrowed sign-in says which browser, and what to do
+    assert words.explain_failure("Sign in to confirm you're not a bot", True, "YouTube", "chrome").startswith(
+        "Chrome isn't signed in to YouTube")
+
+
+def test_downloads_borrow_the_sign_in_when_chosen():
+    from media_download import accounts
+    assert accounts.signin({"app_signin": "safari"}) == "safari" and accounts.signin({}) == ""
+    assert "--cookies-from-browser" in options.download_args(spec(cookies="safari"))
