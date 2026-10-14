@@ -478,9 +478,14 @@ SOUNDS = [
     ("copied", "Copied", "Tink"),
     ("update", "An update is ready", "Hero"),
     ("queue_end", "The player reached the end", "Submarine"),
+    ("tour_done", "Finished the welcome tour", "Sosumi"),
+    ("milestone", "A milestone: your 100th download and on", "Frog"),
+    ("signed_in", "A browser's sign-in works", "Hero"),
     ("closing", "Wavelength closes", "Blow"),
 ]
 SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
+# Ear candy from ElevenLabs, the same in every set: they live once in assets/sounds/shared.
+SHARED = ("tour_done", "milestone", "signed_in")
 THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("pizzicato", "Pizzicato strings"),
           ("soft", "Soft clicks"), ("system", "The system's own sounds")]
 
@@ -512,7 +517,7 @@ def sound_file(kind: str, theme: str = "rhodes") -> str | None:
     if theme == "system" or kind not in SOUND_WORDS:
         return None
     ext = ".wav" if sys.platform == "win32" else ".mp3"
-    for t in (theme, "rhodes"):
+    for t in (theme, "shared", "rhodes"):
         path = os.path.join(_sounds_dir(), t, kind + ext)
         if os.path.exists(path):
             return path

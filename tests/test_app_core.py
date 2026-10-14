@@ -526,9 +526,11 @@ def test_every_sound_set_is_complete():
             continue
         for kind, _, _ in system.SOUNDS:
             for ext in (".mp3", ".wav"):
-                path = os.path.join(root, key, kind + ext)
+                path = os.path.join(root, "shared" if kind in system.SHARED else key, kind + ext)
                 assert os.path.getsize(path) > 1000, path
+                assert system.sound_file(kind, key) is not None
         assert key in credits, key
+    assert "shared" in credits
 
 
 def test_each_action_can_have_any_sound_or_none(tmp_path, monkeypatch):

@@ -499,6 +499,7 @@ class MainFrame(wx.Frame):
         """Right after a browser is chosen: a sign-in that can't be read is said once, here,
         instead of failing every download."""
         if not said:
+            self._sound("signed_in")
             self.tell("Using %s's sign-in." % accounts.spec_words(browser))
             return
         mac_fda = "Full Disk Access" in said and sys.platform == "darwin"
@@ -987,6 +988,7 @@ class MainFrame(wx.Frame):
     def _with_milestone(self, text: str) -> str:
         if self.milestone:
             text, self.milestone = text + " " + self.milestone, ""
+            self._sound("milestone")  # after the finished sound, in the queue of long sounds
         return text
 
     def _speak_finished(self):
@@ -1036,6 +1038,7 @@ class MainFrame(wx.Frame):
             self._sound("waiting")  # the row says why and when; the sound says it happened
 
     # The short ones play at once; the others queue so two are never heard on top of each other.
+    SOUND_ROOM = {"opening": 1.8, "closing": 1.8, "tour_done": 2.2, "milestone": 1.7}
     SHORT_SOUNDS = ("added", "copied", "item_done", "results", "no_more", "waiting", "stopped")
 
     def _sound(self, kind: str) -> None:
@@ -1060,8 +1063,8 @@ class MainFrame(wx.Frame):
             play(kind, theme, vol, smap)
             return
         wait = self.next_sound_at - now
-        # The opening and closing tunes run to about 1.7 s; the rest fit in 1.4.
-        self.next_sound_at = max(now, self.next_sound_at) + (1.8 if kind in ("opening", "closing") else 1.4)
+        # The opening and closing tunes and the ear candy run longer; the rest fit in 1.4 s.
+        self.next_sound_at = max(now, self.next_sound_at) + self.SOUND_ROOM.get(kind, 1.4)
         if wait > 0:
             wx.CallLater(int(wait * 1000), play, kind, theme, vol, smap)
         else:

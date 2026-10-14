@@ -1077,10 +1077,12 @@ class AccountsDialog(wx.Dialog):
     def _checked(self, said):
         if not self:
             return
-        from .system import announce
+        from .system import announce, cue
         self.status.SetLabel(said)
         self.status.Wrap(max(300, self.GetClientSize().width - 30))
         self.Layout()
+        if said.startswith("Signed in"):
+            cue("signed_in")
         announce(said)
         if "Full Disk Access" in said and sys.platform == "darwin":
             dlg = wx.MessageDialog(self, said + "\n\nOpen that page of System Settings now?", "Permission needed",
@@ -1447,12 +1449,18 @@ class Guide(wx.Dialog):
 
     def _youtube_said(self, said):
         if self:
+            if said.startswith("Signed in"):
+                from .system import cue
+                cue("signed_in")
             self._say(self.svc_status, said)
 
     def finish(self):
+        """Finish, the first time or any time after: a bell to say it's done."""
         self.cfg["app_onboarded"] = True
         from . import engine
+        from .system import cue
         engine.save_settings(self.cfg)
+        cue("tour_done")
         self.EndModal(wx.ID_OK)
 
 

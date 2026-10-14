@@ -88,3 +88,15 @@ the note before filtered out of each cut note.
 | no_more | PIZZI05 |
 | update | PIZZI04, PIZZI02 |
 | queue_end | PIZZI01, 11, 04, 08, 02 |
+
+## shared (every set)
+
+Three sounds of ear candy are the same whichever set is chosen, kept once in
+`shared/`: `tour_done` (the welcome tour finished, a warm hand bell),
+`milestone` (the 100th, 250th, 1,000th download and on, a tiny bell fanfare)
+and `signed_in` (a browser's sign-in works, a two-tone chime). Made with
+ElevenLabs sound effects on Matthew Whitaker's own account on 2026-10-14 and
+chosen by him by ear from fourteen candidates; same licence as the rest of
+this repository. The generated originals are in `tools/sound_sources/`;
+`tools/finish_sound.py` gives them the treatment above.
+
