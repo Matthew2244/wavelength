@@ -27,7 +27,7 @@ gui.announce = lambda t: None
 gui.MainFrame.startup_checks = lambda self: None
 app = wx.App(False)
 f = gui.MainFrame()
-f.SetSize((900, 780))
+f.SetSize((900, 680))
 f.mgr.pump = lambda: None
 dest = os.path.expanduser("~/Downloads/Media Downloads")
 samples = [

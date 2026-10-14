@@ -559,6 +559,18 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Not done
 
+**Parked here on 2026-10-13 at Matthew's word**, with 3.0.1 on both Macs and the
+family band trying it. Open threads, none started:
+
+- **YouTube through Your Accounts hasn't worked end to end yet.** Matthew's Safari is
+  signed in to Google but not youtube.com, and Wavelength has no Full Disk Access yet;
+  both are his to do. SoundCloud likes worked with Safari's sign-in (208 items).
+- **The welcome tour and Set Up Accounts haven't been tried with VoiceOver by a
+  person.** Driven over accessibility in the built app: the step text takes focus and
+  reads first, steps count right, Next and Close work.
+- **Nobody has used the Windows build yet**, now including the installer's cleanup of
+  the old name, the Windows player keys, dark mode and Bigger Text on controls.
+
 - Audio description hasn't been heard by a person yet, and making one has only
   been tried on short videos. With no cap on moments, a two-hour film is
   hundreds of moments, so dozens of Claude calls and a long wait.
