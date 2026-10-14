@@ -444,6 +444,11 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
    list says what it does and its shortcut, checked against the bindings. Windows wording
    says Control and Enter. Keep it so: a new control needs a tip in the same voice.
+   **The same goes for GitHub** (Matthew, 2026-10-14: "everyone shouldn't feel left out"):
+   every key the README or a release note names gives the Windows key too. The README's
+   keyboard tables have a Mac and a Windows column; the player's from-anywhere keys differ
+   on Windows (`menus.PLAYER_KEYS`), so never write "read Control for Command" as a rule.
+   All earlier release notes were brought into line the same day.
 32. **The clipboard offer**: also at launch (a link copied before opening the app), never for
    a link already added or already in the list, an untouched earlier offer gives way to a
    newer link, it stays quiet if you've moved on while the link was being recognised, and

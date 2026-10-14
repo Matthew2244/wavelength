@@ -26,8 +26,8 @@ On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (
 
 ![The Wavelength window, in dark mode. Its title says Wavelength: 3 downloading, 1 waiting, 44 percent. At the top, a Link field holding a SoundCloud link, with Download, Play Link and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play Selected, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
-1. Paste a link into the Link field and press Return, or drag links onto the window. Paste several at once and each gets its own row.
-2. Or type some words and press Return to search YouTube, SoundCloud or YouTube Music. Check the results you want.
+1. Paste a link into the Link field and press Return (Enter on Windows), or drag links onto the window. Paste several at once and each gets its own row.
+2. Or type some words and press Return or Enter to search YouTube, SoundCloud or YouTube Music. Check the results you want.
 3. Choose a format before you add the link. "Best audio, as the site sends it" never converts anything. MP3, M4A, Opus, WAV and FLAC convert. Video saves an MP4 that plays everywhere unless you ask for higher than 1080.
 
 Each row says its status first, then the title: "Downloading, 45 percent, about 2 minutes left: Green Onions". A long title gets cut off at the end of a row, so the part you need comes first. Select a row and Details below says everything known about it, including where the file went or, if it failed, why, in a plain sentence.
@@ -42,25 +42,25 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **When things go wrong, it sorts itself out where it can.** A dropped connection or a server hiccup tries again by itself, after 15 seconds and then a minute. When a site says "too many requests", every download from that site waits a few minutes, the row says when it will try again, and it carries on without you, so a long playlist can finish overnight. When a site wants you signed in, select the row and choose Retry Using a Browser's Sign-in: it borrows the sign-in from the browser you choose, and remembers which. If the browser's sign-in can't be read at all (Chrome open on Windows, say, or Safari without Full Disk Access), the download tries once more without it and tells you. Spotify, Apple Music and Netflix use copy protection (DRM), and the app says so plainly rather than looking broken.
 
-**When things were uploaded.** Every search result, playlist item and described version says when it was uploaded and how many have watched or listened: "uploaded March 4, 2024, 402 thousand views". YouTube's lists only say "2 years ago", so those read "uploaded about 2 years ago". For the exact date, right-click a result and choose Look Up Exact Date and Details (Command-I in Search). Select a download and Details has the exact date too. Search's **Order** menu sorts the results you've loaded: newest first, oldest first, most viewed, longest or shortest. What you've checked stays checked.
+**When things were uploaded.** Every search result, playlist item and described version says when it was uploaded and how many have watched or listened: "uploaded March 4, 2024, 402 thousand views". YouTube's lists only say "2 years ago", so those read "uploaded about 2 years ago". For the exact date, right-click a result and choose Look Up Exact Date and Details (Command-I in Search, Control-I on Windows). Select a download and Details has the exact date too. Search's **Order** menu sorts the results you've loaded: newest first, oldest first, most viewed, longest or shortest. What you've checked stays checked.
 
-**Search keeps going.** It shows 25 results, and the next 25 load by themselves when you reach the end of the list, for as long as the site has more. More Results (Command-Shift-M) does the same.
+**Search keeps going.** It shows 25 results, and the next 25 load by themselves when you reach the end of the list, for as long as the site has more. More Results (Command-Shift-M, or Control-Shift-M on Windows) does the same.
 
 **Right-click menus** are on every list: the downloads, search results, a playlist's items, the player's queue and audio description. With VoiceOver, press VO-Shift-M. On Windows, press Shift-F10 or the Menu key. Command-K (Control-K on Windows) opens the same menu from the keyboard. Each menu only lists what makes sense for that row: Play, Open the Web Page, Copy Link, Copy Title, Download Again As another format, Download This One Now while Search stays open, Everything from This Channel, Check from Here to the End, and more.
 
-**Sounds.** The app plays a sound for each thing that happens: opening, finished, failed, one of several finished, added, stopped, trying again by itself, search results, nothing more found, copied, an update ready, the end of the player's queue, and closing. It comes with four sets: a Rhodes electric piano (the default), a kalimba, pizzicato strings made from [Kenney's Music Jingles](https://kenney.nl/assets/music-jingles), and soft clicks from [Kenney's Interface Sounds](https://kenney.nl/assets/interface-sounds). Kenney's packs are CC0, free for anyone to use. Settings, Sounds picks the set, and a slider sets how loud they are (all the way down is silent); Play a Sample plays one. **Choose Sounds** lists every action. For each, pick any sound from any set, a sound file of your own, or no sound at all. **Import a Sound File** takes MP3, WAV, AIFF, M4A, FLAC, Ogg and more, and copies it into the app's own folder. Nothing plays by itself while you choose: press Play, or Return. That way a sound never talks over your screen reader. Each action has its own sound, so you can tell them apart by ear.
+**Sounds.** The app plays a sound for each thing that happens: opening, finished, failed, one of several finished, added, stopped, trying again by itself, search results, nothing more found, copied, an update ready, the end of the player's queue, and closing. It comes with four sets: a Rhodes electric piano (the default), a kalimba, pizzicato strings made from [Kenney's Music Jingles](https://kenney.nl/assets/music-jingles), and soft clicks from [Kenney's Interface Sounds](https://kenney.nl/assets/interface-sounds). Kenney's packs are CC0, free for anyone to use. Settings, Sounds picks the set, and a slider sets how loud they are (all the way down is silent); Play a Sample plays one. **Choose Sounds** lists every action. For each, pick any sound from any set, a sound file of your own, or no sound at all. **Import a Sound File** takes MP3, WAV, AIFF, M4A, FLAC, Ogg and more, and copies it into the app's own folder. Nothing plays by itself while you choose: press Play, or Return (Enter on Windows). That way a sound never talks over your screen reader. Each action has its own sound, so you can tell them apart by ear.
 
 A few more are there just for fun, the same in every set: a bell when you finish the welcome tour, a little fanfare at your 100th, 250th and 1,000th download, and a chime when a browser's sign-in checks out. They're in Choose Sounds like the rest.
 
-**Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Each section of Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
+**Bigger Text** (Command-Plus, or Control-Plus on Windows) reaches every window: Search, Settings, the player, every dialog and the status bar. Each section of Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
 **Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Wavelength never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
 
-**File, Your Accounts** (Command-U) opens the things that only exist when you're signed in: YouTube's Liked videos, Watch Later, new from your subscriptions, your playlists and history; YouTube Music's liked music; and your SoundCloud likes, tracks and playlists. Open one as a list to check what to download, or play it all. Check Sign-in tests it and says plainly what's wrong if something is. If your browser is signed in to Google but not to YouTube itself, sign in at youtube.com in that browser.
+**File, Your Accounts** (Command-U, or Control-U on Windows) opens the things that only exist when you're signed in: YouTube's Liked videos, Watch Later, new from your subscriptions, your playlists and history; YouTube Music's liked music; and your SoundCloud likes, tracks and playlists. Open one as a list to check what to download, or play it all. Check Sign-in tests it and says plainly what's wrong if something is. If your browser is signed in to Google but not to YouTube itself, sign in at youtube.com in that browser.
 
 On a Mac, reading **Safari's** sign-in needs Full Disk Access for Wavelength (System Settings, Privacy & Security, Full Disk Access). The app tells you and offers to open that page. Chrome and the others ask once for permission to use their stored key.
 
-**A long list** can be filtered: type in Filter (Command-Shift-F) to show only rows containing those words, like "failed" or part of a title. Escape shows everything again.
+**A long list** can be filtered: type in Filter (Command-Shift-F, or Control-Shift-F on Windows) to show only rows containing those words, like "failed" or part of a title. Escape shows everything again.
 
 Downloads go to **Downloads > Media Downloads** on your computer until you choose somewhere else with Change Folder. While anything is downloading, the computer won't go to sleep (so an overnight playlist finishes; Settings can turn that off). If the folder isn't there, say on a drive that's unplugged, or a download won't fit on the disk, it tells you before starting.
 
@@ -74,9 +74,22 @@ Wavelength plays things too: what you've downloaded, and links you haven't.
 
 - **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
 - **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
-- **Play what you've downloaded:** select a row and press Play (Command-P), or Play All Finished (Command-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
-- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item. [ and ] change speed, from a quarter to three times, without changing pitch, and backslash puts it back to normal. Command-Up and Command-Down change the volume (with Shift, in small steps), M mutes and unmutes, and V says the speed and volume. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
-- **From any window:** the Player menu in the main window and Search pauses, skips, changes item, turns it up or down, mutes, speeds up or slows down, and says the time, all with the same keys in every window. On the Mac: Command-Option-P plays and pauses, Command-Option-Up and Down change the volume, Command-Option-[ and ] the speed. On Windows, where Control-Alt also types characters on many keyboards and can rotate the screen with the arrows: Control-Alt-P plays and pauses, Control-Alt-U and D change the volume, Control-Alt-Period and Comma the speed, Control-Alt-K mutes, and Control-Alt-Page Up and Page Down change item. The Player menu lists them all.
+- **Play what you've downloaded:** select a row and press Play (Command-P, or Control-P on Windows), or Play All Finished (Command-Shift-P, or Control-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
+- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item (Control-Left and Control-Right on Windows). [ and ] change speed, from a quarter to three times, without changing pitch, and backslash puts it back to normal. Command-Up and Command-Down change the volume (Control-Up and Control-Down on Windows; with Shift, in small steps), M mutes and unmutes, and V says the speed and volume. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
+- **From any window:** the Player menu in the main window and Search controls the player without going to it, with the same keys in every window. On Windows they're different from the Mac's, because Control-Alt with an arrow can rotate the screen there and Control-Alt with some letters types characters on many keyboards.
+
+  | Does | Mac | Windows |
+  |---|---|---|
+  | Play or pause | Command-Option-P | Control-Alt-P |
+  | Previous, next item | Command-Option-Left, Right | Control-Alt-Page Up, Page Down |
+  | Back, forward | Command-Option-Comma, Period | Control-Alt-Home, End |
+  | Louder, quieter | Command-Option-Up, Down | Control-Alt-U, D |
+  | Mute or unmute | Command-Option-0 | Control-Alt-K |
+  | Faster, slower | Command-Option-], [ | Control-Alt-Period, Comma |
+  | Normal speed | Command-Option-Backslash | Control-Alt-N |
+  | Say the time | Command-Option-T | Control-Alt-T |
+  | Say the speed and volume | Command-Option-V | Control-Alt-V |
+
 - **It picks up where you stopped** in each item, so a long podcast, lecture or audiobook carries on next time. A **sleep timer** (15 minutes to an hour, or the end of the item) fades out and pauses.
 - **Captions** show in large type under the picture, from subtitles you downloaded or the stream's own.
 - Nothing is spoken unless you ask (T), a new item starts while the player is in the background, or the queue runs out. Speed, volume and where you put the window are remembered.
@@ -85,7 +98,7 @@ Windows plays MP4 and M4A streams; video from sites that only offer the Mac-styl
 
 ### Audio description
 
-Select a download, or put a link in the Link field, and choose Audio Description (Command-Shift-A; it's also in the player's Playback menu). It looks, in order of how far each can be trusted:
+Select a download, or put a link in the Link field, and choose Audio Description (Command-Shift-A, or Control-Shift-A on Windows; it's also in the player's Playback menu). It looks, in order of how far each can be trusted:
 
 1. **A described track on the video itself**, written by a person. Play it or download it.
 2. **A described version someone has published**, usually on YouTube. Only candidates that share a real word with the title are shown, and you choose.
@@ -105,42 +118,47 @@ Built with wxPython, so every control is the system's own and VoiceOver, NVDA, J
 
 ### With low vision
 
-View, Bigger Text (Command-Plus) makes the link field, the list, Details and every label larger, up to 48 points, and it's remembered. Command-0 goes back to normal. Colors follow the system, including Increase Contrast and dark mode. Status is always written in words, never shown by color alone.
+View, Bigger Text (Command-Plus, or Control-Plus on Windows) makes the link field, the list, Details and every label larger, up to 48 points, and it's remembered. Command-0 (Control-0) goes back to normal. Colors follow the system, including Increase Contrast and dark mode. Status is always written in words, never shown by color alone.
 
 ### Keyboard
 
-Everything is in the menus with its shortcut. On Windows read Control for Command.
+Everything is in the menus with its shortcut, and Help, Keyboard Shortcuts lists every one in the words your system uses.
 
-| Keys | Does |
-|---|---|
-| Return in the Link field | Download the link, or search if it's words |
-| Command-F | Search |
-| Command-Shift-V | Download every link on the clipboard |
-| Command-O | Download the links in a text file |
-| Command-L, Command-D, Command-E | Go to the Link field, the Downloads list, Details |
-| Command-J | Say what's happening |
-| Command-Shift-F | Filter the list |
-| Command-P | Play the selected download |
-| Command-Shift-P | Play everything finished |
-| Command-Shift-Return | Play the link without downloading |
-| Command-Shift-A | Audio description: find it, or make it |
-| Return in the list | Open the file |
-| Delete in the list | Remove the row (the file stays) |
-| Command-R | Show the file in Finder or File Explorer |
-| Command-Period | Stop |
-| Command-Shift-R | Retry |
-| Command-Shift-Up and Down | Move a download up or down the queue |
-| Command-Shift-K | Clear finished downloads from the list |
-| Command-Plus, Command-Minus, Command-0 | Text size |
-| Command-Comma | Settings |
+| Does | Mac | Windows |
+|---|---|---|
+| Download the link, or search if it's words | Return in the Link field | Enter in the Link field |
+| Search | Command-F | Control-F |
+| Download every link on the clipboard | Command-Shift-V | Control-Shift-V |
+| Download the links in a text file | Command-O | Control-O |
+| Go to the Link field, the Downloads list, Details | Command-L, Command-D, Command-E | Control-L, Control-D, Control-E |
+| Say what's happening | Command-J | Control-J |
+| Filter the list | Command-Shift-F | Control-Shift-F |
+| Play the selected download | Command-P | Control-P |
+| Play everything finished | Command-Shift-P | Control-Shift-P |
+| Play the link without downloading | Command-Shift-Return | Control-Shift-Enter |
+| Audio description: find it, or make it | Command-Shift-A | Control-Shift-A |
+| Your accounts | Command-U | Control-U |
+| Open the file | Return in the list, or Command-Down Arrow | Enter in the list, or Control-Down Arrow |
+| Remove the row (the file stays) | Delete in the list, or Command-Delete | Delete or Backspace in the list, or Control-Backspace |
+| Show the file | Command-R (in Finder) | Control-R (in File Explorer) |
+| Stop, Stop All | Command-Period, Command-Shift-Period | Control-Period, Control-Shift-Period |
+| Retry | Command-Shift-R | Control-Shift-R |
+| Move a download up or down the queue | Command-Shift-Up and Down | Control-Shift-Up and Down |
+| Clear finished downloads from the list | Command-Shift-K | Control-Shift-K |
+| The selected row's menu | Command-K, or VO-Shift-M | Control-K, Shift-F10 or the Menu key |
+| Go to the downloads window, the player | Command-1, Command-2 | Control-1, Control-2 |
+| Text size: bigger, smaller, normal | Command-Plus, Command-Minus, Command-0 | Control-Plus, Control-Minus, Control-0 |
+| Settings | Command-Comma | Control-Comma |
+| Next or previous section in Settings | Control-Tab, Control-Shift-Tab | Control-Tab, Control-Shift-Tab |
+| Close the window, quit | Command-W, Command-Q | Control-W, Control-Q |
 
-You can also drop links, a text file of links, or a web location onto the window or the Dock icon.
+You can also drop links, a text file of links, or a web location onto the window, or on a Mac onto the Dock icon.
 
 Help, About keeps a running tally of what you've downloaded ("Since October 13, 2026: 214 downloads, 18.3 GB, about 41 hours of listening and watching"), and the hundredth, thousandth and so on get a quiet mention in the "Done" sentence that was being said anyway.
 
 ### Settings
 
-Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window. Every setting has a help tag that says what it does.
+Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window (Control on both systems, not Command). Every setting has a help tag that says what it does.
 
 - **General:** offering a link you've copied when you switch to the app (also when you open it), spoken progress, and keeping the download engine up to date.
 - **Downloads:** downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, and keeping the computer awake.
