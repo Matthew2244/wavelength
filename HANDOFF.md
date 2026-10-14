@@ -13,10 +13,10 @@ in Matthew's private notes has the `ytdl` and `ytdescribe` reasoning.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/ytdl-accessible](https://github.com/Matthew2244/ytdl-accessible) | MIT |
 
-**Where it stands (2026-10-13):** 2.6.0 is the latest release, signed and
+**Where it stands (2026-10-13):** 2.6.1 is the latest release, signed and
 notarized on the Mac, with both appcasts serving it. Installed on the Studio
 and the MacBook from the notarized zip (neither had the app open; verified
-2.6.0, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
+2.6.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
 but never offered. Check `CFBundleShortVersionString`
 before assuming for any later release. No person has tried the Windows
 build yet: NVDA first, then the installer, WinSparkle and the sounds.
@@ -348,6 +348,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **2.6.1** (2026-10-13): player speeds a quarter to 3x (AVFoundation measured
+  2.98x at 3.0, pitch kept), M mute (session only), V says speed and volume,
+  Shift for small volume steps, and a Player menu (`menus.PLAYER_KEYS`,
+  Command-Option keys) in the main window and Search, the same keys bound in
+  the player. `check.sh` now catches a menu letter taking a control's Alt key
+  (it missed "&Player" until its pattern was fixed).
 - **2.6.0** (2026-10-13): Choose Sounds gives every action any sound, your own
   file or none; volume slider; steel, sax and retro removed. A full review for
   low vision, sighted and Windows users: Bigger Text in every window

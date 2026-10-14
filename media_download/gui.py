@@ -209,7 +209,7 @@ class MainFrame(wx.Frame):
         s.Add(self.details, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
-        self.play_btn = wx.Button(p, label=M("Pla&y"))
+        self.play_btn = wx.Button(p, label=M("Play"))
         self.play_btn.SetToolTip("Play the selected download here (%s-P)." % CMD)
         self.open_btn = wx.Button(p, label=M("&Open"))
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
@@ -365,6 +365,7 @@ class MainFrame(wx.Frame):
         bar.Append(ed, "&Edit")
         bar.Append(d, "&Downloads")
         bar.Append(v, "&View")
+        bar.Append(menus.player_menu(self, self), "Pla&yer")
         bar.Append(h, "&Help")
         self.SetMenuBar(bar)
 
@@ -385,6 +386,23 @@ class MainFrame(wx.Frame):
         item = menu.Append(wid, label)
         self.Bind(wx.EVT_MENU, handler, item)
         return item
+
+    def player_do(self, action: str):
+        """The Player menu, from any window. Says so when nothing is playing, rather than nothing."""
+        pl = self.player
+        if pl is None or not (pl.item or pl.queue):
+            self.tell("Nothing is in the player. Play something first: %s-P plays the selected download."
+                      % ("Command" if sys.platform == "darwin" else "Control"))
+            return
+        step = pl.skip_len()
+        do = {"toggle": pl.toggle, "prev": lambda: pl.go(-1), "next": lambda: pl.go(+1),
+              "back": lambda: pl.skip(-step), "forward": lambda: pl.skip(step),
+              "louder": lambda: pl.set_volume(min(1.0, pl.base_volume + 0.1)),
+              "quieter": lambda: pl.set_volume(max(0.0, pl.base_volume - 0.1)),
+              "mute": pl.toggle_mute, "faster": lambda: pl.step_speed(+1), "slower": lambda: pl.step_speed(-1),
+              "normal": lambda: pl.set_speed(1.0), "time": pl.say_time, "levels": pl.say_levels}.get(action)
+        if do:
+            do()
 
     def on_to_main(self, _=None):
         self.Raise()

@@ -476,3 +476,23 @@ def test_settings_fit_the_screen_at_big_text(frame):
         dlg.Destroy()
     finally:
         textsize.current = old
+
+
+def test_player_menu_from_any_window(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    frame.player = None
+    frame.player_do("toggle")
+    assert said[-1].startswith("Nothing is in the player")
+    bar = frame.GetMenuBar()
+    labels = [bar.GetMenuLabelText(i) for i in range(bar.GetMenuCount())]
+    assert "Player" in labels
+    from media_download import menus
+    keys = [it[2] for it in menus.PLAYER_KEYS if it]
+    assert len(keys) == len(set(keys))  # one key, one meaning
+
+
+def test_speeds_quarter_to_three():
+    from media_download import player
+    assert player.SPEEDS[0] == 0.25 and player.SPEEDS[-1] == 3.0 and player.SPEEDS[player.NORMAL] == 1.0
+    assert player.speed_words(2.5) == "2.5 times" and player.speed_words(1.0) == "Normal"

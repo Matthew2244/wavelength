@@ -32,7 +32,12 @@ from .manager import run_task
 from .system import (announce, mac_accessibility_label, mac_focus, mac_has_focus, mac_value_description, open_path,
                      reveal)
 
-SPEEDS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
+# Down to a quarter, for following something fast or learning a part by ear; up to three times,
+# where plenty of people listen to podcasts and lectures. Pitch is kept at every speed (verified
+# on the Mac: 3.0 measured 2.98 times real time).
+SPEEDS = [0.25, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.25, 1.3, 1.4, 1.5, 1.6, 1.75, 1.8, 2.0,
+          2.25, 2.5, 2.75, 3.0]
+NORMAL = SPEEDS.index(1.0)
 AD_MODES = [("pause", "pauses the video to read"), ("over", "reads over the video, with the sound lowered"),
             ("off", "off")]
 SLEEP_CHOICES = [(0, "Off"), (15, "15 minutes"), (30, "30 minutes"), (45, "45 minutes"), (60, "1 hour"),
@@ -125,6 +130,7 @@ class PlayerFrame(wx.Frame):
         self.sleep_end_of_item = False
         self.fading = False
         self.base_volume = float(self.cfg.get("app_volume", 1.0))
+        self.muted = False  # M: for this session only, so the app never opens silent
         self.speed = float(self.cfg.get("app_speed", 1.0))
         self.captions_on = bool(self.cfg.get("app_captions", True))
         self.reader = Reader(voice=self.cfg.get("app_ad_voice", "system"))
@@ -184,9 +190,10 @@ class PlayerFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         lab = wx.StaticText(p, label="Speed:")
         self.speed_choice = wx.Choice(p, choices=[speed_words(v) for v in SPEEDS])
-        self.speed_choice.SetSelection(SPEEDS.index(self.speed) if self.speed in SPEEDS else 3)
+        self.speed_choice.SetSelection(SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL)
         mac_accessibility_label(self.speed_choice, "Speed")
-        self.speed_choice.SetToolTip("Faster or slower without changing pitch ([ and ]).")
+        self.speed_choice.SetToolTip("A quarter speed to three times, without changing pitch ([ and ], "
+                                     "backslash for normal).")
         vlab = wx.StaticText(p, label="Volume:")
         self.volume = wx.Slider(p, value=int(self.base_volume * 100), minValue=0, maxValue=100, size=(160, -1))
         mac_accessibility_label(self.volume, "Volume")
@@ -269,6 +276,10 @@ class PlayerFrame(wx.Frame):
         add("Normal Speed (\\)", lambda: self.set_speed(1.0))
         add("Louder\tCtrl+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.1)))
         add("Quieter\tCtrl+Down", lambda: self.set_volume(max(0.0, self.base_volume - 0.1)))
+        add("A Little Louder\tCtrl+Shift+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.02)))
+        add("A Little Quieter\tCtrl+Shift+Down", lambda: self.set_volume(max(0.0, self.base_volume - 0.02)))
+        add("Mute or Unmute (M)", self.toggle_mute)
+        add("Say the Speed and Volume (V)", self.say_levels)
         m.AppendSeparator()
         add("Say the Time (T)", self.say_time)
         add("Captions On or Off (C)", self.toggle_captions)
@@ -299,6 +310,21 @@ class PlayerFrame(wx.Frame):
             add("About", lambda: self.main.on_about(None), wx.ID_ABOUT)
         bar.Append(m, "&Playback")
         self.SetMenuBar(bar)
+        # The same Command-Option keys as the Player menu in the other windows, so one set of
+        # keys works everywhere; here the plain keys (Space, M, V...) work too.
+        from .menus import PLAYER_KEYS
+        table = []
+        for it in PLAYER_KEYS:
+            if it is None:
+                continue
+            _, action, keys = it
+            acc = wx.AcceleratorEntry()
+            if acc.FromString(keys):
+                wid = wx.NewIdRef()
+                self.Bind(wx.EVT_MENU, lambda e, a=action: self.main.player_do(a), id=wid)
+                table.append((acc.GetFlags(), acc.GetKeyCode(), wid))
+        if table:
+            self.SetAcceleratorTable(wx.AcceleratorTable(table))
 
     # ------------------------------------------------------------------ the queue
 
@@ -471,7 +497,7 @@ class PlayerFrame(wx.Frame):
         self.slider.SetPageSize(60)
         is_video = self._is_video()
         self._show_video(is_video)
-        self.media.SetVolume(self.base_volume)
+        self.media.SetVolume(self.out_volume())
         self.media.Play()
         self.media.SetPlaybackRate(self.speed)
         self._load_description()
@@ -534,7 +560,7 @@ class PlayerFrame(wx.Frame):
             self.ad_paused = True
         else:
             self.fading = True
-            self.media.SetVolume(self.base_volume * 0.35)
+            self.media.SetVolume(self.out_volume() * 0.35)
         self.reader.speak(text)
 
     def _end_ad(self, resume: bool):
@@ -546,7 +572,7 @@ class PlayerFrame(wx.Frame):
             self.caption.SetLabel("")
         self.fading = False
         if self.loaded:
-            self.media.SetVolume(self.base_volume)
+            self.media.SetVolume(self.out_volume())
         if self.ad_paused:
             self.ad_paused = False
             if resume and self.loaded:
@@ -679,16 +705,30 @@ class PlayerFrame(wx.Frame):
         self.say("Speed: %s." % speed_words(value))
 
     def step_speed(self, d: int):
-        k = SPEEDS.index(self.speed) if self.speed in SPEEDS else 3
+        k = SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL
         k = max(0, min(len(SPEEDS) - 1, k + d))
         self.set_speed(SPEEDS[k])
 
+    def out_volume(self) -> float:
+        return 0.0 if self.muted else self.base_volume
+
+    def toggle_mute(self):
+        self.muted = not self.muted
+        if self.loaded and not self.fading:
+            self.media.SetVolume(self.out_volume())
+        self.say("Muted." if self.muted else "Sound on, volume %d." % int(self.base_volume * 100))
+
+    def say_levels(self):
+        self.say("Speed %s. Volume %d%s." % (speed_words(self.speed).lower(), int(self.base_volume * 100),
+                                             ", muted" if self.muted else ""))
+
     def set_volume(self, v: float, say=True):
+        self.muted = False  # changing the volume means you want to hear it
         self.base_volume = round(v, 2)
         self.volume.SetValue(int(self.base_volume * 100))
         mac_value_description(self.volume, "%d percent" % int(self.base_volume * 100))
         if self.loaded and not self.fading:
-            self.media.SetVolume(self.base_volume)
+            self.media.SetVolume(self.out_volume())
         self.cfg["app_volume"] = self.base_volume
         engine.save_settings(self.cfg)
         if say:
@@ -777,10 +817,10 @@ class PlayerFrame(wx.Frame):
         if self.sleep_at and time.time() >= self.sleep_at - 10 and self.playing():
             left = self.sleep_at - time.time()
             self.fading = True
-            self.media.SetVolume(max(0.0, self.base_volume * left / 10))
+            self.media.SetVolume(max(0.0, self.out_volume() * left / 10))
             if left <= 0:
                 self.media.Pause()
-                self.media.SetVolume(self.base_volume)
+                self.media.SetVolume(self.out_volume())
                 self.sleep_at, self.fading = 0.0, False
                 self.save_position()
                 self.status("Paused by the sleep timer. Sleep well.")  # shown, never spoken
@@ -905,6 +945,10 @@ class PlayerFrame(wx.Frame):
                 event.Skip()
         elif mods == 0 and key in (ord("T"), ord("t")):
             self.say_time()
+        elif mods == 0 and key in (ord("M"), ord("m")):
+            self.toggle_mute()
+        elif mods == 0 and key in (ord("V"), ord("v")):
+            self.say_levels()
         elif mods == 0 and key in (ord("C"), ord("c")):
             self.toggle_captions()
         elif mods == 0 and key in (ord("D"), ord("d")):

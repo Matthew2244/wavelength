@@ -112,3 +112,37 @@ def copy_text(text: str) -> bool:
             wx.TheClipboard.Close()
         return True
     return False
+
+
+# The player, from any window: the same keys everywhere (Command-Option on the Mac,
+# Control-Alt on Windows), so it can be paused or turned down without going to it.
+PLAYER_KEYS = [
+    ("Play or Pause", "toggle", "Ctrl+Alt+P"),
+    ("Previous Item", "prev", "Ctrl+Alt+Left"),
+    ("Next Item", "next", "Ctrl+Alt+Right"),
+    ("Back", "back", "Ctrl+Alt+,"),
+    ("Forward", "forward", "Ctrl+Alt+."),
+    None,
+    ("Louder", "louder", "Ctrl+Alt+Up"),
+    ("Quieter", "quieter", "Ctrl+Alt+Down"),
+    ("Mute or Unmute", "mute", "Ctrl+Alt+0"),
+    ("Faster", "faster", "Ctrl+Alt+]"),
+    ("Slower", "slower", "Ctrl+Alt+["),
+    ("Normal Speed", "normal", "Ctrl+Alt+\\"),
+    None,
+    ("Say the Time", "time", "Ctrl+Alt+T"),
+    ("Say the Speed and Volume", "levels", "Ctrl+Alt+V"),
+]
+
+
+def player_menu(owner: wx.Window, main) -> wx.Menu:
+    """A Player menu for `owner`'s menu bar, driving main.player_do."""
+    m = wx.Menu()
+    for it in PLAYER_KEYS:
+        if it is None:
+            m.AppendSeparator()
+            continue
+        label, action, keys = it
+        mi = m.Append(wx.ID_ANY, "%s\t%s" % (label, keys))
+        owner.Bind(wx.EVT_MENU, lambda e, a=action: main.player_do(a), mi)
+    return m

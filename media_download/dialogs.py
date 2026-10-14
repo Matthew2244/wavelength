@@ -1029,6 +1029,7 @@ class Search(wx.Frame):
         bar.Append(f, "&File")
         bar.Append(ed, "&Edit")
         bar.Append(v, "&View")
+        bar.Append(menus.player_menu(self, self.main), "&Player")
         self.SetMenuBar(bar)
 
     def on_key(self, event):
