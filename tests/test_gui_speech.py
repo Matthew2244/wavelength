@@ -838,7 +838,24 @@ def test_mac_key_monitor_moves_section_only_while_settings_is_in_front(frame, mo
     for _ in range(3):
         wx.Yield()  # a dialog goes once events are handled
     if sys.platform == "darwin":
-        assert mon and mon not in system._monitors  # removed with the window
+        assert mon and mon not in system._key_handlers  # removed with the window
+        assert system._key_monitor  # the native monitor stays: removing it crashed the app
+
+
+def test_settings_open_and_close_many_times_does_not_crash(frame, monkeypatch):
+    """Saving Settings crashed the Mac app (2026-10-14): the key monitor's block was freed while
+    macOS still held it. Open and close Settings repeatedly, draining events each time."""
+    from media_download import dialogs, system
+    for _ in range(6):
+        dlg = dialogs.Settings(frame, dict(frame.cfg))
+        dlg.Show()
+        for _ in range(3):
+            wx.Yield()
+        dlg.Destroy()
+        for _ in range(3):
+            wx.Yield()
+    if sys.platform == "darwin":
+        assert not system._key_handlers
 
 
 def test_message_window_answers_with_its_own_button(frame, monkeypatch):

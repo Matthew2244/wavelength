@@ -946,9 +946,11 @@ class MainFrame(wx.Frame):
             if self.player is not None:
                 self.player.settings_changed()
             self.mgr.pump()  # a higher "downloads at once" starts now, not after the message
+            dlg.Destroy()  # gone before the message opens: never one modal window inside another's teardown
             self._sound("settings_saved")
             self.tell_in_window(words.SETTINGS_SAVED, "Great")
-        dlg.Destroy()
+        else:
+            dlg.Destroy()
 
     # -------------------------------------------------------- manager events (any thread)
 

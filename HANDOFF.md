@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.3.0 is the latest release (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.3.1 is the latest release (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -459,8 +459,14 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Control and Shift arrive as key events, the Tab pressed with Control never does, not as
    EVT_CHAR_HOOK, not as EVT_KEY_DOWN, not through an AcceleratorTable. Something in AppKit
    takes it first. The fix is an app-wide NSEvent local monitor (`system.add_key_monitor`, a
-   ctypes block), which sees every key the app receives before any window; Settings adds one
-   while it's open and in front (`_on_mac_key`) and removes it in `Destroy`. The tests that
+   ctypes block), which sees every key the app receives before any window; Settings adds a
+   handler while it's open and in front (`_on_mac_key`) and removes it in `Destroy`.
+   **The native monitor is installed once and never removed** (3.3.1). Removing it crashed
+   the app when Settings was saved with a real key press (Matthew, 2026-10-14; segfault in
+   `-[_NSEventObserver dealloc]` from an autorelease pool drain): AppKit holds the observer
+   in a copy of its monitor list for the key event, releases it later, and by then Python had
+   freed the block it points at. Handlers come and go from a plain list instead. Faked keys
+   and even zeroing the freed block did not reproduce it; only a real key press takes that path. The tests that
    passed before called `_on_key` directly, which skips AppKit: **a faked key event proves
    nothing about a real one.** Windows still uses `_on_key` (untested by a person).
    Saving Settings shows "Settings saved." as a message window (below) and plays

@@ -317,16 +317,36 @@ def mac_value_description(ctrl, text: str) -> None:
         pass
 
 
-_monitors = {}  # monitor -> what keeps its block alive
+_key_handlers = []  # fn(keycode, flags) -> True to swallow; newest first
+_key_monitor = []  # the one native monitor and everything its block points at, kept for good
 
 
 def add_key_monitor(fn):
     """Mac: see every key the app gets before any window does; fn(keycode, flags) returns True
     to swallow it. For keys macOS takes before they reach a control: Control-Tab never arrives
     as a key event in a wx window, or through an accelerator (Matthew tested both, 2026-10-14),
-    but a local NSEvent monitor sees it. Returns a handle for remove_key_monitor, or None."""
+    but a local NSEvent monitor sees it. Returns a handle for remove_key_monitor, or None.
+
+    One native monitor serves the whole app and is never removed. Removing one crashed the app
+    (Matthew, 2026-10-14, saving Settings): macOS releases the monitor later, from an autorelease
+    pool, and by then the block it pointed at had been freed by Python. So handlers come and go
+    from a plain list, and the native side is installed once and left alone."""
     if sys.platform != "darwin":
         return None
+    if not _key_monitor and not _install_key_monitor():
+        return None
+    _key_handlers.insert(0, fn)
+    return fn
+
+
+def remove_key_monitor(handle) -> None:
+    try:
+        _key_handlers.remove(handle)
+    except ValueError:
+        pass
+
+
+def _install_key_monitor() -> bool:
     try:
         import ctypes
         import ctypes.util
@@ -350,9 +370,17 @@ def add_key_monitor(fn):
 
         def invoke(_blk, event):
             try:
+                if not _key_handlers:
+                    return event
                 code = send(event, "keyCode", restype=ctypes.c_ushort)
                 flags = send(event, "modifierFlags", restype=ctypes.c_ulong)
-                return None if fn(code, flags) else event
+                for fn in list(_key_handlers):
+                    try:
+                        if fn(code, flags):
+                            return None
+                    except Exception:  # noqa: BLE001 - one handler's bug never loses the key
+                        pass
+                return event
             except Exception:  # noqa: BLE001 - a key must never be lost to a bug here
                 return event
         cb = invoke_t(invoke)
@@ -363,28 +391,12 @@ def add_key_monitor(fn):
         mon = send(objc.objc_getClass(b"NSEvent"), "addLocalMonitorForEventsMatchingMask:handler:", key_down,
                    ctypes.addressof(blk), argtypes=(ctypes.c_ulonglong, ctypes.c_void_p))
         if not mon:
-            return None
+            return False
         send(mon, "retain")
-        _monitors[mon] = (cb, desc, blk, send)
-        return mon
+        _key_monitor.extend([mon, cb, desc, blk, send, invoke])  # alive until the app quits
+        return True
     except Exception:  # noqa: BLE001
-        return None
-
-
-def remove_key_monitor(mon) -> None:
-    kept = _monitors.pop(mon, None)
-    if not kept:
-        return
-    send = kept[3]
-    try:
-        import ctypes
-        import ctypes.util
-        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-        objc.objc_getClass.restype = ctypes.c_void_p
-        send(objc.objc_getClass(b"NSEvent"), "removeMonitor:", mon, restype=None, argtypes=(ctypes.c_void_p,))
-        send(mon, "release", restype=None)
-    except Exception:  # noqa: BLE001
-        pass
+        return False
 
 
 MAC_TAB, MAC_SHIFT, MAC_CONTROL, MAC_OPTION, MAC_COMMAND = 48, 1 << 17, 1 << 18, 1 << 19, 1 << 20
