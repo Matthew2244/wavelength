@@ -323,7 +323,10 @@ def worth_updating_for(text: str) -> bool:
     lowered = (text or "").lower()
     hopeless = ("private", "unavailable", "removed", "members-only", "join this channel",
                 "does not exist", "no space left", "not a valid url", "unsupported url",
-                "geo", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture")
+                "geo", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture",
+                # the download folder, not the engine: an unplugged drive fails the same on every version
+                "permission denied", "no such file or directory", "read-only file system",
+                "input/output error", "winerror 3")
     return not any(word in lowered for word in hopeless)
 
 
@@ -354,6 +357,10 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
     if "http error 429" in lowered or "too many requests" in lowered:
         return ("%s says too many requests. Wait a few minutes, then Retry. Fewer downloads at once "
                 "in Settings helps too." % who)
+    if any(w in lowered for w in ("permission denied", "read-only file system", "input/output error",
+                                  "winerror 3", "errno 13", "errno 30")):
+        return ("The file couldn't be saved: the download folder can't be written. If it's on a drive that "
+                "was unplugged, plug it back in and Retry, or choose another folder with Change Folder.")
     if "drm" in lowered:
         return ("That's protected by DRM, the copy protection that Spotify, Apple Music, Netflix and others use, "
                 "so it can't be downloaded. Nothing to fix on your side.")

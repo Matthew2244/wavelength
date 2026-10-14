@@ -1,9 +1,16 @@
 # Sound credits
 
-Each theme folder holds the same eleven events, as `<event>.mp3` (played on
-the Mac) and `<event>.wav` (16-bit, 44.1 kHz, played on Windows): `done`,
-`failed`, `item_done`, `added`, `stopped`, `waiting`, `results`, `no_more`,
-`copied`, `update`, `queue_end`.
+Each theme folder holds the same thirteen events, as `<event>.mp3` (played on
+the Mac) and `<event>.wav` (16-bit, 44.1 kHz, played on Windows): `opening`,
+`done`, `failed`, `item_done`, `added`, `stopped`, `waiting`, `results`,
+`no_more`, `copied`, `update`, `queue_end`, `closing`.
+
+`opening` and `closing` are made by `tools/make_open_close_sounds.py`. In the
+Rhodes, kalimba and pizzicato sets they're three notes of the set's own
+`item_done` note, moved by at most seven semitones and arranged into two
+short tunes: one that climbs for opening, a different one that falls and
+settles for closing. The soft set uses Kenney's `open_002` and `close_002`,
+set 4 dB below the rest of that set.
 
 Every file was trimmed the same way: 10 ms of silence, a 3 ms fade-in, a
 150 ms fade-out, a 40 ms silent tail, and the peak set to -1.5 dBFS.
@@ -19,7 +26,7 @@ this repository.
 ## kalimba
 
 Matthew Whitaker's own sounds, made for his tools: the kalimba family from
-his `hark` client. All eleven are built from three single notes in those
+his `hark` client. All of them are built from three single notes in those
 recordings (B4, D#5 and F#5), moved to new pitches and arranged. Same licence
 as the rest of this repository.
 
@@ -46,6 +53,8 @@ Source file for each event, levelled and trimmed as above:
 | copied | select_002 |
 | update | confirmation_001 |
 | queue_end | question_004 |
+| opening | open_002 |
+| closing | close_002 |
 
 ## pizzicato
 

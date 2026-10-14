@@ -19,7 +19,7 @@ from media_download import dialogs, engine, gui  # noqa: E402
 
 said = []
 gui.announce = lambda t: said.append(("spoken", t))
-gui.play = lambda k: said.append(("sound", k))
+gui.play = lambda k, *a, **kw: said.append(("sound", k))
 gui.MainFrame.startup_checks = lambda self: None
 
 

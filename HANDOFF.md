@@ -295,9 +295,21 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    public, so every file in it is redistributed. Epidemic Sound was offered on
    2026-10-13 (a friend's account) and declined for that reason; Matthew chose
    more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
-   Eleven events, listed in `system.SOUNDS` with their words and system fallback:
-   done, failed, item_done, added, stopped, waiting, results, no_more, copied,
-   update, queue_end. `app_sound_map` gives any action its own sound:
+   Thirteen events, listed in `system.SOUNDS` with their words and system fallback:
+   opening, done, failed, item_done, added, stopped, waiting, results, no_more, copied,
+   update, queue_end, closing. **Opening and closing** (Matthew, 2026-10-13) play when the
+   app starts (`startup_checks`) and once a quit is certain (`_closing_sound`, after any
+   Quit Anyway question); they follow the set, volume and Choose Sounds like the rest. On
+   Windows the closing sound holds the quit up to 1.5 s so it isn't cut off; on the Mac
+   afplay runs in its own session and outlives the app. They're built by
+   `tools/make_open_close_sounds.py` (kept, unlike the earlier scripts): different notes for
+   each, not one figure turned round (his ask), then "something catchy": two six-note
+   tunes, D G B D, B D to open and C B A, F sharp A, G to close (in the Rhodes key). Soft
+   clicks uses Kenney's open and close, 4 dB down at his word. **Mix overlapping notes in float with headroom.** The first build mixed straight
+   into 16-bit, clipped 1,355 samples of the Rhodes figure, then normalised, so every meter
+   read clean; Matthew heard it at once. The script now mixes at half level in 32-bit float
+   and sets the level on the true peak. **He hasn't approved the new ones yet**: audition in
+   iCloud, `Media Download Sounds/Opening and closing sounds - audition.mp3`. `app_sound_map` gives any action its own sound:
    `""` the set's, `"none"`, `"<set>:<event>"`, or `"custom:<file>"` from
    `system.custom_dir()` (imported with ffmpeg to a 16-bit WAV; a missing custom
    file falls back to the set, never silence). 2.5's `app_sounds_off` still reads
@@ -410,7 +422,32 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    a minimal PATH; `--sub-langs "en.*"` earns HTTP 429; playlists need
    `--flat-playlist`; a named stream must never be converted.
 
+30. **Settings is in sections** (Matthew, 2026-10-13): General, Downloads, Sounds, Player,
+   Signing In. A Sections list on the left (made first, so it reads first), the section
+   beside it in a `wx.Simplebook`, each section scrolling on its own. Up and Down in the
+   list choose; Tab goes in; Control-Tab and Control-Shift-Tab move section from anywhere
+   (the real Control key, `RawControlDown`, on both systems). It reopens where it was left.
+   Every control in it has a help tag; `test_settings_sections` fails on one without.
+31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
+   list says what it does and its shortcut, checked against the bindings. Windows wording
+   says Control and Enter. Keep it so: a new control needs a tip in the same voice.
+32. **The clipboard offer**: also at launch (a link copied before opening the app), never for
+   a link already added or already in the list, an untouched earlier offer gives way to a
+   newer link, it stays quiet if you've moved on while the link was being recognised, and
+   when focus isn't in the Link field it says "Command-L, then Return".
+
 ## Tested
+
+- **Unreleased, after 3.0.1** (2026-10-13): Settings in sections, help tags everywhere,
+  opening and closing sounds, and a review from other users' points of view. Fixed from it:
+  a failed search no longer reads "Nothing found" or ends the paging (`SearchPage.error`);
+  the closed player can't be started hidden from the Player menu; a normal quit now gets
+  "N didn't finish last time", and Resume Unfinished resumes only what a quit cut off
+  (`manager.CLOSED_EARLY`), never a row stopped by hand; an unwritable or unplugged download
+  folder is explained and never waits on an engine update first; removing a running download
+  asks first; Bigger Text grows the main window's controls on Windows and the main window
+  and Search grow to fit; Windows screen readers hear the player's position and volume as
+  words (`system._windows_value`, untried by a person). `tools/train.py` 23 of 23.
 
 - **3.0.1** (2026-10-13): a full sweep by three independent reviews (screen readers
   on both systems; low vision, sighted and first run; bugs and the rename), about 40

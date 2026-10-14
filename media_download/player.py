@@ -164,7 +164,8 @@ class PlayerFrame(wx.Frame):
         self.pos_label = wx.StaticText(p, label="Position:")
         self.slider = wx.Slider(p, minValue=0, maxValue=1, style=wx.SL_HORIZONTAL)
         mac_accessibility_label(self.slider, "Position")
-        self.slider.SetToolTip("Where it's playing. Arrow keys move by the skip length; Page Up and Down by a minute.")
+        self.slider.SetToolTip("Where it's playing. Left and Right move by the skip length set in Settings; Shift with "
+                               "them, or Page Up and Down, move a minute. T says the time.")
         self.time = wx.StaticText(p, label="0:00")
         self.time.SetFont(wx.Font(wx.FontInfo(16)))
         row.Add(self.pos_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
@@ -192,16 +193,21 @@ class PlayerFrame(wx.Frame):
         self.speed_choice = wx.Choice(p, choices=[speed_words(v) for v in SPEEDS])
         self.speed_choice.SetSelection(SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL)
         mac_accessibility_label(self.speed_choice, "Speed")
-        self.speed_choice.SetToolTip("A quarter speed to three times, without changing pitch ([ and ], "
-                                     "backslash for normal).")
+        self.speed_choice.SetToolTip("How fast it plays, a quarter speed to three times, without changing the pitch. "
+                                     "Remembered. [ and ] step it; backslash goes back to normal.")
         vlab = wx.StaticText(p, label="Volume:")
         self.volume = wx.Slider(p, value=int(self.base_volume * 100), minValue=0, maxValue=100, size=(160, -1))
         mac_accessibility_label(self.volume, "Volume")
         mac_value_description(self.volume, "%d percent" % int(self.base_volume * 100))
+        self.volume.SetToolTip("How loud the player is. Remembered. %s-Up and Down change it from anywhere in "
+                               "the player, with Shift for small steps; M mutes."
+                               % ("Command" if sys.platform == "darwin" else "Control"))
         self.download_btn = wx.Button(p, label="Download This")
-        self.download_btn.SetToolTip("Keep a copy of what's playing, in the main window's format.")
+        self.download_btn.SetToolTip("Download what's playing, in the main window's format; it joins the downloads "
+                                     "list (%s-S). Only for links, since a downloaded file is already saved."
+                                     % ("Command" if sys.platform == "darwin" else "Control"))
         self.show_btn = wx.Button(p, label="Show File")
-        self.show_btn.SetToolTip("Shows the playing file in %s (%s-R)." % (
+        self.show_btn.SetToolTip("Show the playing file in %s (%s-R). Only for downloaded files, not links." % (
             "Finder" if sys.platform == "darwin" else "File Explorer", "Command" if sys.platform == "darwin" else "Control"))
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         row.Add(self.speed_choice, 0, wx.RIGHT, 16)
@@ -215,7 +221,8 @@ class PlayerFrame(wx.Frame):
         s.Add(qlab, 0, wx.LEFT | wx.RIGHT, 12)
         self.qlist = wx.ListBox(p, style=wx.LB_SINGLE, size=(-1, 110))
         mac_accessibility_label(self.qlist, "Up next")
-        self.qlist.SetToolTip("Everything queued. Return plays the selected one.")
+        self.qlist.SetToolTip("Everything queued, in order. Return plays the selected one; %s-K lists what else "
+                              "you can do with it." % ("Command" if sys.platform == "darwin" else "Control"))
         s.Add(self.qlist, 0, wx.EXPAND | wx.ALL, 12)
         p.SetSizer(s)
         self.CreateStatusBar()

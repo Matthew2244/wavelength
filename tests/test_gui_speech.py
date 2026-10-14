@@ -471,11 +471,33 @@ def test_settings_fit_the_screen_at_big_text(frame):
         dlg = gui.dialogs.Settings(frame, dict(frame.cfg))
         area = wx.Display(0).GetClientArea()
         assert dlg.GetSize().height <= area.height and dlg.GetSize().width <= area.width
-        big = [c for c in dlg.body.GetChildren() if isinstance(c, wx.StaticText)]
+        big = [c for p in dlg.pages for c in p.GetChildren() if isinstance(c, wx.StaticText)]
         assert big and all(c.GetFont().GetPointSize() >= textsize.default * 2 - 1 for c in big)
         dlg.Destroy()
     finally:
         textsize.current = old
+
+
+def test_settings_sections(frame):
+    """Every setting lives in exactly one section; Control-Tab moves on and wraps round."""
+    dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="sounds")
+    keys = [k for k, _ in gui.dialogs.SETTINGS_SECTIONS]
+    assert dlg.sections.GetCount() == len(dlg.pages) == len(keys)
+    assert dlg.book.GetSelection() == keys.index("sounds") == dlg.sections.GetSelection()
+    for i in range(len(keys)):
+        dlg.show_section(i)
+        assert dlg.book.GetSelection() == i
+    ev = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+    ev.SetKeyCode(wx.WXK_TAB)
+    ev.SetRawControlDown(True)
+    dlg._on_key(ev)  # from the last section, round to the first
+    assert dlg.book.GetSelection() == 0
+    # Nothing without a help tag: checkboxes, popups, sliders and buttons all explain themselves.
+    for p in dlg.pages:
+        for c in p.GetChildren():
+            if isinstance(c, (wx.CheckBox, wx.Choice, wx.Slider, wx.Button)):
+                assert c.GetToolTipText(), c.GetLabel() or c.GetName()
+    dlg.Destroy()
 
 
 def test_player_menu_from_any_window(frame, monkeypatch):
@@ -568,3 +590,64 @@ def test_long_lines_rewrap(frame):
     t.SetLabel("word " * 80)
     assert t.GetLabel() == "word " * 80  # the whole text, whatever the wrapping
     dlg.Destroy()
+
+
+def test_clipboard_offer_says_how_to_reach_the_field_and_never_repeats(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(frame, "IsActive", lambda: True)
+    monkeypatch.setattr(frame, "_modal_open", lambda: False)
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: frame.list))
+    frame.link.SetValue("")
+    frame.offered = ""
+    url = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+    frame._offer(url)
+    assert frame.link.GetValue() == url
+    assert said[-1].endswith("%s, then %s, to download it." % (gui.key_words("Ctrl+L"), gui.ENTER))
+    # Something already added is never offered back; nor is the same link twice.
+    started = []
+    monkeypatch.setattr(gui.threading, "Thread", lambda *a, **k: started.append(1) or type(
+        "T", (), {"start": lambda self: None})())
+    monkeypatch.setattr(frame, "_clipboard_text", lambda: url)
+    frame.last_clip = ""
+    frame._check_clipboard()
+    assert started == []
+    # An offer left untouched gives way to a newer link.
+    other = "https://soundcloud.com/forss/flickermood"
+    monkeypatch.setattr(frame, "_clipboard_text", lambda: other)
+    frame._check_clipboard()
+    assert started == [1]
+    frame.link.SetValue("")
+
+
+def test_a_failed_search_says_why_and_keeps_more_on_offer(frame, monkeypatch):
+    said = []
+    from media_download import system
+    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(system, "cue", lambda k: None)
+    page = gui.dialogs.SearchPage()
+    page.error = "The site says too many requests."
+    dlg = gui.dialogs.Search(frame, "", "youtube", lambda *a: page)
+    dlg.searched, dlg.next_start = ("piano", "youtube"), 1
+    dlg._show("piano", "youtube", "YouTube", 1, page)
+    assert dlg.status.GetLabel().startswith("The search didn't work.")
+    assert "Nothing found" not in said[-1] and dlg.next_start == 1
+    dlg.on_done = None
+    dlg.Destroy()
+
+
+def test_opening_and_closing_sounds_follow_settings(frame, monkeypatch):
+    played = []
+    monkeypatch.setattr(gui, "play", lambda k, *a, **kw: played.append((k, kw.get("wait", False))))
+    frame.cfg["app_sounds"] = True
+    frame._closing_sound()
+    assert played == [("closing", True)]
+    frame.cfg["app_sounds"] = False
+    frame._closing_sound()
+    assert played == [("closing", True)]
+    frame.cfg["app_sounds"] = True
+    from media_download import system
+    assert {"opening", "closing"} <= set(system.SOUND_WORDS)
+    for theme, _ in system.THEMES:
+        if theme != "system":
+            assert system.sound_file("opening", theme).endswith(os.path.join(theme, "opening" + system._ext()))

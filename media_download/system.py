@@ -266,8 +266,37 @@ def wx_focus_is(ctrl) -> bool:
     return wx.Window.FindFocus() is ctrl
 
 
+def _windows_value(ctrl, text: str) -> None:
+    """The words a Windows screen reader reads as a slider's value. The accessible object is made
+    once and reads the latest words each time; name, role and the rest stay Windows' own."""
+    ctrl._value_words = text
+    if getattr(ctrl, "_windows_value", None) is not None:
+        return
+    try:
+        import wx
+        if not hasattr(wx, "Accessible"):
+            return
+
+        class _Valued(wx.Accessible):
+            def GetValue(self, child_id):
+                words = getattr(ctrl, "_value_words", "")
+                if child_id == 0 and words:
+                    return (wx.ACC_OK, words)
+                return (wx.ACC_NOT_IMPLEMENTED, "")
+
+        acc = _Valued(ctrl)
+        ctrl.SetAccessible(acc)
+        ctrl._windows_value = acc  # keep the Python object alive with the control
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def mac_value_description(ctrl, text: str) -> None:
-    """What VoiceOver says for a slider's value: "1 minute 3 seconds of 4 minutes", not "63"."""
+    """What VoiceOver says for a slider's value: "1 minute 3 seconds of 4 minutes", not "63".
+    On Windows the same words go to NVDA, JAWS and Narrator through the slider's accessible value."""
+    if sys.platform == "win32":
+        _windows_value(ctrl, text)
+        return
     if sys.platform != "darwin":
         return
     try:
@@ -437,6 +466,7 @@ def open_path(path: str) -> None:
 # reads these), and the system sound used if a theme's file is ever missing. The direction
 # convention from Matthew's other tools: rising for good or begun, falling for failed or stopped.
 SOUNDS = [
+    ("opening", "Wavelength opens", "Ping"),
     ("done", "Downloads finished", "Glass"),
     ("failed", "A download failed", "Basso"),
     ("item_done", "One download finished, others still going", "Tink"),
@@ -448,6 +478,7 @@ SOUNDS = [
     ("copied", "Copied", "Tink"),
     ("update", "An update is ready", "Hero"),
     ("queue_end", "The player reached the end", "Submarine"),
+    ("closing", "Wavelength closes", "Blow"),
 ]
 SOUND_WORDS = {k: w for k, w, _ in SOUNDS}
 THEMES = [("rhodes", "Rhodes electric piano"), ("kalimba", "Kalimba"), ("pizzicato", "Pizzicato strings"),
@@ -590,8 +621,10 @@ def _scaled_wav(path: str, volume: float) -> str:
     return out
 
 
-def play_resolved(what, volume: float = 1.0) -> None:
-    """Play what resolve() chose. A sound that can't play is never an error."""
+def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
+    """Play what resolve() chose. A sound that can't play is never an error. `wait` is for the
+    closing sound on Windows, where the sound dies with the app: it plays to the end first,
+    up to 1.5 s. afplay on the Mac runs in its own session and carries on after the app has gone."""
     if not what or volume <= 0:
         return
     try:
@@ -601,21 +634,34 @@ def play_resolved(what, volume: float = 1.0) -> None:
             cmd = ["afplay", path]
             if volume < 0.999:
                 cmd[1:1] = ["-v", "%.2f" % volume]
-            subprocess.Popen(cmd)
+            # Its own session: the closing sound carries on after the app has gone.
+            subprocess.Popen(cmd, start_new_session=True)
         elif sys.platform == "win32":
             import winsound
             if how == "file" and ref.lower().endswith(".wav"):
                 path = _scaled_wav(ref, volume) if volume < 0.999 else ref
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                if wait:
+                    # The sound dies with the app: give it time to finish, but never more than
+                    # a second and a half, so a long sound of your own can't freeze the window.
+                    import time
+                    import wave
+                    try:
+                        with wave.open(path) as w:
+                            length = w.getnframes() / float(w.getframerate())
+                    except Exception:  # noqa: BLE001
+                        length = 0.8
+                    time.sleep(min(length, 1.5))
             else:
                 winsound.MessageBeep(winsound.MB_OK)
     except Exception:  # noqa: BLE001
         pass
 
 
-def play(kind: str, theme: str = "rhodes", volume: float = 1.0, sound_map: dict | None = None) -> None:
+def play(kind: str, theme: str = "rhodes", volume: float = 1.0, sound_map: dict | None = None,
+         wait: bool = False) -> None:
     """Play the sound for an action, through the set and any choice made in Choose Sounds."""
-    play_resolved(resolve(kind, theme, sound_map), volume)
+    play_resolved(resolve(kind, theme, sound_map), volume, wait)
 
 
 def import_sound(src: str) -> tuple[str | None, str]:

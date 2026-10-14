@@ -649,3 +649,27 @@ def test_app_never_undoes_a_change_made_by_the_command(tmp_path, monkeypatch):
     engine.save_settings(cfg)
     saved = _json.loads(cfg_file.read_text())
     assert saved["format"] == "mp3" and saved["app_volume"] == 0.5
+
+
+def test_a_quit_is_counted_and_resumed_but_a_stop_by_hand_is_not(fake, monkeypatch, tmp_path):
+    m, _ = fake
+    monkeypatch.setattr(manager.engine, "QUEUE_FILE", str(tmp_path / "q.json"))
+    cut = Job(url="https://a.com/cut", dest="/tmp")
+    cut.state = "downloading"
+    mine = Job(url="https://b.com/mine", dest="/tmp")
+    mine.state, mine.reason = "stopped", "Stopped by you."
+    m.jobs.extend([cut, mine])
+    m.shutdown()  # an ordinary quit, not a crash
+    m2 = manager.Manager({}, None)
+    assert m2.restore() == 1  # "1 download didn't finish last time" is said after a normal quit too
+    resumed = []
+    monkeypatch.setattr(m2, "retry", lambda j: resumed.append(j.url))
+    assert m2.resume_unfinished() == 1 and resumed == ["https://a.com/cut"]
+
+
+def test_an_unwritable_folder_is_explained_and_never_waits_on_an_engine_update():
+    for err in ("ERROR: [Errno 13] Permission denied: '/Volumes/Music/x.part'",
+                "ERROR: [WinError 3] The system cannot find the path specified: 'E:\\\\Music'",
+                "ERROR: [Errno 30] Read-only file system: '/Volumes/Card/x'"):
+        assert not words.worth_updating_for(err)
+        assert "download folder" in words.explain_failure(err)

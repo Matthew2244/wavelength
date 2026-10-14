@@ -66,6 +66,9 @@ def stop_loose() -> None:
         _kill(p)
 
 
+CLOSED_EARLY = "The app closed before this finished."
+
+
 def run_task(task: dict, on_event=None, timeout: float = 300) -> list[dict]:
     """Run one short task (search, recognise) to the end. Returns its events."""
     proc = _popen(task)
@@ -646,14 +649,16 @@ class Manager:
                 if j.state not in FINISHED:
                     j.state = "stopped"
                     j.stage = ""
-                    j.reason = "The app closed before this finished."
-                    unfinished += 1
+                    j.reason = CLOSED_EARLY
+                if j.state == "stopped" and j.reason == CLOSED_EARLY:
+                    unfinished += 1  # cut off by a quit or a crash; a row stopped by hand stays stopped
                 self.jobs.append(j)
         return unfinished
 
     def resume_unfinished(self) -> int:
         with self.lock:
-            todo = [j for j in self.jobs if j.state == "stopped"]
+            # Only what the quit cut off: a download someone stopped on purpose stays stopped.
+            todo = [j for j in self.jobs if j.state == "stopped" and j.reason == CLOSED_EARLY]
         for j in todo:
             self.retry(j)
         return len(todo)
@@ -664,7 +669,7 @@ class Manager:
             for j in self.jobs:
                 if j.state in ACTIVE or j.state == "waiting":
                     j.state = "stopped"
-                    j.reason = "The app closed before this finished."
+                    j.reason = CLOSED_EARLY
         for p in procs:
             _kill(p)
         stop_loose()
