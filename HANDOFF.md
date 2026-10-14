@@ -40,12 +40,13 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.1.0 is the latest release: Settings in sections, help
+**Where it stands (2026-10-14):** 3.1.1 is the latest release (Settings no longer moves focus when the section changes). 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
 from the notarized zip (neither had the app open; verified 3.1.0, Gatekeeper "Notarized
-Developer ID", self-test OK). Check `CFBundleShortVersionString` before assuming
+Developer ID", self-test OK; 3.1.1 the same way). Matthew's standing word: push and release
+every update without asking. Check `CFBundleShortVersionString` before assuming
 for any later release. No person has tried the Windows build yet: NVDA first, then the
 installer, WinSparkle and the sounds.
 
