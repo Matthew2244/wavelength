@@ -24,13 +24,18 @@ import tempfile
 
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "sounds")
 SR = 44100
-# (seconds, semitones from the set's note): two little tunes, not one figure turned round
-# (Matthew, 2026-10-13: "different as far as notes", then "something catchy"). In the Rhodes
-# key, G: opening is a pickup into the chord and a bounce off the top, D G B D, B D; closing
-# is a lilting goodbye that steps down and settles home, C B A, F sharp A, G. Every note stays
+# (seconds, semitones from the set's note, level): two little tunes with some swagger
+# (Matthew, 2026-10-14: "even catchier... be creative"). Notes on the same time are a chord.
+# In the Rhodes key, G. Opening: a quick run up the chord, D G B D, a "doo-dit" C D answer,
+# and a ringing G chord to land on. Closing: a bluesy goodbye lick down from the top, D C A,
+# a blue note B flat bent back into A, G, and a low G and D to finish. Every note stays
 # within seven semitones of the source note.
-OPEN = [(0.00, -5), (0.11, 0), (0.22, 4), (0.33, 7), (0.55, 4), (0.66, 7)]
-CLOSE = [(0.00, 5), (0.13, 4), (0.26, 2), (0.45, -1), (0.58, 2), (0.80, 0)]
+OPEN = [(0.00, -5, 0.8), (0.09, 0, 0.85), (0.18, 4, 0.9), (0.27, 7, 1.0),
+        (0.50, 5, 0.75), (0.61, 7, 0.95),
+        (0.84, 0, 0.7), (0.84, 4, 0.7), (0.84, 7, 0.9)]
+CLOSE = [(0.00, 7, 1.0), (0.11, 5, 0.85), (0.22, 2, 0.9),
+         (0.40, 3, 0.8), (0.47, 2, 0.85), (0.60, 0, 0.9),
+         (0.86, -5, 0.75), (0.86, 0, 0.85)]
 SOFT = {"opening": "open_002.ogg", "closing": "close_002.ogg"}
 SOFT_PEAK_DB = -5.5
 
@@ -45,10 +50,10 @@ def figure(src, notes, out):
     for _ in notes:
         cmd += ["-i", src]
     chains = []
-    for i, (at, semis) in enumerate(notes):
+    for i, (at, semis, level) in enumerate(notes):
         r = 2 ** (semis / 12)
-        chains.append("[%d:a]aformat=sample_fmts=flt:channel_layouts=mono,volume=0.5,asetrate=%d,"
-                      "aresample=%d,adelay=%d[n%d]" % (i, round(SR * r), SR, round(at * 1000), i))
+        chains.append("[%d:a]aformat=sample_fmts=flt:channel_layouts=mono,volume=%.3f,asetrate=%d,"
+                      "aresample=%d,adelay=%d[n%d]" % (i, 0.4 * level, round(SR * r), SR, round(at * 1000), i))
     mix = "".join("[n%d]" % i for i in range(len(notes)))
     chains.append("%samix=inputs=%d:normalize=0:duration=longest[m]" % (mix, len(notes)))
     run(cmd + ["-filter_complex", ";".join(chains), "-map", "[m]", "-ar", str(SR), "-c:a", "pcm_f32le", out])

@@ -303,8 +303,9 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Windows the closing sound holds the quit up to 1.5 s so it isn't cut off; on the Mac
    afplay runs in its own session and outlives the app. They're built by
    `tools/make_open_close_sounds.py` (kept, unlike the earlier scripts): different notes for
-   each, not one figure turned round (his ask), then "something catchy": two six-note
-   tunes, D G B D, B D to open and C B A, F sharp A, G to close (in the Rhodes key). Soft
+   each, not one figure turned round (his ask), then "even catchier": opening is a quick
+   run D G B D, a "doo-dit" C D, and a ringing G chord; closing a bluesy lick D C A, a blue
+   B flat into A, G, and a low G and D (in the Rhodes key; the tunes are in the script). Soft
    clicks uses Kenney's open and close, 4 dB down at his word. **Mix overlapping notes in float with headroom.** The first build mixed straight
    into 16-bit, clipped 1,355 samples of the Rhodes figure, then normalised, so every meter
    read clean; Matthew heard it at once. The script now mixes at half level in 32-bit float
