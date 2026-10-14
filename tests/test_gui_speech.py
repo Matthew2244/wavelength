@@ -874,3 +874,17 @@ def test_last_tour_step_escape_and_close_both_finish(frame, monkeypatch):
     g.go(-1)
     assert g.GetEscapeId() == wx.ID_CANCEL and g.close.IsShown()
     g.Destroy()
+
+
+def test_words_in_the_link_field_point_to_search(frame, monkeypatch):
+    """The main window takes links; searching is the Search window's job (Matthew, 2026-10-14)."""
+    said, searched = [], []
+    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(frame, "on_search", lambda *a, **k: searched.append(k))
+    frame.link.SetValue("green onions")
+    frame.on_download(None)
+    frame.on_play_link()
+    frame.add_from_text("just some words")
+    assert searched == [] and said == [gui.words.NOT_A_LINK] * 3
+    assert frame.link.GetValue() == "green onions"  # kept, ready for Search to take
+    frame.link.SetValue("")

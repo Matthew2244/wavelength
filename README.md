@@ -37,7 +37,7 @@ On first launch it checks for three helper tools: ffmpeg (converting), ffprobe (
 ![The Wavelength window, in dark mode. Its title says Wavelength: 3 downloading, 1 waiting, 44 percent. At the top, a Link field holding a SoundCloud link, with Download, Play Link and Search buttons. Below it, Format set to Best audio, as the site sends it, and Video quality, greyed out until Video is chosen. Then Saving to: Downloads > Media Downloads, with a Change Folder button, and Next download: no extra options, with a More Options button. A Filter search field sits beside the Downloads label. The Downloads list shows seven rows, each starting with its status: two Done, two Downloading with percent and time left, one Adding cover art, one Waiting, one Failed with the reason. Below the list, Details for the selected row: title, status, channel, length, format, site, how much has arrived and the speed. At the bottom, Play Selected, Open, Show in Finder, Stop, Retry and Remove from List buttons, and an overall progress bar.](assets/screenshot.png)
 
 1. Paste a link into the Link field and press Return (Enter on Windows), or drag links onto the window. Paste several at once and each gets its own row.
-2. Or type some words and press Return or Enter to search YouTube, SoundCloud or YouTube Music. Check the results you want.
+2. To find something by words, press Search (Command-F, or Control-F on Windows). Searching has its own window: type words, search YouTube, SoundCloud or YouTube Music, check the results you want, then download or play them. Words already typed in the Link field go with it.
 3. Choose a format before you add the link. "Best audio, as the site sends it" never converts anything. MP3, M4A, Opus, WAV and FLAC convert. Video saves an MP4 that plays everywhere unless you ask for higher than 1080.
 
 Each row says its status first, then the title: "Downloading, 45 percent, about 2 minutes left: Green Onions". A long title gets cut off at the end of a row, so the part you need comes first. Select a row and Details below says everything known about it, including where the file went or, if it failed, why, in a plain sentence.
@@ -136,7 +136,7 @@ Everything is in the menus with its shortcut, and Help, Keyboard Shortcuts lists
 
 | Does | Mac | Windows |
 |---|---|---|
-| Download the link, or search if it's words | Return in the Link field | Enter in the Link field |
+| Download the link | Return in the Link field | Enter in the Link field |
 | Search | Command-F | Control-F |
 | Download every link on the clipboard | Command-Shift-V | Control-Shift-V |
 | Download the links in a text file | Command-O | Control-O |

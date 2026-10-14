@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.2.2 is the latest release (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.3.0 is the latest release (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -485,6 +485,11 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    **Help, What Is Wavelength?** and the README's "What it is" say what the app is, what it
    won't do (DRM) and the legal position in plain words (`words.WHAT_IT_IS`; the tour's first
    step says the short version). Matthew approved the wording; keep them saying the same.
+30b. **The main window takes links; the Search window searches** (Matthew, 2026-10-14, to make
+   the two distinct). The field is just "Link". Words in it, with Return, Download or Play
+   Link, or dropped text with no links, say `words.NOT_A_LINK` and open nothing; the words
+   stay in the field, and Search (Command-F) takes them with it. The Search window's opening
+   line says what it's for. Don't quietly bring back searching from the Link field.
 31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
    list says what it does and its shortcut, checked against the bindings. Windows wording
    says Control and Enter. Keep it so: a new control needs a tip in the same voice.

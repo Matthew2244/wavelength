@@ -1530,7 +1530,8 @@ class Guide(wx.Dialog):
                 ("I'll use %s's sign-in. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
                  "subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD) if b else
                  "No accounts for now. File, Set Up Accounts brings them back whenever you want.\n\n") +
-                "Paste a link and press " + ENTER + " and I'll download it, or type some words and I'll search. Help, "
+                "Paste a link and press " + ENTER + " and I'll download it. To find something by words, press "
+                "Search (" + CMD + "-F) and I'll look in its own window. Help, "
                 "Keyboard Shortcuts lists every key. Have fun!")
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
@@ -1810,7 +1811,10 @@ class Search(wx.Frame):
         orow.Add(olab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         orow.Add(self.order, 0)
         s.Add(orow, 0, wx.LEFT | wx.RIGHT, 8)
-        self.status = WrapText(p, label="Type words and press %s." % ("Return" if sys.platform == "darwin" else "Enter"))
+        # Says what this window is for: searching lives here, links live in the main window.
+        self.status = WrapText(p, label="Find things by words on YouTube, SoundCloud or YouTube Music. Type words "
+                                        "and press %s, check what you want, then Download Checked, or Play Selected "
+                                        "to listen first." % ENTER)
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
         mac_accessibility_label(self.list, "Results")
@@ -1934,7 +1938,7 @@ class Search(wx.Frame):
         self.on_search(None)
 
     def show_again(self, q: str):
-        """Brought forward by the main window (Command-F, or words in the Link field). A new
+        """Brought forward by the main window (Command-F, taking any words from the Link field). A new
         query searches; the same one keeps the results and what's checked."""
         self.Raise()
         if q and q != self.last_query:

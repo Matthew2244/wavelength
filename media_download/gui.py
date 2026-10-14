@@ -51,7 +51,8 @@ WELCOME = (
     "Welcome to Wavelength{name}.\n\n"
     "Paste a link into the Link field and press " + ENTER + ". It works with about 1,750 sites: "
     "YouTube, SoundCloud, Bandcamp, Vimeo, the BBC, archive.org and many more. "
-    "Or type some words and press Search to find something without visiting the site.\n\n"
+    "To find something by words instead, press Search (" + ("Command" if sys.platform == "darwin" else "Control") + "-F): "
+    "searching has its own window.\n\n"
     "Downloads appear in the list below, newest at the bottom. Select one to read everything about it here. "
     "Several download at once.\n\n"
     "Everything is in the menus too, with its keyboard shortcut."
@@ -117,22 +118,22 @@ class MainFrame(wx.Frame):
 
         # link + actions
         row = wx.BoxSizer(wx.HORIZONTAL)
-        lab = wx.StaticText(p, label=M("&Link or search words:"))
+        lab = wx.StaticText(p, label=M("&Link:"))
         self._texts.append(lab)
         self.link = wx.TextCtrl(p, style=wx.TE_PROCESS_ENTER)
-        self.link.SetHint("Paste a link, type words to search, or drag links here")
+        self.link.SetHint("Paste a link, or drag links here")
         self.link.SetToolTip("Paste a link and press %s to download it. Paste several at once and each "
-                             "gets its own row. Or type words and press %s to search." % (ENTER, ENTER))
-        mac_accessibility_label(self.link, "Link or search words")
+                             "gets its own row. To find things by words, use Search (%s-F)." % (ENTER, CMD))
+        mac_accessibility_label(self.link, "Link")
         self.download_btn = wx.Button(p, label=M("Dow&nload"))
-        self.download_btn.SetToolTip("Download the link in the Link field. If it holds words instead, this searches "
-                                     "for them. %s in the field does the same." % ENTER)
+        self.download_btn.SetToolTip("Download the link in the Link field. %s in the field does the same." % ENTER)
         self.play_link_btn = wx.Button(p, label=M("&Play Link"))  # made before Search: Tab follows the layout
         self.search_btn = wx.Button(p, label=M("Sear&ch..."))
         self.play_link_btn.SetToolTip("Play the link in the Link field without downloading it. Several links play "
                                       "one after another (%s-Shift-%s)." % (CMD, ENTER))
         self.search_btn.SetToolTip("Open Search to find things by words on YouTube, SoundCloud or YouTube Music, "
-                                   "then download or play them (%s-F)." % CMD)
+                                   "then download or play them (%s-F). Words typed in the Link field go with it."
+                                   % CMD)
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.link, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         row.Add(self.download_btn, 0, wx.RIGHT, 6)
@@ -672,7 +673,7 @@ class MainFrame(wx.Frame):
         if urls:
             self.add_links(urls, source)
         elif text.strip():
-            self.on_search(None, query=text.strip())
+            self.tell(words.NOT_A_LINK)
 
     def add_from_files(self, paths):
         urls = []
@@ -703,7 +704,7 @@ class MainFrame(wx.Frame):
         if not urls and words.looks_like_link(text):
             urls = ["https://" + text]
         if not urls:
-            self.on_search(None, query=text)
+            self.tell(words.NOT_A_LINK)  # the main window takes links; searching is Search's job
             return
         self.link.SetValue("")
         self.add_links(urls)
@@ -1382,8 +1383,8 @@ class MainFrame(wx.Frame):
     def on_play_link(self):
         text = self.link.GetValue().strip()
         urls = words.links_in(text)
-        if not urls and text and not words.looks_like_link(text):
-            self.on_search(None, query=text)
+        if text and not urls and not words.looks_like_link(text):
+            self.tell(words.NOT_A_LINK)
             return
         if not urls:
             self.tell("Put a link in the Link field to play it.")
@@ -1880,7 +1881,7 @@ class MainFrame(wx.Frame):
     def show_shortcuts(self):
         """Read from the menus themselves, so the list can't fall behind them (it had: Play,
         Remove, Close Window and a dozen more were missing)."""
-        lines = ["%s in the Link field: download the link, or search if it's words." % ENTER,
+        lines = ["%s in the Link field: download the link." % ENTER,
                  "In the list: %s opens the file, Delete removes the row." % ENTER,
                  "On any list, its right-click menu: %s-K, or %s." % (
                      "Command" if sys.platform == "darwin" else "Control",

@@ -7,6 +7,7 @@ arrive before that. No "(s)" plurals, no symbols read as punctuation.
 from __future__ import annotations
 
 import re
+import sys
 import urllib.parse
 
 
@@ -21,6 +22,8 @@ def ordinal(n: int) -> str:
 
 
 SETTINGS_SAVED = "Settings saved."
+NOT_A_LINK = ("That isn't a link. To find things by words, press Search (%s-F); "
+              "it takes the words with it." % ("Command" if sys.platform == "darwin" else "Control"))
 # Help, What Is Wavelength? and the README's section of the same name say the same thing.
 WHAT_IT_IS = (
     "What it is\n\n"
