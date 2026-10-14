@@ -354,6 +354,9 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   (`textsize.py`), Settings scrolls, the player grows to fit, Windows Alt keys
   no longer collide with the menu bar (`check.sh` now checks), OK and Cancel
   in Windows order, list names on Windows, finish times in Details, a drag hint.
+  **Matthew tried it with VoiceOver the same day and all of it worked**: Tab
+  into and out of the volume slider (read as a percentage), Choose Sounds with
+  Play and Return, and importing his own sound file.
 - **2.5.1** (2026-10-13): four more sound sets from Kenney's Music Jingles
   (pizzicato, steel, sax, retro). Matthew liked pizzicato and not the others;
   steel, sax and retro came out again in 2.6.0 at his word.
