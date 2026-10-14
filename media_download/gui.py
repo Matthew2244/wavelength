@@ -299,6 +299,7 @@ class MainFrame(wx.Frame):
         self._m(f, "Download &Links from the Clipboard\tCtrl+Shift+V", self.on_paste_links)
         self._m(f, "Download Links from a &Text File...\tCtrl+O", self.on_open_list)
         self._m(f, "Your &Accounts...\tCtrl+U", self.on_accounts)
+        self._m(f, "Set &Up Accounts...", lambda e: self.on_guide("accounts"))
         f.AppendSeparator()
         self._m(f, "&Change Download Folder...", self.on_folder)
         self._m(f, "Open Download &Folder\tCtrl+Shift+O", lambda e: self._open_folder())
@@ -357,6 +358,7 @@ class MainFrame(wx.Frame):
         h = wx.Menu()
         self._m(h, "%s &Help" % APP_NAME, lambda e: self.show_help(), wx.ID_HELP)
         self._m(h, "Keyboard &Shortcuts", lambda e: self.show_shortcuts())
+        self._m(h, "&Welcome Tour...", lambda e: self.on_guide("welcome"))
         h.AppendSeparator()
         self._m(h, "Get &Helper Tools...", lambda e: self.get_helpers(ask=False))
         self._m(h, "Update the Download &Engine", self.on_update_engine)
@@ -389,6 +391,18 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, handler, item)
         return item
 
+    def on_guide(self, start: str = "welcome"):
+        """The welcome tour, or Set Up Accounts on its own; what it sets shows in the window after."""
+        dlg = dialogs.Guide(self, self.cfg, self, start)
+        dlg.ShowModal()
+        dlg.Destroy()
+        keys = [k for k, _ in words.FORMAT_LABELS]
+        if self.cfg.get("format") in keys:
+            self.kind.SetSelection(keys.index(self.cfg["format"]))
+            self._update_height_enabled()
+        self._update_folder_text()
+        self.link.SetFocus()
+
     def on_accounts(self, _=None):
         dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
         dlg.ShowModal()
@@ -400,24 +414,71 @@ class MainFrame(wx.Frame):
         # After the window has gone: the player must never open over a modal window.
         if how == "play":
             wx.CallAfter(self.play_links, [{"url": url, "cookies": accounts.signin(self.cfg)}])
+        elif how == "browse":
+            wx.CallAfter(self.browse_collection, url)
         else:
             wx.CallAfter(self.add_links, [url])
+
+    def browse_collection(self, url: str):
+        """Your account's list, to pick what to play; downloading only if asked for."""
+        self.tell("Getting the list. A long one takes a moment.")
+        browser = accounts.signin(self.cfg)
+
+        def work():
+            got = {"log": []}
+
+            def on(ev):
+                if ev.get("ev") == "playlist":
+                    got["list"] = ev
+                elif ev.get("ev") == "log":
+                    got["log"].append(ev.get("text", ""))
+            run_task({"task": "probe", "spec": {"url": url, "dest": engine.TEMP, "kind": "best", "cookies": browser}},
+                     on, timeout=900)
+            wx.CallAfter(self._browse, url, browser, got)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _browse(self, url, browser, got):
+        lst = got.get("list")
+        if not lst or not lst.get("entries"):
+            log = "\n".join(got["log"])
+            self.tell(accounts.explain_signin(log, browser, words.site_name(url)) or
+                      (words.explain_failure(log, True, words.site_name(url)) if log else "That list is empty."))
+            return
+        entries = lst["entries"]
+        dlg = dialogs.CheckList(self, lst.get("title") or "Your list",
+                                "%s: %s. Check the ones to play with Space, or press Return to play them all. "
+                                "Nothing is downloaded unless you choose Download Checked Instead."
+                                % (lst.get("title") or "Your list", words.n(len(entries), "item")),
+                                entries, checked=False, mode="play")
+        go = dlg.ShowModal() == wx.ID_OK
+        chosen, how = (dlg.chosen(), dlg.choice) if go else ([], "")
+        dlg.Destroy()
+        if not chosen:
+            return
+        if how == "play":
+            wx.CallAfter(self.play_links, [dict(e, cookies=browser) for e in chosen])
+        elif self.folder_ready():
+            fresh, already = self.add_entries(chosen)
+            self._sound("added")
+            self.tell("Added %s to download." % words.n(len(fresh), "item"))
 
     def signin_readable(self, browser: str) -> str | None:
         """None if the browser's sign-in can be read; else a sentence saying why not."""
         got = {}
         run_task({"task": "signin_check", "browser": browser}, lambda ev: got.update(ev) if ev.get("ev") == "signin"
                  else None, timeout=120)
-        if got.get("ok"):
+        if got.get("ok") and not (got.get("failed") and got["failed"] * 2 >= max(1, got.get("count", 0))):
             return None
+        if got.get("ok"):  # read, but most of it locked: Chrome, Edge and Brave on Windows do this now
+            return accounts.explain_signin("could not be decrypted", browser)
         return (accounts.explain_signin(got.get("error", ""), browser)
-                or "%s's sign-in couldn't be read: %s" % (browser.capitalize(), got.get("error", "no answer")))
+                or "%s's sign-in couldn't be read: %s" % (accounts.spec_words(browser), got.get("error", "no answer")))
 
     def _signin_result(self, browser: str, said: str | None) -> None:
         """Right after a browser is chosen: a sign-in that can't be read is said once, here,
         instead of failing every download."""
         if not said:
-            self.tell("Using %s's sign-in." % browser.capitalize())
+            self.tell("Using %s's sign-in." % accounts.spec_words(browser))
             return
         mac_fda = "Full Disk Access" in said and sys.platform == "darwin"
         dlg = wx.MessageDialog(self, said + ("\n\nOpen that page of System Settings now?" if mac_fda else ""),
@@ -1238,7 +1299,7 @@ class MainFrame(wx.Frame):
     def play_links(self, entries, focus=True):
         """Play links without downloading: [{"url", "title"?, ...}]."""
         items = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
-                  "want": self._want(), **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views") if e.get(k)}} for e in entries]
+                  "want": self._want(), "cookies": e.get("cookies", ""), **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views") if e.get(k)}} for e in entries]
         if items:
             self.open_player(items, focus=focus)
 
@@ -1427,7 +1488,7 @@ class MainFrame(wx.Frame):
         if not job or job.state not in ("failed", "stopped"):
             self.tell("Select a failed download first.")
             return
-        names = [b for b in dialogs.BROWSERS if b[0]]
+        names = [b for b in dialogs.browser_choices(self.cfg.get("app_signin_browser") or "") if b[0]]
         keys = [b[0] for b in names]
         dlg = wx.SingleChoiceDialog(
             self, "Which browser are you signed in with? Media Download borrows that sign-in for this "
@@ -1703,6 +1764,13 @@ class MainFrame(wx.Frame):
         self.details.SetInsertionPoint(0)
 
     def startup_checks(self):
+        # Someone new gets the welcome tour once; anyone who has downloaded before never does.
+        if not self.cfg.get("app_onboarded"):
+            if (self.cfg.get("app_stats") or {}).get("count"):
+                self.cfg["app_onboarded"] = True
+                engine.save_settings(self.cfg)
+            else:
+                self.on_guide("welcome")
         missing = engine.missing_tools()
         if missing:
             self.get_helpers(ask=True, missing=missing)

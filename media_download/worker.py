@@ -17,6 +17,7 @@ immediate: the app ends the process group, ffmpeg included.
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 import time
@@ -494,12 +495,22 @@ def _described_versions(yt_dlp, title, start, count, logger):
 
 def do_signin_check(yt_dlp, task):
     """Can this browser's sign-in be read at all? (Safari's needs Full Disk Access on a Mac.)"""
+    notes = []
+
+    class Catch:  # the engine says how many cookies it couldn't unlock only in a log line
+        def debug(self, m, *a, **k): pass
+        def info(self, m, *a, **k): notes.append(str(m))
+        def warning(self, m, *a, **k): notes.append(str(m))
+        def error(self, m, *a, **k): notes.append(str(m))
     try:
         from yt_dlp.cookies import extract_cookies_from_browser
-        jar = extract_cookies_from_browser(task["browser"])
-        emit("signin", ok=True, count=len(jar))
+        name, _, profile = task["browser"].partition(":")
+        jar = extract_cookies_from_browser(name, profile or None, logger=Catch())
+        m = re.search(r"\((\d+) could not be decrypted\)", " ".join(notes))
+        failed = int(m.group(1)) if m else 0
+        emit("signin", ok=True, count=len(jar), failed=failed, notes=" ".join(notes)[-400:])
     except Exception as exc:  # noqa: BLE001
-        emit("signin", ok=False, error=str(exc)[:400])
+        emit("signin", ok=False, error=(str(exc) + " " + " ".join(notes))[:600])
     emit("end", ok=True)
 
 

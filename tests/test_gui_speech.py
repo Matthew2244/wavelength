@@ -516,3 +516,36 @@ def test_accounts_window(frame, monkeypatch):
         assert frame._job_from_ui("https://x.com/a").cookies == "firefox"
     finally:
         frame.cfg["app_signin"] = ""
+
+
+def test_guide_walks_through_and_keeps_choices(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    cfg = dict(frame.cfg)
+    cfg.pop("app_onboarded", None)
+    g = gui.dialogs.Guide(frame, cfg, frame, "welcome")
+    ended = []
+    monkeypatch.setattr(g, "EndModal", lambda code: ended.append(code))
+    seen = []
+    for _ in range(12):
+        seen.append(g.order[g.at])
+        assert g.texts[g.order[g.at]].GetValue().startswith("Step ")  # the step is read first
+        if g.order[g.at] == "format":
+            g.format.SetSelection([k for k, _ in gui.words.FORMAT_LABELS].index("mp3"))
+        if ended:
+            break
+        g.go(+1)
+    # "Not now" for accounts skips the browser, permission and services steps
+    assert seen[:5] == ["welcome", "folder", "format", "sounds", "accounts"] and seen[-1] == "done"
+    assert "browser" not in seen and cfg["format"] == "mp3" and cfg["app_onboarded"] and ended
+    g.Destroy()
+
+
+def test_play_first_list_has_no_default_and_plays_all(frame):
+    entries = [{"url": "https://y.example/%d" % i, "title": "T%d" % i} for i in range(3)]
+    dlg = gui.dialogs.CheckList(frame, "Liked", "intro", entries, checked=False, mode="play")
+    assert dlg.ok.GetLabel() == "Play All" and dlg.GetDefaultItem() is not dlg.ok
+    assert [e["title"] for e in dlg.chosen()] == ["T0", "T1", "T2"] and dlg.choice == "play"
+    dlg.list.Check(1)
+    dlg._count()
+    assert dlg.ok.GetLabel() == "Play Checked (1)" and [e["title"] for e in dlg.chosen()] == ["T1"]
+    dlg.Destroy()

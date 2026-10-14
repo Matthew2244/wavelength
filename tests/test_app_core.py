@@ -608,7 +608,7 @@ def test_accounts_addresses_and_sign_in_words():
     assert accounts.explain_signin("HTTP Error 404", "safari") is None
     # a failed download with a borrowed sign-in says which browser, and what to do
     assert words.explain_failure("Sign in to confirm you're not a bot", True, "YouTube", "chrome").startswith(
-        "Chrome isn't signed in to YouTube")
+        "Google Chrome isn't signed in to YouTube")
 
 
 def test_downloads_borrow_the_sign_in_when_chosen():
