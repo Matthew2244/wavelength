@@ -40,13 +40,11 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-13):** 3.0.1 is the latest release, signed and
-notarized on the Mac, with both appcasts serving it. Installed on the Studio
-and the MacBook from the notarized zip (neither had the app open; verified
-3.0.1, Gatekeeper "Notarized Developer ID", self-test OK). 2.4.5 was tagged
-but never offered. Check `CFBundleShortVersionString`
-before assuming for any later release. No person has tried the Windows
-build yet: NVDA first, then the installer, WinSparkle and the sounds.
+**Where it stands (2026-10-14):** 3.1.0 is the latest release: Settings in sections, help
+tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
+from reviews as other users (see Tested). Check `CFBundleShortVersionString` before assuming
+for any later release. No person has tried the Windows build yet: NVDA first, then the
+installer, WinSparkle and the sounds.
 
 Downloads go to **Downloads > Media Downloads on the computer itself** by default,
 Mac and Windows (`engine.default_folder`; Windows asks for the real Downloads
@@ -450,7 +448,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
-- **Unreleased, second round** (2026-10-14): a review of the tour, accounts, the player and
+- **3.1.0, second round** (2026-10-14): a review of the tour, accounts, the player and
   audio description. Fixed: **an unreadable browser sign-in no longer fails downloads**: the
   download goes once more without it and says so in its note (`Manager._without_signin`,
   `words.cookie_store_unreadable`); Retry by hand brings the sign-in back. That covers Chrome
@@ -471,7 +469,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
   person:** Return on the tour's step text with NVDA and VoiceOver, and whether reading a
   description on Windows stops early (`speech.Reader.speaking()` relies on Prism's backend
   having `.speaking`).
-- **Unreleased, after 3.0.1** (2026-10-13): Settings in sections, help tags everywhere,
+- **3.1.0, first round** (2026-10-13): Settings in sections, help tags everywhere,
   opening and closing sounds, and a review from other users' points of view. Fixed from it:
   a failed search no longer reads "Nothing found" or ends the paging (`SearchPage.error`);
   the closed player can't be started hidden from the Player menu; a normal quit now gets

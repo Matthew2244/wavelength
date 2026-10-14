@@ -40,7 +40,7 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **Podcasts.** Paste a podcast's RSS feed, or an Apple Podcasts show link, and you get its episodes to check. A big set starts with nothing checked, so picking three of 400 episodes doesn't mean unchecking 397.
 
-**When things go wrong, it sorts itself out where it can.** A dropped connection or a server hiccup tries again by itself, after 15 seconds and then a minute. When a site says "too many requests", every download from that site waits a few minutes, the row says when it will try again, and it carries on without you, so a long playlist can finish overnight. When a site wants you signed in, select the row and choose Retry Using a Browser's Sign-in: it borrows the sign-in from the browser you choose, and remembers which. Spotify, Apple Music and Netflix use copy protection (DRM), and the app says so plainly rather than looking broken.
+**When things go wrong, it sorts itself out where it can.** A dropped connection or a server hiccup tries again by itself, after 15 seconds and then a minute. When a site says "too many requests", every download from that site waits a few minutes, the row says when it will try again, and it carries on without you, so a long playlist can finish overnight. When a site wants you signed in, select the row and choose Retry Using a Browser's Sign-in: it borrows the sign-in from the browser you choose, and remembers which. If the browser's sign-in can't be read at all (Chrome open on Windows, say, or Safari without Full Disk Access), the download tries once more without it and tells you. Spotify, Apple Music and Netflix use copy protection (DRM), and the app says so plainly rather than looking broken.
 
 **When things were uploaded.** Every search result, playlist item and described version says when it was uploaded and how many have watched or listened: "uploaded March 4, 2024, 402 thousand views". YouTube's lists only say "2 years ago", so those read "uploaded about 2 years ago". For the exact date, right-click a result and choose Look Up Exact Date and Details (Command-I in Search). Select a download and Details has the exact date too. Search's **Order** menu sorts the results you've loaded: newest first, oldest first, most viewed, longest or shortest. What you've checked stays checked.
 
@@ -50,7 +50,9 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 **Sounds.** The app plays a sound for each thing that happens: opening, finished, failed, one of several finished, added, stopped, trying again by itself, search results, nothing more found, copied, an update ready, the end of the player's queue, and closing. It comes with four sets: a Rhodes electric piano (the default), a kalimba, pizzicato strings made from [Kenney's Music Jingles](https://kenney.nl/assets/music-jingles), and soft clicks from [Kenney's Interface Sounds](https://kenney.nl/assets/interface-sounds). Kenney's packs are CC0, free for anyone to use. Settings, Sounds picks the set, and a slider sets how loud they are (all the way down is silent); Play a Sample plays one. **Choose Sounds** lists every action. For each, pick any sound from any set, a sound file of your own, or no sound at all. **Import a Sound File** takes MP3, WAV, AIFF, M4A, FLAC, Ogg and more, and copies it into the app's own folder. Nothing plays by itself while you choose: press Play, or Return. That way a sound never talks over your screen reader. Each action has its own sound, so you can tell them apart by ear.
 
-**Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
+A few more are there just for fun, the same in every set: a bell when you finish the welcome tour, a little fanfare at your 100th, 250th and 1,000th download, and a chime when a browser's sign-in checks out. They're in Choose Sounds like the rest.
+
+**Bigger Text** (Command-Plus) reaches every window: Search, Settings, the player, every dialog and the status bar. Each section of Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
 **Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Wavelength never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
 
@@ -138,7 +140,15 @@ Help, About keeps a running tally of what you've downloaded ("Since October 13, 
 
 ### Settings
 
-Downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, the finish and fail sounds (a short electric piano phrase, rising when a download is done and falling when one fails), spoken progress, offering a link you've copied when you switch to the app, and keeping the download engine up to date. The format, quality and folder in the main window are remembered too, and shared with the `ytdl` command.
+Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window. Every setting has a help tag that says what it does.
+
+- **General:** offering a link you've copied when you switch to the app (also when you open it), spoken progress, and keeping the download engine up to date.
+- **Downloads:** downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, and keeping the computer awake.
+- **Sounds:** the sound set, the volume, a sample, and Choose Sounds.
+- **Player:** how far Left and Right skip, playing the next item, remembering where you stopped, captions, and how audio description is read.
+- **Signing In:** which browser's sign-in to borrow.
+
+The format, quality and folder in the main window are remembered too, and shared with the `ytdl` command.
 
 ### Fast on a big computer
 
