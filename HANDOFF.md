@@ -17,7 +17,9 @@ package, the `MEDIA_DOWNLOAD_*` test variables, and the **Media Downloads** fold
 renames the support and cache folders once, and `update.rename_old_bundle` renames a
 Sparkle-updated `Media Download.app` to `Wavelength.app` after it quits (never while
 running: its files would vanish from under it). No Windows zip copies existed, so the
-old zip updater got no bridge.
+old zip updater got no bridge. Verified on the Studio 2026-10-13: the real
+`Media Download` support folder (12 MB: list, engine) became `Wavelength`, with no copy
+left behind. The MacBook's moves on its first launch.
 
 ## What exists
 
