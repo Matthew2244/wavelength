@@ -16,6 +16,7 @@ from media_download.jobs import Job  # noqa: E402
 def frame(tmp_path_factory):
     os.environ["MEDIA_DOWNLOAD_TEST_DIR"] = str(tmp_path_factory.mktemp("gui"))
     gui.MainFrame.startup_checks = lambda self: None
+    gui.dialogs.message_log = []  # a message window would wait for a key press, in front of whoever is here
     app = wx.App(False)
     f = gui.MainFrame()
     f.timer.Stop()
@@ -134,7 +135,7 @@ def test_unavailable_folder_is_said_and_nothing_added(frame, monkeypatch):
         assert frame.add_links(["https://x.com/a"]) == 0
         assert len(frame.mgr.jobs) == before
         assert "isn't connected" in asked[0]
-        assert said[-1] == "Nothing added: the download folder isn't available."
+        assert gui.dialogs.message_log[-1] == ("Nothing added: the download folder isn't available.", "Okay")
     finally:
         frame.cfg["to"] = old
 
@@ -838,3 +839,38 @@ def test_mac_key_monitor_moves_section_only_while_settings_is_in_front(frame, mo
         wx.Yield()  # a dialog goes once events are handled
     if sys.platform == "darwin":
         assert mon and mon not in system._monitors  # removed with the window
+
+
+def test_message_window_answers_with_its_own_button(frame, monkeypatch):
+    seen = {}
+
+    def fake_show(dlg):
+        seen["buttons"] = [c.GetLabel() for c in dlg.GetChildren() if isinstance(c, wx.Button)]
+        seen["escape"] = dlg.GetEscapeId()
+        texts = [c for c in dlg.GetChildren() if isinstance(c, (wx.TextCtrl, wx.StaticText))]
+        seen["text"] = texts[0].GetValue() if isinstance(texts[0], wx.TextCtrl) else texts[0].GetLabel()
+        return wx.ID_OK
+    monkeypatch.setattr(wx.Dialog, "ShowModal", fake_show)
+    monkeypatch.setattr(gui.dialogs, "message_log", None)  # build it for real; ShowModal is faked
+    gui.dialogs.message(frame, "Settings saved.", "Settings", "Great")
+    assert seen == {"buttons": ["Great"], "escape": wx.ID_OK, "text": "Settings saved."}
+
+
+def test_last_tour_step_escape_and_close_both_finish(frame, monkeypatch):
+    """The leave button is hidden on the last step, so Escape answers with Let's Do This; and
+    closing the window there is finishing (the bell), not leaving early."""
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    from media_download import system
+    rung, ended = [], []
+    monkeypatch.setattr(system, "cue", lambda k: rung.append(k))
+    g = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "welcome")
+    monkeypatch.setattr(g, "EndModal", lambda code: ended.append(code))
+    assert g.GetEscapeId() == wx.ID_CANCEL
+    while g.order[g.at] != "done":
+        g.go(+1)
+    assert g.GetEscapeId() == g.next.GetId()
+    g._close_keeping()  # the close box on the last step
+    assert rung == ["tour_done"] and ended == [wx.ID_OK]
+    g.go(-1)
+    assert g.GetEscapeId() == wx.ID_CANCEL and g.close.IsShown()
+    g.Destroy()

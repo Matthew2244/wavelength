@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.2.1 is the latest release (Control-Tab really works on the Mac, messages as their own windows, What Is Wavelength?). 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.2.2 is the latest release (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -300,7 +300,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Seventeen events, listed in `system.SOUNDS` with their words and system fallback:
    opening, done, failed, item_done, added, stopped, waiting, results, no_more, copied,
    update, queue_end, tour_done, milestone, signed_in, settings_saved, closing. **Ear candy** (Matthew,
-   2026-10-14): `tour_done` (Finish in the welcome tour, first time or any time, a warm hand
+   2026-10-14): `tour_done` (the welcome tour's last button, Let's Do This, first time or any time, a warm hand
    bell), `milestone` (the 100th, 250th, 1,000th download and on, a tiny bell fanfare, after
    the Done sound), `signed_in` (a browser's sign-in checks out, a two-tone chime) and
    `settings_saved` (stamp and music box, picked 2026-10-14 from six). Made
@@ -472,8 +472,16 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    "not everyone has their screen reader set fast". The message's words sit in a focused
    read-only box (read on arrival, like the tour's steps); its one button answers it (his
    word: not always OK: "Great" for Settings saved, "Got It" for leaving the tour); Return
-   and Escape close it. Used for Settings saved and leaving the tour early. Keep it to
-   messages that come as a dialog closes; announcements inside a window stay announcements.
+   and Escape close it. `MainFrame.tell_in_window` is the one way in. **Every message that
+   comes as a dialog closes uses it** (his choice, 2026-10-14, knowing it costs a key press
+   after each playlist add): Settings saved, leaving the tour, items added from a playlist or
+   your accounts list, nothing added, the More Options summary, Retry Using a Browser's
+   Sign-in, a new download folder, the helper tools and update answers. Announcements inside
+   a window stay announcements. **Tests set `dialogs.message_log = []`** (the gui fixture does)
+   so a message is recorded, never shown: a real one waits for a key press in front of
+   whoever is at the Mac, and hung the test run once on 2026-10-14.
+   On Windows the words are plain text and the button has the focus: NVDA and JAWS read only
+   the caret's line of a text box, but read a new window's text by themselves.
    **Help, What Is Wavelength?** and the README's "What it is" say what the app is, what it
    won't do (DRM) and the legal position in plain words (`words.WHAT_IT_IS`; the tour's first
    step says the short version). Matthew approved the wording; keep them saying the same.

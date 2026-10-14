@@ -56,20 +56,36 @@ class WrapText(wx.StaticText):
         wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
 
 
+message_log = None  # tests set a list: messages are recorded there and never shown
+
+
 def message(parent, text: str, title: str = "Wavelength", button: str = "Got It") -> None:
     """A message as its own small window (Matthew, 2026-10-14): the words sit in a read-only box
     that takes the focus, so a screen reader reads them on arrival, the same way as the tour's
     steps, and the window behind is read only once it's closed. No guessing how long speech
     takes. Its button answers the message (Matthew: not always "OK"); it, Return or Escape closes it."""
+    if message_log is not None:
+        message_log.append((text, button))
+        return
     dlg = wx.Dialog(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE)
     s = wx.BoxSizer(wx.VERTICAL)
-    t = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
-                    size=(380, max(60, 22 * (len(text) // 45 + 1))))
-    mac_accessibility_label(t, "Message")
-    windows_name(t, "Message")
-    t.SetToolTip("The message. %s or Escape closes it." % ENTER)
+    if sys.platform == "win32":
+        # NVDA and JAWS read only the caret's line of a text box, but read a new window's own
+        # text by themselves: plain text, and the focus on the button.
+        t = WrapText(dlg, label=text)
+    else:
+        t = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL)
+        mac_accessibility_label(t, "Message")
+        t.SetToolTip("The message. %s or Escape closes it." % ENTER)
     s.Add(t, 1, wx.EXPAND | wx.ALL, 10)
     ok = wx.Button(dlg, wx.ID_OK, button)
+    textsize.apply(dlg)  # before sizing: at Bigger Text the words must still fit
+    if isinstance(t, wx.TextCtrl):
+        w = max(380, t.GetCharWidth() * 44)
+        lines = max(2, len(text) * t.GetCharWidth() // (w - 20) + 2)
+        t.SetMinSize((w, lines * t.GetCharHeight() + 12))
+    else:
+        t.Wrap(max(380, t.GetCharWidth() * 44))
     ok.SetToolTip("Closes this (%s or Escape)." % ENTER)
     s.Add(ok, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
     dlg.SetSizerAndFit(s)
@@ -81,11 +97,13 @@ def message(parent, text: str, title: str = "Wavelength", button: str = "Got It"
             dlg.EndModal(wx.ID_OK)
         else:
             event.Skip()
-    t.Bind(wx.EVT_KEY_DOWN, on_key)
-    textsize.apply(dlg)
     dlg.CentreOnParent()
-    t.SetInsertionPoint(0)
-    t.SetFocus()
+    if isinstance(t, wx.TextCtrl):
+        t.Bind(wx.EVT_KEY_DOWN, on_key)
+        t.SetInsertionPoint(0)
+        t.SetFocus()
+    else:
+        ok.SetFocus()
     dlg.ShowModal()
     dlg.Destroy()
 
@@ -1520,6 +1538,8 @@ class Guide(wx.Dialog):
         self.back.Enable(k > 0)
         self.next.SetLabel(self.NEXT.get(key, "Next"))
         self.close.Show(key != "done")  # on the last step Next is the way out
+        # Escape needs a shown button: on the last step it answers with Let's Do This.
+        self.SetEscapeId(self.next.GetId() if key == "done" else wx.ID_CANCEL)
         self.Layout()
         self.texts[key].SetInsertionPoint(0)
         self.texts[key].SetFocus()
@@ -1576,6 +1596,9 @@ class Guide(wx.Dialog):
             self._say(self.svc_status, said)
 
     def _close_keeping(self, _=None):
+        if self.order[self.at] == "done":  # closed on the last step: that's finishing, bell and all
+            self.finish()
+            return
         self._leave(self.order[self.at])
         self.EndModal(wx.ID_CANCEL)
 

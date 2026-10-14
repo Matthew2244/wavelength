@@ -424,8 +424,7 @@ class MainFrame(wx.Frame):
         self._update_folder_text()
         self.link.SetFocus()
         if start == "welcome" and left_early:
-            self.SetStatusText(words.TOUR_LEFT)
-            dialogs.message(self, words.TOUR_LEFT)  # its own window, read before the main one is
+            self.tell_in_window(words.TOUR_LEFT)
 
     def on_accounts(self, _=None):
         dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
@@ -485,7 +484,7 @@ class MainFrame(wx.Frame):
         elif self.folder_ready():
             fresh, already = self.add_entries(chosen)
             self._sound("added")
-            self.tell("Added %s to download." % words.n(len(fresh), "item"))
+            self.tell_in_window("Added %s to download." % words.n(len(fresh), "item"), "Great")
 
     def signin_readable(self, browser: str) -> str | None:
         """None if the browser's sign-in can be read; else a sentence saying why not."""
@@ -575,6 +574,12 @@ class MainFrame(wx.Frame):
         self.SetStatusText(text)
         announce(text)
 
+    def tell_in_window(self, text: str, button: str = "Got It", parent=None):
+        """A message that comes as a dialog closes: its own small window, so it's heard before the
+        screen reader reads the window behind (Matthew, 2026-10-14). `button` answers it."""
+        self.SetStatusText(text)
+        dialogs.message(parent or self, text, "Wavelength", button)
+
     # -------------------------------------------------------- adding
 
     def _job_from_ui(self, url: str) -> Job:
@@ -609,7 +614,7 @@ class MainFrame(wx.Frame):
         if go:
             self.on_folder(None)
             return self.cfg["to"] != to and os.access(self.cfg["to"], os.W_OK)
-        self.tell("Nothing added: the download folder isn't available.")
+        self.tell_in_window("Nothing added: the download folder isn't available.", "Okay")
         return False
 
     def add_links(self, urls: list[str], source: str = "") -> int:
@@ -887,7 +892,8 @@ class MainFrame(wx.Frame):
                 self.cfg["to"] = dlg.GetPath()
                 engine.save_settings(self.cfg)
                 self._update_folder_text()
-                self.tell("Downloads now go to %s." % os.path.basename(self.cfg["to"]))
+                self.tell_in_window("Downloads now go to %s." % os.path.basename(self.cfg["to"]), "Great",
+                                    parent=parent)
 
     def _open_folder(self):
         os.makedirs(self.cfg["to"], exist_ok=True)
@@ -899,8 +905,10 @@ class MainFrame(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             self.next_opts = {k: v for k, v in dlg.opts.items() if v}
             self._show_opts()
-            self.tell(dialogs.options_summary(self.next_opts))
-        dlg.Destroy()
+            dlg.Destroy()
+            self.tell_in_window(dialogs.options_summary(self.next_opts))
+        else:
+            dlg.Destroy()
         self.link.SetFocus()
 
     def _show_opts(self):
@@ -936,10 +944,9 @@ class MainFrame(wx.Frame):
                                  daemon=True).start()
             if self.player is not None:
                 self.player.settings_changed()
-            self.SetStatusText(words.SETTINGS_SAVED)
+            self.mgr.pump()  # a higher "downloads at once" starts now, not after the message
             self._sound("settings_saved")
-            dialogs.message(self, words.SETTINGS_SAVED, "Settings", "Great")  # its own window, read before the main one is
-            self.mgr.pump()
+            self.tell_in_window(words.SETTINGS_SAVED, "Great")
         dlg.Destroy()
 
     # -------------------------------------------------------- manager events (any thread)
@@ -1149,7 +1156,7 @@ class MainFrame(wx.Frame):
         dlg.Destroy()
         if ans == PQ.ALL:
             self.mgr.expand(job, entries, title)
-            self.tell("Added all %s from %s." % (words.n(len(entries), "item"), title))
+            self.tell_in_window("Added all %s from %s." % (words.n(len(entries), "item"), title), "Great")
         elif ans == PQ.CHOOSE:
             many = len(entries) > 50  # a podcast's 400 episodes: start empty, check the few you want
             tl = dialogs.CheckList(
@@ -1160,11 +1167,12 @@ class MainFrame(wx.Frame):
             if tl.ShowModal() == wx.ID_OK and tl.chosen():
                 picked = tl.chosen()
                 self.mgr.expand(job, picked, title)
-                self.tell("Added %s from %s." % (words.n(len(picked), "item"), title))
+                tl.Destroy()
+                self.tell_in_window("Added %s from %s." % (words.n(len(picked), "item"), title), "Great")
             else:
+                tl.Destroy()
                 self.mgr.remove(job)
-                self.tell("Nothing added from %s." % title)
-            tl.Destroy()
+                self.tell_in_window("Nothing added from %s." % title, "Okay")
         elif ans == PQ.ONE:
             import urllib.parse as up
             q = up.parse_qs(up.urlparse(url).query)
@@ -1584,7 +1592,8 @@ class MainFrame(wx.Frame):
         job.cookies = choice
         job.engine_retry = False
         self.mgr.retry(job)
-        self.tell("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice), words.job_name(job)))
+        self.tell_in_window("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice),
+                                                                      words.job_name(job)), "Okay")
 
     def on_retry_failed(self, _):
         with self.mgr.lock:
@@ -1951,7 +1960,7 @@ class MainFrame(wx.Frame):
         go = dlg.ShowModal() == wx.ID_OK
         dlg.Destroy()
         if not go:
-            self.tell("Not now. Help, Get Helper Tools, whenever you're ready.")
+            self.tell_in_window("Not now. Help, Get Helper Tools, whenever you're ready.", "Okay")
             return
         prog = wx.ProgressDialog("Getting helper tools", "Starting...", 100, self,
                                  wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
@@ -1979,7 +1988,7 @@ class MainFrame(wx.Frame):
         else:
             text = "Helper tools installed. Everything is ready."
         self.details.SetValue(text)
-        self.tell(text.split("\n")[0])
+        self.tell_in_window(text.split("\n")[0], "Okay" if state["failed"] else "Great")
 
     def on_update_engine(self, _):
         self.tell("Checking for a newer download engine. You have %s." % engine.engine_version())
@@ -2038,7 +2047,7 @@ class MainFrame(wx.Frame):
         go = dlg.ShowModal() == wx.ID_OK
         dlg.Destroy()
         if not go:
-            self.tell("Not installed. It stays available in Help, Check for App Updates.")
+            self.tell_in_window("Not installed. It stays available in Help, Check for App Updates.", "Okay")
             return
         self.tell("Downloading version %s." % info["version"])
         wx.Yield()
