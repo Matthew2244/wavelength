@@ -440,6 +440,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    beside it in a `wx.Simplebook`, each section scrolling on its own. Up and Down in the
    list choose; Tab goes in; Control-Tab and Control-Shift-Tab move section from anywhere
    (the real Control key, `RawControlDown`, on both systems). It reopens where it was left.
+   **Changing section never moves focus** (Matthew, 2026-10-14): wx's page switch moves it to
+   the new section's first control by itself, on both systems, so `show_section` puts it back;
+   only focus on a control in the section being hidden goes to the Sections list.
+   `test_choosing_a_section_never_moves_focus` covers the list, Control-Tab and
+   Control-Shift-Tab without showing a window (a shown, focused test window takes the
+   keyboard and VoiceOver from whoever is at the Mac).
    Every control in it has a help tag; `test_settings_sections` fails on one without.
 31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
    list says what it does and its shortcut, checked against the bindings. Windows wording

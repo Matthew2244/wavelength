@@ -317,7 +317,7 @@ class Settings(wx.Dialog):
         mac_accessibility_label(self.sections, "Sections")
         self.sections.SetToolTip("Up and Down Arrow choose a section; Tab goes into its settings. "
                                  "Control-Tab moves to the next section from anywhere in Settings, "
-                                 "Control-Shift-Tab to the one before.")
+                                 "Control-Shift-Tab to the one before. Focus stays where you are.")
         self.book = wx.Simplebook(self)
         self.pages = []
 
@@ -500,31 +500,49 @@ class Settings(wx.Dialog):
         self.SetMinSize((min(list_w + 360, screen.width - 40), 320))
 
         start = section or _last_section[0] or cfg.get("app_settings_section", "")
-        self.show_section(keys.index(start) if start in keys else 0)
+        self.show_section(keys.index(start) if start in keys else 0, keep_focus=False)  # opening: the list gets it
         self.sections.Bind(wx.EVT_LISTBOX, lambda e: self.show_section(self.sections.GetSelection()))
         self.Bind(wx.EVT_CHAR_HOOK, self._on_key)  # bound after the slider's: it runs first, passes the rest on
         ok.Bind(wx.EVT_BUTTON, self.on_ok)
         self.sections.SetFocus()
 
-    def show_section(self, i: int, focus_page: bool = False):
+    def show_section(self, i: int, keep_focus: bool = True):
+        """Show a section without moving focus (Matthew, 2026-10-14): wx's page switch moves it to
+        the new section's first control by itself, on the Mac and on Windows, so it's put back.
+        The one exception: focus on a control in the section being hidden goes to the Sections
+        list, on the new section's row, since a hidden control can't keep it."""
         i = max(0, min(len(self.pages) - 1, i))
+        before = wx.Window.FindFocus()
+        old = self.book.GetSelection()
         if self.sections.GetSelection() != i:
             self.sections.SetSelection(i)
         self.book.ChangeSelection(i)
         self.pages[i].Layout()
         self.pages[i].FitInside()
         _last_section[0] = SETTINGS_SECTIONS[i][0]
-        if focus_page:
-            # Control-Tab lands on the section's first setting, as a tab does; the list follows along.
-            first = next((c for c in self.pages[i].GetChildren() if c.AcceptsFocus()), None)
-            (first or self.sections).SetFocus()
+        if not keep_focus or old == i or old == wx.NOT_FOUND:
+            return
+        hidden = old >= 0 and before is not None and self._on_page(before, self.pages[old])
+        keep = self.sections if (before is None or hidden) else before
+
+        def restore():
+            if self and wx.Window.FindFocus() is not keep:
+                keep.SetFocus()
+        restore()
+        wx.CallAfter(restore)  # the switch can move it again once events are handled
+
+    @staticmethod
+    def _on_page(win, page) -> bool:
+        while win is not None:
+            if win is page:
+                return True
+            win = win.GetParent()
+        return False
 
     def _on_key(self, event):
         if event.GetKeyCode() == wx.WXK_TAB and event.RawControlDown() and not event.AltDown():
             step = -1 if event.ShiftDown() else 1
-            i = (self.sections.GetSelection() + step) % len(self.pages)
-            in_list = wx.Window.FindFocus() is self.sections
-            self.show_section(i, focus_page=not in_list)
+            self.show_section((self.sections.GetSelection() + step) % len(self.pages))
             return
         event.Skip()
 

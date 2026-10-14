@@ -158,7 +158,7 @@ Help, About keeps a running tally of what you've downloaded ("Since October 13, 
 
 ### Settings
 
-Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window (Control on both systems, not Command). Every setting has a help tag that says what it does.
+Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window, Control-Shift-Tab to the one before (Control on both systems, not Command). Changing section never moves you out of where you are. Every setting has a help tag that says what it does.
 
 - **General:** offering a link you've copied when you switch to the app (also when you open it), spoken progress, and keeping the download engine up to date.
 - **Downloads:** downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, and keeping the computer awake.

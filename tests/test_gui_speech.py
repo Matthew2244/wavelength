@@ -682,3 +682,54 @@ def test_describe_lookup_failure_says_why(frame, monkeypatch):
                           "needs": "ffmpeg (Help, Get Helper Tools)"}})
     assert any("ffmpeg" in o["words"] for o in dlg.options)
     dlg.Destroy()
+
+
+def test_choosing_a_section_never_moves_focus(frame, monkeypatch):
+    """Arrowing, Control-Tab or Control-Shift-Tab in the Sections list keeps focus there; from
+    inside a section that's being hidden it lands on the list, never on the new section's first
+    control. Focus is tracked here rather than read from a shown window: a test that shows and
+    focuses a window takes the keyboard (and VoiceOver) from whoever is using the Mac."""
+    dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="general")
+    focused = [dlg.sections]
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: focused[0]))
+    monkeypatch.setattr(wx.Window, "SetFocus", lambda self: focused.__setitem__(0, self))
+
+    def page_switch_steals(i):
+        # What wx does by itself when the page changes: focus to the new section's first control.
+        focused[0] = next(c for c in dlg.pages[i].GetChildren() if c.AcceptsFocus())
+
+    real = dlg.book.ChangeSelection
+    monkeypatch.setattr(dlg.book, "ChangeSelection", lambda i: (real(i), page_switch_steals(i)))
+
+    def settle():
+        for _ in range(3):
+            wx.Yield()
+        return focused[0]
+    for i in (2, 3, 1):  # as Up and Down Arrow in the list do it
+        dlg.sections.SetSelection(i)
+        ev = wx.CommandEvent(wx.wxEVT_LISTBOX, dlg.sections.GetId())
+        ev.SetInt(i)
+        ev.SetEventObject(dlg.sections)
+        dlg.sections.GetEventHandler().ProcessEvent(ev)
+        assert settle() is dlg.sections and dlg.book.GetSelection() == i
+
+    def key(shift):
+        k = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+        k.SetKeyCode(wx.WXK_TAB)
+        k.SetRawControlDown(True)
+        k.SetShiftDown(shift)
+        dlg._on_key(k)
+    key(False)  # Control-Tab from the list
+    assert settle() is dlg.sections and dlg.book.GetSelection() == 2
+    focused[0] = dlg.theme  # inside the Sounds section
+    key(False)
+    assert settle() is dlg.sections and dlg.book.GetSelection() == 3
+    key(True)  # Control-Shift-Tab from the list: one back
+    assert settle() is dlg.sections and dlg.book.GetSelection() == 2
+    focused[0] = dlg.theme
+    key(True)  # and from inside a section
+    assert settle() is dlg.sections and dlg.book.GetSelection() == 1
+    dlg.show_section(0)
+    key(True)  # from the first section, round to the last
+    assert settle() is dlg.sections and dlg.book.GetSelection() == len(dlg.pages) - 1
+    dlg.Destroy()
