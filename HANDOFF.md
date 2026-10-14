@@ -297,7 +297,7 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    public, so every file in it is redistributed. Epidemic Sound was offered on
    2026-10-13 (a friend's account) and declined for that reason; Matthew chose
    more CC0 packs instead. `test_every_sound_set_is_complete` checks every set.
-   Sixteen events, listed in `system.SOUNDS` with their words and system fallback:
+   Seventeen events, listed in `system.SOUNDS` with their words and system fallback:
    opening, done, failed, item_done, added, stopped, waiting, results, no_more, copied,
    update, queue_end, tour_done, milestone, signed_in, settings_saved, closing. **Ear candy** (Matthew,
    2026-10-14): `tour_done` (Finish in the welcome tour, first time or any time, a warm hand
