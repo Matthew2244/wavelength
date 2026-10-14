@@ -2089,10 +2089,9 @@ class Search(wx.Frame):
         else:
             self.status.SetLabel("That's every result %s has for %s: %s." % (site, q,
                                                                              words.n(len(self.results), "result")))
-        if start == 1 and self.results:
-            # Focus just moved to the list; let the screen reader read the row first.
-            wx.CallLater(600, lambda: self and announce(self.status.GetLabel()))
-        else:
+        # The first page says nothing: the results sound and the first row are enough, and the
+        # status line stays on screen. Matthew's call, 2026-10-14.
+        if not (start == 1 and self.results):
             announce(self.status.GetLabel())
         self._count()
 
