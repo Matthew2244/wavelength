@@ -505,6 +505,21 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **3.2.0 to 3.3.0** (2026-10-14, all with Matthew at the Mac): Control-Tab was found dead
+  on the Mac with a key-logging copy of Settings and real keys (Control arrived, the Tab with
+  it never did; an accelerator table didn't catch it either; an NSEvent local monitor did), and
+  he confirmed the fix in the real app. He chose the order "speak, wait, then close" from four
+  played back to back, then dropped timing altogether for message windows ("not everyone has
+  their screen reader set fast"); he tried the message windows, the conversational tour and
+  its leave button in the real app. A review agent read the whole day's diff: no crash or
+  ctypes fault; four small bugs fixed in 3.2.2 (Escape dead on the tour's last step, the
+  close box there counting as leaving, message windows clipping at Bigger Text, Settings
+  holding up extra downloads). **Not tried by a person:** any of it on Windows (Control-Tab
+  through `_on_key`, message windows with NVDA and JAWS), and 3.3.0's links-only Link field
+  by ear.
+- **Lesson:** a test that fakes a key inside the app skips AppKit, so it can pass while the
+  real key never arrives. Keys the app handles itself need one real-key check.
+
 - **3.1.0, second round** (2026-10-14): a review of the tour, accounts, the player and
   audio description. Fixed: **an unreadable browser sign-in no longer fails downloads**: the
   download goes once more without it and says so in its note (`Manager._without_signin`,
