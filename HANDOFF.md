@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.1.1 is the latest release (Settings no longer moves focus when the section changes). 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.2.0 is the latest release (the tour as a conversation, Control-Tab says the section, "Settings saved." with its own sound). 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -302,7 +302,8 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    update, queue_end, tour_done, milestone, signed_in, settings_saved, closing. **Ear candy** (Matthew,
    2026-10-14): `tour_done` (Finish in the welcome tour, first time or any time, a warm hand
    bell), `milestone` (the 100th, 250th, 1,000th download and on, a tiny bell fanfare, after
-   the Done sound) and `signed_in` (a browser's sign-in checks out, a two-tone chime). Made
+   the Done sound), `signed_in` (a browser's sign-in checks out, a two-tone chime) and
+   `settings_saved` (stamp and music box, picked 2026-10-14 from six). Made
    with ElevenLabs sound effects and picked by him by ear from fourteen candidates
    (auditions in iCloud, `Media Download Sounds/Ear candy/`). They're the same in every set,
    kept once in `assets/sounds/shared/` (`sound_file` looks there after the set); originals

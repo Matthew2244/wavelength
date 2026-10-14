@@ -6,7 +6,7 @@ Silence before the sound starts is trimmed; then 10 ms of silence, a 3 ms fade-i
 fade-out, a 40 ms silent tail, and the true peak set to PEAK_DB (default -1.5 dBFS), all in
 32-bit float so nothing clips on the way. Writes OUT_BASE.mp3 (the Mac) and OUT_BASE.wav
 (16-bit 44.1 kHz, Windows). Used for the ElevenLabs sounds (tour_done, milestone,
-signed_in); make_open_close_sounds.py has its own copy of the same steps.
+signed_in, settings_saved); make_open_close_sounds.py has its own copy of the same steps.
 """
 import os
 import sys
