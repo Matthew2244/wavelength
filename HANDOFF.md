@@ -42,7 +42,10 @@ left behind. The MacBook's moves on its first launch.
 
 **Where it stands (2026-10-14):** 3.1.0 is the latest release: Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
-from reviews as other users (see Tested). Check `CFBundleShortVersionString` before assuming
+from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
+old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
+from the notarized zip (neither had the app open; verified 3.1.0, Gatekeeper "Notarized
+Developer ID", self-test OK). Check `CFBundleShortVersionString` before assuming
 for any later release. No person has tried the Windows build yet: NVDA first, then the
 installer, WinSparkle and the sounds.
 
