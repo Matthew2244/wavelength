@@ -303,14 +303,12 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Windows the closing sound holds the quit up to 2 s so it isn't cut off; on the Mac
    afplay runs in its own session and outlives the app. They're built by
    `tools/make_open_close_sounds.py` (kept, unlike the earlier scripts): different notes for
-   each, not one figure turned round (his ask), then "be creative, don't hold back":
-   each instrument has its own pair, written for it. Rhodes: a neo-soul slide-in lick and a
-   rolled Gmaj9; closing a falling turn and a gospel "Amen" (Cmaj9 to G). Kalimba: a bouncing
-   pentatonic riff with its own echo; closing a slowing lullaby. Pizzicato: a strut ending on
-   a G chord hit; closing a tiptoe down a chromatic line and "dun... dun". Each note comes
-   from the set's nearest recorded note (two kalimba notes from hark kept in
-   `tools/sound_sources/`), never moved more than seven semitones. 1.4 to 1.7 s long, so
-   they get 1.8 s before the next sound. Soft
+   each, not one figure turned round (his ask), then "even catchier", then a round of
+   tunes written per instrument that he passed on. **Chosen 2026-10-14:** opening is a quick
+   run D G B D, a "doo-dit" C D, and a ringing G chord (the opening files are kept exactly as
+   he heard them; the script skips them, see `KEEP`). Closing answers it: the doo-dit turned
+   round and walked down, D B, C A, B G, then a soft G chord. In the Rhodes key; kalimba
+   plays them in B. About 1.2 and 1.45 s; they get 1.8 s before the next sound. Soft
    clicks uses Kenney's open and close, 4 dB down at his word. **Mix overlapping notes in float with headroom.** The first build mixed straight
    into 16-bit, clipped 1,355 samples of the Rhodes figure, then normalised, so every meter
    read clean; Matthew heard it at once. The script now mixes at half level in 32-bit float
