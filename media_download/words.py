@@ -20,6 +20,24 @@ def ordinal(n: int) -> str:
     return "%d%s" % (n, suffix)
 
 
+SETTINGS_SAVED = "Settings saved."
+# Help, What Is Wavelength? and the README's section of the same name say the same thing.
+WHAT_IT_IS = (
+    "What it is\n\n"
+    "Wavelength is an accessible app built on yt-dlp, a free, open-source downloader that's been around "
+    "for years. It finds, plays and saves audio and video that sites already show you, and it says what "
+    "it's doing, so it works the same whether you look at it or listen to it.\n\n"
+    "What it won't do\n\n"
+    "It doesn't break copy protection. Anything locked with DRM, like Netflix, Spotify, Apple Music or a "
+    "paid movie, stays locked, because the engine refuses it. It doesn't share or upload anything, and it "
+    "never asks for a password. Signing in goes through the browser you already use.\n\n"
+    "Is it legal?\n\n"
+    "The software is. Like a VCR or a screen recorder, it's a tool with plenty of legitimate uses: public "
+    "domain and Creative Commons material, archive.org, your own uploads, things artists offer for download, "
+    "and audio description. Whether a particular download is allowed depends on what it is, where you live, "
+    "and the site's own terms. YouTube's terms, for example, only allow downloading where YouTube shows a "
+    "download button. That part is up to you, so respect the people who made the work. This isn't legal "
+    "advice.")
 TOUR_LEFT = "No problem. Help, Welcome Tour brings the tour back whenever you like."
 
 

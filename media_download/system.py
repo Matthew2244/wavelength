@@ -317,6 +317,79 @@ def mac_value_description(ctrl, text: str) -> None:
         pass
 
 
+_monitors = {}  # monitor -> what keeps its block alive
+
+
+def add_key_monitor(fn):
+    """Mac: see every key the app gets before any window does; fn(keycode, flags) returns True
+    to swallow it. For keys macOS takes before they reach a control: Control-Tab never arrives
+    as a key event in a wx window, or through an accelerator (Matthew tested both, 2026-10-14),
+    but a local NSEvent monitor sees it. Returns a handle for remove_key_monitor, or None."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        libsys = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_getClass.restype = ctypes.c_void_p
+
+        def send(obj, sel, *args, restype=ctypes.c_void_p, argtypes=()):
+            f = ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(("objc_msgSend", objc))
+            return f(obj, objc.sel_registerName(sel.encode()), *args)
+
+        class Desc(ctypes.Structure):
+            _fields_ = [("reserved", ctypes.c_ulong), ("size", ctypes.c_ulong)]
+        invoke_t = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+
+        class Block(ctypes.Structure):  # a global block: never copied, so nothing to free
+            _fields_ = [("isa", ctypes.c_void_p), ("flags", ctypes.c_int), ("reserved", ctypes.c_int),
+                        ("invoke", invoke_t), ("descriptor", ctypes.POINTER(Desc))]
+
+        def invoke(_blk, event):
+            try:
+                code = send(event, "keyCode", restype=ctypes.c_ushort)
+                flags = send(event, "modifierFlags", restype=ctypes.c_ulong)
+                return None if fn(code, flags) else event
+            except Exception:  # noqa: BLE001 - a key must never be lost to a bug here
+                return event
+        cb = invoke_t(invoke)
+        desc = Desc(0, ctypes.sizeof(Block))
+        blk = Block(ctypes.addressof(ctypes.c_void_p.in_dll(libsys, "_NSConcreteGlobalBlock")), 1 << 28, 0, cb,
+                    ctypes.pointer(desc))
+        key_down = 1 << 10
+        mon = send(objc.objc_getClass(b"NSEvent"), "addLocalMonitorForEventsMatchingMask:handler:", key_down,
+                   ctypes.addressof(blk), argtypes=(ctypes.c_ulonglong, ctypes.c_void_p))
+        if not mon:
+            return None
+        send(mon, "retain")
+        _monitors[mon] = (cb, desc, blk, send)
+        return mon
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def remove_key_monitor(mon) -> None:
+    kept = _monitors.pop(mon, None)
+    if not kept:
+        return
+    send = kept[3]
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        send(objc.objc_getClass(b"NSEvent"), "removeMonitor:", mon, restype=None, argtypes=(ctypes.c_void_p,))
+        send(mon, "release", restype=None)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+MAC_TAB, MAC_SHIFT, MAC_CONTROL, MAC_OPTION, MAC_COMMAND = 48, 1 << 17, 1 << 18, 1 << 19, 1 << 20
+
+
 def announce(text: str) -> None:
     """Have the screen reader say something without moving focus.
 

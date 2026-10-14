@@ -4,6 +4,16 @@
 
 YouTube, Bandcamp, SoundCloud, Vimeo, the BBC, archive.org, Mixcloud, podcasts, and plain links to a media file. Search them without a browser, play them without downloading, keep the ones you want, hear audio description for video, and open your own likes and playlists through the sign-in your browser already has. Nothing plays or downloads on its own.
 
+## What it is
+
+Wavelength is an accessible app built on yt-dlp, a free, open-source downloader that's been around for years. It finds, plays and saves audio and video that sites already show you, and it says what it's doing, so it works the same whether you look at it or listen to it.
+
+**What it won't do.** It doesn't break copy protection. Anything locked with DRM, like Netflix, Spotify, Apple Music or a paid movie, stays locked, because the engine refuses it. It doesn't share or upload anything, and it never asks for a password. Signing in goes through the browser you already use.
+
+**Is it legal?** The software is. Like a VCR or a screen recorder, it's a tool with plenty of legitimate uses: public domain and Creative Commons material, archive.org, your own uploads, things artists offer for download, and audio description. Whether a particular download is allowed depends on what it is, where you live, and the site's own terms. YouTube's terms, for example, only allow downloading where YouTube shows a download button. That part is up to you, so respect the people who made the work. This isn't legal advice.
+
+The app says the same under Help, What Is Wavelength?
+
 It was called Media Download until version 3.0. Updating keeps everything: your list, settings, sounds and permissions.
 
 What's here:

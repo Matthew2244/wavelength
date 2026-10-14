@@ -56,6 +56,40 @@ class WrapText(wx.StaticText):
         wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
 
 
+def message(parent, text: str, title: str = "Wavelength", button: str = "Got It") -> None:
+    """A message as its own small window (Matthew, 2026-10-14): the words sit in a read-only box
+    that takes the focus, so a screen reader reads them on arrival, the same way as the tour's
+    steps, and the window behind is read only once it's closed. No guessing how long speech
+    takes. Its button answers the message (Matthew: not always "OK"); it, Return or Escape closes it."""
+    dlg = wx.Dialog(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE)
+    s = wx.BoxSizer(wx.VERTICAL)
+    t = wx.TextCtrl(dlg, value=text, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
+                    size=(380, max(60, 22 * (len(text) // 45 + 1))))
+    mac_accessibility_label(t, "Message")
+    windows_name(t, "Message")
+    t.SetToolTip("The message. %s or Escape closes it." % ENTER)
+    s.Add(t, 1, wx.EXPAND | wx.ALL, 10)
+    ok = wx.Button(dlg, wx.ID_OK, button)
+    ok.SetToolTip("Closes this (%s or Escape)." % ENTER)
+    s.Add(ok, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+    dlg.SetSizerAndFit(s)
+    dlg.SetEscapeId(wx.ID_OK)
+    ok.SetDefault()
+
+    def on_key(event):  # a multi-line box keeps Return for itself; read-only, it has no use for it
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER) and not event.HasAnyModifiers():
+            dlg.EndModal(wx.ID_OK)
+        else:
+            event.Skip()
+    t.Bind(wx.EVT_KEY_DOWN, on_key)
+    textsize.apply(dlg)
+    dlg.CentreOnParent()
+    t.SetInsertionPoint(0)
+    t.SetFocus()
+    dlg.ShowModal()
+    dlg.Destroy()
+
+
 def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True):
     """A label and its control on one row. The label is also the control's spoken name on the Mac.
 
@@ -503,6 +537,10 @@ class Settings(wx.Dialog):
         self.show_section(keys.index(start) if start in keys else 0, keep_focus=False)  # opening: the list gets it
         self.sections.Bind(wx.EVT_LISTBOX, lambda e: self.show_section(self.sections.GetSelection()))
         self.Bind(wx.EVT_CHAR_HOOK, self._on_key)  # bound after the slider's: it runs first, passes the rest on
+        # The Mac never delivers Control-Tab to a window, so it's caught as the app receives it.
+        from .system import add_key_monitor
+        self._monitor = add_key_monitor(self._on_mac_key)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
         ok.Bind(wx.EVT_BUTTON, self.on_ok)
         self.sections.SetFocus()
 
@@ -540,16 +578,44 @@ class Settings(wx.Dialog):
         return False
 
     def _on_key(self, event):
+        """Control-Tab on Windows (and wherever it arrives as a key event)."""
         if event.GetKeyCode() == wx.WXK_TAB and event.RawControlDown() and not event.AltDown():
-            step = -1 if event.ShiftDown() else 1
-            i = (self.sections.GetSelection() + step) % len(self.pages)
-            self.show_section(i)
-            # Focus stays put, so nothing else would say the section changed (Matthew, 2026-10-14:
-            # with no word, Control-Tab sounded like it did nothing).
-            from .system import announce
-            announce(words.settings_section(SETTINGS_SECTIONS[i][1], i, len(self.pages)))
+            self.step_section(-1 if event.ShiftDown() else 1)
             return
         event.Skip()
+
+    def _on_mac_key(self, code, flags) -> bool:
+        """Control-Tab on the Mac, from the app's key monitor: only while Settings is in front."""
+        from .system import MAC_COMMAND, MAC_CONTROL, MAC_OPTION, MAC_SHIFT, MAC_TAB
+        if code != MAC_TAB or not flags & MAC_CONTROL or flags & (MAC_OPTION | MAC_COMMAND):
+            return False
+        if not self or not self.IsActive():
+            return False
+        wx.CallAfter(lambda: self and self.step_section(-1 if flags & MAC_SHIFT else 1))
+        return True
+
+    def _on_destroy(self, event):
+        if event.GetEventObject() is self:
+            self._drop_monitor()
+        event.Skip()
+
+    def _drop_monitor(self):
+        if getattr(self, "_monitor", None):
+            from .system import remove_key_monitor
+            remove_key_monitor(self._monitor)
+            self._monitor = None
+
+    def Destroy(self):  # noqa: N802 - wx's name; a dialog's destroy event can come late
+        self._drop_monitor()
+        return super().Destroy()
+
+    def step_section(self, step: int):
+        i = (self.sections.GetSelection() + step) % len(self.pages)
+        self.show_section(i)
+        # Focus stays put, so nothing else would say the section changed (Matthew, 2026-10-14:
+        # with no word, Control-Tab sounded like it did nothing).
+        from .system import announce
+        announce(words.settings_section(SETTINGS_SECTIONS[i][1], i, len(self.pages)))
 
     def _theme_now(self):
         return self.theme_vals[self.theme.GetSelection()]
@@ -1209,10 +1275,13 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         name = words.first_name()
         self._text(p, "welcome", s, "Hi%s! I'm Wavelength. Glad you're here.\n\nI save audio and video from about "
-                   "1,750 sites, play them for you, and tell you what I'm up to along the way. Want to set a few "
-                   "things up together? It only takes a minute: where your downloads go, what to save them as, how "
-                   "I sound, and your accounts if you'd like. Nothing is set in stone. You can change all of it "
-                   "later.\n\nPress %s to start, or %s if you'd rather look around on your own."
+                   "1,750 sites, play them for you, and tell you what I'm up to along the way. I'm built on "
+                   "yt-dlp, a free, open-source downloader. I don't break copy protection, so anything locked, "
+                   "like Netflix or Spotify, stays locked. What you save is up to you, so respect the people who "
+                   "made it.\n\nWant to set a few things up together? It only takes a minute: where your "
+                   "downloads go, what to save them as, how I sound, and your accounts if you'd like. Nothing is "
+                   "set in stone. You can change all of it later.\n\nPress %s to start, or %s if you'd rather look "
+                   "around on your own."
                    % (", " + name if name else "", self.NEXT["welcome"], self.LEAVE[True]))
         p.SetSizer(s)
 

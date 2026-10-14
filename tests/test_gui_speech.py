@@ -754,7 +754,9 @@ def test_control_tab_says_the_section(frame, monkeypatch):
     dlg.Destroy()
 
 
-def test_saving_settings_says_so_with_its_sound(frame, monkeypatch):
+def test_saving_settings_says_so_in_its_own_window(frame, monkeypatch):
+    """Settings saved is a small window of its own, read before the main window is, with its
+    sound: nothing guesses how long speech takes."""
     monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
 
     class Fake:
@@ -767,11 +769,32 @@ def test_saving_settings_says_so_with_its_sound(frame, monkeypatch):
         def Destroy(self):
             pass
     monkeypatch.setattr(gui.dialogs, "Settings", Fake)
-    said, rung = [], []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    shown, rung = [], []
+    monkeypatch.setattr(gui.dialogs, "message", lambda parent, text, title="Wavelength", button="Got It": shown.append((text, button)))
     monkeypatch.setattr(frame, "_sound", lambda k: rung.append(k))
     frame.on_settings(None)
-    assert said == ["Settings saved."] and rung == ["settings_saved"]
+    assert shown == [("Settings saved.", "Great")] and rung == ["settings_saved"]
+
+
+def test_leaving_the_tour_early_says_so_in_its_own_window(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+
+    class Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def ShowModal(self):
+            return wx.ID_CANCEL
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "Guide", Fake)
+    shown = []
+    monkeypatch.setattr(gui.dialogs, "message", lambda parent, text, title="Wavelength", button="Got It": shown.append((text, button)))
+    frame.on_guide("welcome")
+    assert shown == [(gui.words.TOUR_LEFT, "Got It")]
+    frame.on_guide("accounts")  # Set Up Accounts on its own: nothing to say
+    assert shown == [(gui.words.TOUR_LEFT, "Got It")]
 
 
 def test_tour_leave_button_talks_like_a_person(frame, monkeypatch):
@@ -787,3 +810,31 @@ def test_tour_leave_button_talks_like_a_person(frame, monkeypatch):
     a = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "accounts")
     assert a.close.GetLabel() == "Maybe Later"
     a.Destroy()
+
+
+def test_mac_key_monitor_moves_section_only_while_settings_is_in_front(frame, monkeypatch):
+    """The Mac never delivers Control-Tab to a window; the app-wide key monitor catches it."""
+    from media_download import system
+    said = []
+    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="general")
+    ctrl, shift = system.MAC_CONTROL, system.MAC_SHIFT
+    monkeypatch.setattr(dlg, "IsActive", lambda: False)
+    assert dlg._on_mac_key(system.MAC_TAB, ctrl) is False  # another window in front: not ours
+    monkeypatch.setattr(dlg, "IsActive", lambda: True)
+    assert dlg._on_mac_key(system.MAC_TAB, 0) is False  # plain Tab moves focus as usual
+    assert dlg._on_mac_key(system.MAC_TAB, ctrl | system.MAC_COMMAND) is False
+    assert dlg._on_mac_key(system.MAC_TAB, ctrl) is True
+    for _ in range(3):
+        wx.Yield()
+    assert dlg.sections.GetSelection() == 1 and said[-1].startswith("Downloads,")
+    assert dlg._on_mac_key(system.MAC_TAB, ctrl | shift) is True
+    for _ in range(3):
+        wx.Yield()
+    assert dlg.sections.GetSelection() == 0 and said[-1].startswith("General,")
+    mon = dlg._monitor
+    dlg.Destroy()
+    for _ in range(3):
+        wx.Yield()  # a dialog goes once events are handled
+    if sys.platform == "darwin":
+        assert mon and mon not in system._monitors  # removed with the window

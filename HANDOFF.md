@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.2.0 is the latest release (the tour as a conversation, Control-Tab says the section, "Settings saved." with its own sound). 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.2.1 is the latest release (Control-Tab really works on the Mac, messages as their own windows, What Is Wavelength?). 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -454,10 +454,29 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    Control-Shift-Tab without showing a window (a shown, focused test window takes the
    keyboard and VoiceOver from whoever is at the Mac).
    Every control in it has a help tag; `test_settings_sections` fails on one without.
-   **Control-Tab says the section** ("Downloads, section 2 of 5."; Matthew, 2026-10-14): with
-   focus staying put, a silent switch sounded like the key did nothing. Saving Settings says
-   just "Settings saved." and plays `settings_saved` (shared ear candy, follows the volume,
-   the set's on/off and Choose Sounds like every other sound).
+   **Control-Tab says the section** ("Downloads, section 2 of 5."; Matthew, 2026-10-14).
+   **On the Mac, Control-Tab never reaches a wx window.** Logged with real keys on 2026-10-14:
+   Control and Shift arrive as key events, the Tab pressed with Control never does, not as
+   EVT_CHAR_HOOK, not as EVT_KEY_DOWN, not through an AcceleratorTable. Something in AppKit
+   takes it first. The fix is an app-wide NSEvent local monitor (`system.add_key_monitor`, a
+   ctypes block), which sees every key the app receives before any window; Settings adds one
+   while it's open and in front (`_on_mac_key`) and removes it in `Destroy`. The tests that
+   passed before called `_on_key` directly, which skips AppKit: **a faked key event proves
+   nothing about a real one.** Windows still uses `_on_key` (untested by a person).
+   Saving Settings shows "Settings saved." as a message window (below) and plays
+   `settings_saved` (shared ear candy, follows the volume, the set's on/off and Choose Sounds).
+30a. **A message that must be heard before the window behind it is a small window of its own**
+   (`dialogs.message`, Matthew, 2026-10-14). Speaking it as an announcement while a dialog
+   closes put it after, or on top of, the screen reader reading the main window. Timing the
+   close to the speech was tried and dropped: the app can't know anyone's speaking rate, and
+   "not everyone has their screen reader set fast". The message's words sit in a focused
+   read-only box (read on arrival, like the tour's steps); its one button answers it (his
+   word: not always OK: "Great" for Settings saved, "Got It" for leaving the tour); Return
+   and Escape close it. Used for Settings saved and leaving the tour early. Keep it to
+   messages that come as a dialog closes; announcements inside a window stay announcements.
+   **Help, What Is Wavelength?** and the README's "What it is" say what the app is, what it
+   won't do (DRM) and the legal position in plain words (`words.WHAT_IT_IS`; the tour's first
+   step says the short version). Matthew approved the wording; keep them saying the same.
 31. **Help tags everywhere** (2026-10-13): every button, checkbox, popup, slider, field and
    list says what it does and its shortcut, checked against the bindings. Windows wording
    says Control and Enter. Keep it so: a new control needs a tip in the same voice.

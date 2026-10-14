@@ -375,6 +375,7 @@ class MainFrame(wx.Frame):
         self._m(h, "%s &Help" % APP_NAME, lambda e: self.show_help(), wx.ID_HELP)
         self._m(h, "Keyboard &Shortcuts", lambda e: self.show_shortcuts())
         self._m(h, "&Welcome Tour...", lambda e: self.on_guide("welcome"))
+        self._m(h, "What &Is %s?" % APP_NAME, lambda e: self.show_what_it_is())
         h.AppendSeparator()
         self._m(h, "Get &Helper Tools...", lambda e: self.get_helpers(ask=False))
         self._m(h, "Update the Download &Engine", self.on_update_engine)
@@ -423,8 +424,8 @@ class MainFrame(wx.Frame):
         self._update_folder_text()
         self.link.SetFocus()
         if start == "welcome" and left_early:
-            # After the link field has been read, so the two don't talk over each other.
-            wx.CallLater(700, lambda: self and self.tell(words.TOUR_LEFT))
+            self.SetStatusText(words.TOUR_LEFT)
+            dialogs.message(self, words.TOUR_LEFT)  # its own window, read before the main one is
 
     def on_accounts(self, _=None):
         dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
@@ -935,8 +936,9 @@ class MainFrame(wx.Frame):
                                  daemon=True).start()
             if self.player is not None:
                 self.player.settings_changed()
+            self.SetStatusText(words.SETTINGS_SAVED)
             self._sound("settings_saved")
-            self.tell("Settings saved.")
+            dialogs.message(self, words.SETTINGS_SAVED, "Settings", "Great")  # its own window, read before the main one is
             self.mgr.pump()
         dlg.Destroy()
 
@@ -1893,6 +1895,12 @@ class MainFrame(wx.Frame):
                      "%s goes back to the downloads window, and %s from there to the player."
                      % (key_words("Ctrl+1"), key_words("Ctrl+2")))
         self.details.SetValue("Keyboard shortcuts\n\n" + "\n".join(lines).strip())
+        self.details.SetFocus()
+        self.details.SetInsertionPoint(0)
+
+    def show_what_it_is(self):
+        """For anyone asking what this is, or whether it's legal (Matthew, 2026-10-14)."""
+        self.details.SetValue(words.WHAT_IT_IS)
         self.details.SetFocus()
         self.details.SetInsertionPoint(0)
 
