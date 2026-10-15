@@ -768,20 +768,20 @@ def test_windows_swap_handles_accented_paths_with_spaces(tmp_path):
 
 
 def test_player_keys_that_altgr_can_type_on_are_known():
-    from media_download import menus
-    assert menus._vk("Ctrl+Alt+N") == ord("N") and menus._vk("Ctrl+Alt+.") == 0xBE
-    assert menus._vk("Ctrl+Alt+PageUp") is None and menus._vk("Ctrl+Alt+Home") is None
+    from media_download import keyboard
+    assert keyboard.vk_of("Ctrl+Alt+N") == ord("N") and keyboard.vk_of("Ctrl+Alt+.") == 0xBE
+    assert keyboard.vk_of("Ctrl+Alt+PageUp") is None and keyboard.vk_of("Ctrl+Alt+Home") is None
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="AltGr is Control-Alt only on Windows")
 def test_altgr_letters_are_read_from_the_layout():
     import ctypes
-    from media_download import menus
+    from media_download import keyboard
     load = ctypes.windll.user32.LoadKeyboardLayoutW
     load.restype = ctypes.c_void_p
     polish = load("00000415", 0x80)     # Polish (Programmers): AltGr+N is ń
     hungarian = load("0000040E", 0x80)  # AltGr+V is @
     us = load("00000409", 0x80)         # AltGr types nothing
-    assert menus.altgr_char(ord("N"), polish) == "ń"
-    assert menus.altgr_char(ord("V"), hungarian) == "@"
-    assert menus.altgr_char(ord("N"), us) == ""
+    assert keyboard.altgr_char(ord("N"), polish) == "ń"
+    assert keyboard.altgr_char(ord("V"), hungarian) == "@"
+    assert keyboard.altgr_char(ord("N"), us) == ""
