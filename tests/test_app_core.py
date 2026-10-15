@@ -698,3 +698,13 @@ def test_unreadable_sign_in_is_told_apart_from_other_trouble():
     assert not words.cookie_store_unreadable("ERROR: [youtube] abc: Private video")
     from media_download import accounts
     assert accounts.explain_signin("ERROR: [Errno 13] Permission denied: '/Volumes/Music/x.part'", "firefox") is None
+
+
+def test_sha256_from_reads_both_deno_layouts():
+    from media_download import engine
+    h = "a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238"
+    assert engine.sha256_from(h + "  deno-aarch64-apple-darwin.zip\n") == h
+    win = ("\r\nAlgorithm : SHA256\r\nHash      : " + h.upper() +
+           "\r\nPath      : C:\\a\\deno\\deno-x86_64-pc-windows-msvc.zip\r\n\r\n")
+    assert engine.sha256_from(win) == h
+    assert engine.sha256_from("Not Found") is None

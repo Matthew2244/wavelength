@@ -287,6 +287,13 @@ def tool_sources() -> dict:
     return {}
 
 
+def sha256_from(text: str) -> str | None:
+    """The hash in a .sha256sum file. Deno's Mac files read "hash  name"; its Windows ones are
+    PowerShell's "Algorithm : SHA256 / Hash : HASH / Path : ..." list, so look for the hash."""
+    found = re.search(r"\b[0-9a-fA-F]{64}\b", text)
+    return found.group(0).lower() if found else None
+
+
 def get_tools(which: list[str], say=lambda s: None, progress=None) -> list[str]:
     """Fetch the named helpers into TOOLS. Returns the ones that failed, with reasons."""
     sources = tool_sources()
@@ -303,7 +310,9 @@ def get_tools(which: list[str], say=lambda s: None, progress=None) -> list[str]:
             data = cache.get(url) or fetch(url, timeout=600, progress=progress)
             cache[url] = data  # Windows ffmpeg and ffprobe share one archive
             if "denoland" in url:
-                want = fetch(url + ".sha256sum", 30).decode().split()[0].lower()
+                want = sha256_from(fetch(url + ".sha256sum", 30).decode("utf-8", "replace"))
+                if not want:
+                    raise RuntimeError("its checksum file couldn't be read")
                 if hashlib.sha256(data).hexdigest() != want:
                     raise RuntimeError("the download didn't match its checksum")
             with zipfile.ZipFile(io.BytesIO(data)) as z:
