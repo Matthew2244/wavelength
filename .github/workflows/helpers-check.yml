@@ -1,0 +1,30 @@
+name: helpers-check
+# Runs Get Helper Tools for real on Windows: the same download, unpack and run-it check a
+# person's copy does. Started by hand (Actions, helpers-check, Run workflow).
+on: workflow_dispatch
+jobs:
+  helpers:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install certifi
+      - name: Get the helper tools
+        shell: python
+        env:
+          MEDIA_DOWNLOAD_TEST_DIR: ${{ runner.temp }}\wl-test
+        run: |
+          import sys, platform
+          sys.path.insert(0, ".")
+          from media_download import engine
+          print("machine:", platform.machine(), "tools folder:", engine.TOOLS)
+          failed = engine.get_tools(["ffmpeg", "ffprobe", "javascript"], say=print)
+          print("failed:", failed)
+          print("report:", engine.tool_report())
+          sys.exit(1 if failed else 0)

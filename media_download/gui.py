@@ -2008,11 +2008,14 @@ class MainFrame(wx.Frame):
             wx.Yield()
         prog.Destroy()
         if state["failed"]:
-            text = "Some helper tools didn't install:\n" + "\n".join(state["failed"])
+            # The reasons go in the message itself: "didn't install" alone gives nothing to act on.
+            text = ("Some helper tools didn't install:\n" + "\n".join(state["failed"]) +
+                    "\n\nTry Help, Get Helper Tools again. If it fails the same way, send these lines "
+                    "to whoever gave you Wavelength.")
         else:
             text = "Helper tools installed. Everything is ready."
         self.details.SetValue(text)
-        self.tell_in_window(text.split("\n")[0], "Okay" if state["failed"] else "Great")
+        self.tell_in_window(text, "Okay" if state["failed"] else "Great")
 
     def on_update_engine(self, _):
         self.tell("Checking for a newer download engine. You have %s." % engine.engine_version())
