@@ -132,7 +132,7 @@ def windows_swap(work: str, pid: int, new_app: str, target: str, relaunch: bool)
             "@echo off\r\n"
             ":wait\r\n"
             f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
-            'robocopy "%~1" "%~2" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS >nul\r\n'
+            'robocopy "%~1" "%~2" /MIR /IS /IT /R:3 /W:1 /NFL /NDL /NJH /NJS >nul\r\n'
             'if "%~3"=="1" start "" "%~2\\%~4"\r\n'
             'cd /d "%TEMP%"\r\n'
             'rmdir /s /q "%~5"\r\n'

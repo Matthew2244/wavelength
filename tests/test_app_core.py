@@ -756,8 +756,12 @@ def test_windows_swap_handles_accented_paths_with_spaces(tmp_path):
     gone = subprocess.Popen([sys.executable, "-c", "pass"])
     gone.wait()
     script, command = update.windows_swap(str(work), gone.pid, str(new_app), str(target), False)
-    open(script, encoding="ascii").read()  # plain ASCII, whatever the paths
-    subprocess.run(command, timeout=120)
-    assert (target / "Wavelength.exe").read_text() == "new"
+    text = open(script, encoding="ascii").read()  # plain ASCII, whatever the paths
+    with open(script, "w", encoding="ascii", newline="") as fh:  # robocopy's report, for a failure
+        fh.write(text.replace(" /NFL /NDL /NJH /NJS >nul", ""))
+    run = subprocess.run(command, timeout=120, capture_output=True, text=True,
+                         encoding="oem", errors="replace")
+    print(command, run.returncode, run.stdout, run.stderr, sep="\n")
+    assert (target / "Wavelength.exe").read_text() == "new", run.stdout + run.stderr
     assert not (target / "stale.dll").exists()
     assert not work.exists()
