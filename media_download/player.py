@@ -354,7 +354,7 @@ class PlayerFrame(wx.Frame):
         self.SetMenuBar(bar)
         # The same Command-Option keys as the Player menu in the other windows, so one set of
         # keys works everywhere; here the plain keys (Space, M, V...) work too.
-        from .menus import PLAYER_KEYS
+        from .menus import PLAYER_KEYS, typed_with_altgr
         table = []
         for it in PLAYER_KEYS:
             if it is None:
@@ -363,7 +363,8 @@ class PlayerFrame(wx.Frame):
             acc = wx.AcceleratorEntry()
             if acc.FromString(keys):
                 wid = wx.NewIdRef()
-                self.Bind(wx.EVT_MENU, lambda e, a=action: self.main.player_do(a), id=wid)
+                self.Bind(wx.EVT_MENU, lambda e, a=action, k=keys: typed_with_altgr(k) or self.main.player_do(a),
+                          id=wid)
                 table.append((acc.GetFlags(), acc.GetKeyCode(), wid))
         if table:
             self.SetAcceleratorTable(wx.AcceleratorTable(table))

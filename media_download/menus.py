@@ -148,6 +148,65 @@ def player_keys(windows: bool) -> list:
 
 PLAYER_KEYS = player_keys(_WIN)
 
+_VK = {".": 0xBE, ",": 0xBC}  # VK_OEM_PERIOD, VK_OEM_COMMA
+
+
+def _vk(keys: str) -> int | None:
+    """The Windows virtual key of a shortcut's last key, for keys AltGr can type on: letters,
+    digits, period and comma. None for Home, Page Up and the like, which type nothing."""
+    k = keys.split("+")[-1]
+    if len(k) == 1 and k.isalnum():
+        return ord(k.upper())
+    return _VK.get(k)
+
+
+def altgr_char(vk: int, hkl=None) -> str:
+    """What AltGr plus this key types on a keyboard layout (the current one by default), or ""
+    when it types nothing. A dead key (an accent waiting for its letter) counts as typing."""
+    import ctypes
+    u = ctypes.windll.user32
+    u.GetKeyboardLayout.restype = ctypes.c_void_p
+    u.MapVirtualKeyExW.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
+    u.ToUnicodeEx.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_char_p, ctypes.c_wchar_p,
+                              ctypes.c_int, ctypes.c_uint, ctypes.c_void_p]
+    if hkl is None:
+        hkl = u.GetKeyboardLayout(0)
+    state = bytearray(256)
+    for k in (0x11, 0x12, 0xA2, 0xA5):  # Control, Alt, left Control, right Alt: what AltGr sends
+        state[k] = 0x80
+    buf = ctypes.create_unicode_buffer(8)
+    scan = u.MapVirtualKeyExW(vk, 0, hkl)
+    n = u.ToUnicodeEx(vk, scan, bytes(state), buf, 8, 4, hkl)  # 4: leave the keyboard state alone
+    if n < 0:
+        u.ToUnicodeEx(vk, scan, bytes(state), buf, 8, 4, hkl)  # clear the waiting accent
+        return "\u0301"  # something typed, nothing to insert by hand
+    return buf.value[:n] if n > 0 else ""
+
+
+def typed_with_altgr(keys: str) -> bool:
+    """On Windows, AltGr is Control-Alt, so AltGr+N (ń on a Polish keyboard) or AltGr+V (@ in
+    Hungarian) reaches a Control-Alt shortcut instead of the text box. When the right Alt key is
+    down, the key types something on this layout and a text field has the focus, type it there
+    and say so (True), so the shortcut doesn't fire. Pressing Control-Alt still runs it."""
+    if not _WIN:
+        return False
+    vk = _vk(keys)
+    if vk is None:
+        return False
+    try:
+        import ctypes
+        if not ctypes.windll.user32.GetKeyState(0xA5) & 0x8000:  # VK_RMENU: AltGr is the right Alt
+            return False
+        ch = altgr_char(vk)
+    except Exception:  # noqa: BLE001 - if Windows can't say, the shortcut works as before
+        return False
+    focus = wx.Window.FindFocus()
+    if not ch or not hasattr(focus, "WriteText") or not focus.IsEditable():
+        return False
+    if ch != "\u0301":
+        focus.WriteText(ch)
+    return True
+
 
 def player_menu(owner: wx.Window, main) -> wx.Menu:
     """A Player menu for `owner`'s menu bar, driving main.player_do."""
@@ -158,5 +217,5 @@ def player_menu(owner: wx.Window, main) -> wx.Menu:
             continue
         label, action, keys = it
         mi = m.Append(wx.ID_ANY, "%s\t%s" % (label, keys))
-        owner.Bind(wx.EVT_MENU, lambda e, a=action: main.player_do(a), mi)
+        owner.Bind(wx.EVT_MENU, lambda e, a=action, k=keys: typed_with_altgr(k) or main.player_do(a), mi)
     return m
