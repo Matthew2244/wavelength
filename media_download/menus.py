@@ -116,26 +116,37 @@ def copy_text(text: str) -> bool:
 
 # The player, from any window: the same keys everywhere (Command-Option on the Mac,
 # Control-Alt on Windows), so it can be paused or turned down without going to it.
+# Each key means one thing on both systems: speed is Period and Comma everywhere, like > and <
+# in the player; Normal is N and Mute is K everywhere. Where the two systems differ, it's
+# because Windows can't have the Mac's key, never a key that does something else there.
 _WIN = sys.platform == "win32"
 # On Windows, Ctrl+Alt is AltGr on many keyboards (German [ ] \\ are AltGr+8, 9, ß) and some graphics
-# drivers rotate the screen on Ctrl+Alt+arrows, so Windows gets keys neither touches.
-PLAYER_KEYS = [
-    ("Play or Pause", "toggle", "Ctrl+Alt+P"),
-    ("Previous Item", "prev", "Ctrl+Alt+PageUp" if _WIN else "Ctrl+Alt+Left"),
-    ("Next Item", "next", "Ctrl+Alt+PageDown" if _WIN else "Ctrl+Alt+Right"),
-    ("Back", "back", "Ctrl+Alt+Home" if _WIN else "Ctrl+Alt+,"),
-    ("Forward", "forward", "Ctrl+Alt+End" if _WIN else "Ctrl+Alt+."),
-    None,
-    ("Louder", "louder", "Ctrl+Alt+U" if _WIN else "Ctrl+Alt+Up"),
-    ("Quieter", "quieter", "Ctrl+Alt+D" if _WIN else "Ctrl+Alt+Down"),
-    ("Mute or Unmute", "mute", "Ctrl+Alt+K" if _WIN else "Ctrl+Alt+0"),
-    ("Faster", "faster", "Ctrl+Alt+." if _WIN else "Ctrl+Alt+]"),
-    ("Slower", "slower", "Ctrl+Alt+," if _WIN else "Ctrl+Alt+["),
-    ("Normal Speed", "normal", "Ctrl+Alt+N" if _WIN else "Ctrl+Alt+\\"),
-    None,
-    ("Say the Time", "time", "Ctrl+Alt+T"),
-    ("Say the Speed and Volume", "levels", "Ctrl+Alt+V"),
-]
+# drivers rotate the screen on Ctrl+Alt+arrows, so Windows gets keys neither touches. On the Mac,
+# Command-Option-D shows and hides the Dock for the whole system, so volume stays on the arrows.
+
+
+def player_keys(windows: bool) -> list:
+    """The Player menu's keys for Windows or for the Mac (tests check both on either system)."""
+    return [
+        ("Play or Pause", "toggle", "Ctrl+Alt+P"),
+        ("Previous Item", "prev", "Ctrl+Alt+PageUp"),
+        ("Next Item", "next", "Ctrl+Alt+PageDown"),
+        ("Back", "back", "Ctrl+Alt+Home" if windows else "Ctrl+Alt+Left"),
+        ("Forward", "forward", "Ctrl+Alt+End" if windows else "Ctrl+Alt+Right"),
+        None,
+        ("Louder", "louder", "Ctrl+Alt+U" if windows else "Ctrl+Alt+Up"),
+        ("Quieter", "quieter", "Ctrl+Alt+D" if windows else "Ctrl+Alt+Down"),
+        ("Mute or Unmute", "mute", "Ctrl+Alt+K"),
+        ("Faster", "faster", "Ctrl+Alt+."),
+        ("Slower", "slower", "Ctrl+Alt+,"),
+        ("Normal Speed", "normal", "Ctrl+Alt+N"),
+        None,
+        ("Say the Time", "time", "Ctrl+Alt+T"),
+        ("Say the Speed and Volume", "levels", "Ctrl+Alt+V"),
+    ]
+
+
+PLAYER_KEYS = player_keys(_WIN)
 
 
 def player_menu(owner: wx.Window, main) -> wx.Menu:

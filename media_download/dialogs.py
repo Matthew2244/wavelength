@@ -56,6 +56,12 @@ class WrapText(wx.StaticText):
         wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
 
 
+def say(text: str) -> None:
+    """Show nothing new, just say it: for a status line that changes while focus stays elsewhere."""
+    from . import system
+    system.announce(text)
+
+
 message_log = None  # tests set a list: messages are recorded there and never shown
 
 
@@ -109,19 +115,30 @@ def message(parent, text: str, title: str = "Wavelength", button: str = "Got It"
     dlg.Destroy()
 
 
-def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True):
+def labelled(parent, sizer, label, ctrl, text=None, tip=None, expand=True, stacked=False):
     """A label and its control on one row. The label is also the control's spoken name on the Mac.
 
     Make the label (`text`) before the control: the Mac reads a window in the order its
     controls were created, and a field heard before its own label reads backwards to anyone
     moving through with VoiceOver's arrow keys. Moving it in the tab order doesn't help.
+
+    `stacked` puts the label above the control instead, both at the left edge: in Settings every
+    control then starts in the same place, whatever its label's length, rather than popups
+    landing at a different spot across the window on every line (Matthew, 2026-10-14).
     """
-    row = wx.BoxSizer(wx.HORIZONTAL)
     if text is None:
         text = wx.StaticText(parent, label=label)
-    row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
-    row.Add(ctrl, 1 if expand else 0, wx.ALIGN_CENTER_VERTICAL)
-    sizer.Add(row, 0, wx.EXPAND | wx.ALL, 6)
+    if stacked:
+        col = wx.BoxSizer(wx.VERTICAL)
+        col.Add(text, 0, wx.BOTTOM, 3)
+        wide = expand and isinstance(ctrl, wx.TextCtrl)  # a field takes the width; a popup its own size
+        col.Add(ctrl, 0, wx.EXPAND if wide else 0)
+        sizer.Add(col, 0, (wx.EXPAND if wide else 0) | wx.ALL, 6)
+    else:
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(text, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        row.Add(ctrl, 1 if expand else 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(row, 0, wx.EXPAND | wx.ALL, 6)
     mac_accessibility_label(ctrl, label.rstrip(":"))
     if tip:
         ctrl.SetToolTip(tip)
@@ -148,8 +165,14 @@ def heading(dlg, sizer, text):
 
 def buttons(dlg, ok_label, cancel_label="Cancel", default=True):
     row = wx.BoxSizer(wx.HORIZONTAL)
-    cancel = wx.Button(dlg, wx.ID_CANCEL, cancel_label)
-    ok = wx.Button(dlg, wx.ID_OK, ok_label) if ok_label else None
+    # Made in the order they sit, since Tab (and the Mac's reading order) follows creation:
+    # Windows tabbed Cancel, then OK, against how they look there.
+    if sys.platform == "darwin":
+        cancel = wx.Button(dlg, wx.ID_CANCEL, cancel_label)
+        ok = wx.Button(dlg, wx.ID_OK, ok_label) if ok_label else None
+    else:
+        ok = wx.Button(dlg, wx.ID_OK, ok_label) if ok_label else None
+        cancel = wx.Button(dlg, wx.ID_CANCEL, cancel_label)
     row.AddStretchSpacer()
     # Where each system puts them: Cancel then OK on the Mac, OK then Cancel on Windows.
     order = [cancel, ok] if sys.platform == "darwin" else [ok, cancel]
@@ -178,11 +201,11 @@ class MoreOptions(wx.Dialog):
 
         _label = wx.StaticText(self, label="Start at (for example 1:30):")
         self.start = wx.TextCtrl(self, value=opts.get("start", ""))
-        labelled(self, s, "Start at (for example 1:30):", self.start, _label,
+        labelled(self, s, "Start at (for example 1:30):", self.start, _label, stacked=True, tip=
                  "Download only part of it. Minutes and seconds, like 1:30, or hours too, like 1:02:00.")
         _label = wx.StaticText(self, label="Stop at (for example 3:45):")
         self.end = wx.TextCtrl(self, value=opts.get("end", ""))
-        labelled(self, s, "Stop at (for example 3:45):", self.end, _label,
+        labelled(self, s, "Stop at (for example 3:45):", self.end, _label, stacked=True, tip=
                  "Where the part you want ends, written the same way. Leave blank to go to the end.")
 
         self.chapters = wx.CheckBox(self, label="Also save each chapter as its own file")
@@ -206,13 +229,13 @@ class MoreOptions(wx.Dialog):
         self.browser = wx.Choice(self, choices=[b[1] for b in self.browser_list])
         keys = [b[0] for b in self.browser_list]
         self.browser.SetSelection(keys.index(opts.get("cookies", "")) if opts.get("cookies", "") in keys else 0)
-        labelled(self, s, "Sign in using:", self.browser, _label,
+        labelled(self, s, "Sign in using:", self.browser, _label, stacked=True, tip=
                  "For members-only or age-checked videos, or when a site asks to confirm you're not a bot. "
                  "Uses the sign-in already in that browser. Nothing is sent anywhere else.")
 
         _label = wx.StaticText(self, label="File name (without extension):")
         self.name = wx.TextCtrl(self, value=opts.get("name", ""))
-        labelled(self, s, "File name (without extension):", self.name, _label,
+        labelled(self, s, "File name (without extension):", self.name, _label, stacked=True, tip=
                  "Leave blank to name it after its title. The extension is added for you.")
 
         frow = wx.BoxSizer(wx.HORIZONTAL)
@@ -230,7 +253,7 @@ class MoreOptions(wx.Dialog):
 
         _label = wx.StaticText(self, label="Extra yt-dlp options (advanced):")
         self.extra = wx.TextCtrl(self, value=opts.get("extra", ""))
-        labelled(self, s, "Extra yt-dlp options (advanced):", self.extra, _label,
+        labelled(self, s, "Extra yt-dlp options (advanced):", self.extra, _label, stacked=True, tip=
                  "Anything yt-dlp accepts on its command line, for example --limit-rate 2M.")
 
         row, ok, cancel = buttons(self, "Keep These Options")
@@ -239,6 +262,7 @@ class MoreOptions(wx.Dialog):
         cancel.SetToolTip("Closes without changing the options (Escape).")
         s.Add(row, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
+        fit_choices(self)  # "Sign in using" was cut off at its first choice
         textsize.apply(self)  # View, Bigger Text reaches every window
         s.SetSizeHints(self)
         self.SetMinSize((560, -1))
@@ -255,11 +279,13 @@ class MoreOptions(wx.Dialog):
 
     def on_pick(self, _):
         if not self.link or not words.looks_like_link(self.link):
-            wx.MessageBox("Put a link in the Link field first, then press Choose Exact Stream again.",
-                          "No link yet", wx.OK | wx.ICON_INFORMATION, self)
+            message(self, "Put a link in the Link field first, then press Choose Exact Stream again.", "No link yet")
             return
+        if getattr(self, "_picking", False):
+            return  # already looking; the button stays enabled so focus isn't thrown off it
+        self._picking = True
         self.stream_text.SetLabel("Looking up the link. This takes a few seconds.")
-        self.pick.Disable()
+        say("Looking up the link's streams.")
 
         def work():
             res = self.run_probe(self.link)
@@ -269,9 +295,10 @@ class MoreOptions(wx.Dialog):
     def _picked(self, res):
         if not self:  # closed while the lookup was still going
             return
-        self.pick.Enable()
+        self._picking = False
         if not res or not res.get("formats"):
             self.stream_text.SetLabel("Couldn't list the streams for that link. %s" % (res or {}).get("error", ""))
+            say(self.stream_text.GetLabel())
             return
         fmts = res["formats"]
         dlg = wx.SingleChoiceDialog(self, "Streams for: %s" % res.get("title", ""), "Choose Exact Stream",
@@ -300,21 +327,20 @@ class MoreOptions(wx.Dialog):
         for label, field in (("Start at", self.start), ("Stop at", self.end)):
             v = field.GetValue().strip()
             if v and words.parse_time(v) is None:
-                wx.MessageBox("%s should be a time like 1:30 or 1:02:00." % label, "Check the time",
-                              wx.OK | wx.ICON_WARNING, self)
+                message(self, "%s should be a time like 1:30 or 1:02:00." % label, "Check the time")
                 field.SetFocus()
                 return
         a, b = words.parse_time(self.start.GetValue()), words.parse_time(self.end.GetValue())
         if a is not None and b is not None and b <= a:
-            wx.MessageBox("Stop at must come after Start at.", "Check the times", wx.OK | wx.ICON_WARNING, self)
+            message(self, "Stop at must come after Start at.", "Check the times")
             self.end.SetFocus()
             return
         try:
             from .options import split_extra
             split_extra(self.extra.GetValue())
         except ValueError:
-            wx.MessageBox("The extra yt-dlp options have a quote mark that's never closed.",
-                          "Check the extra options", wx.OK | wx.ICON_WARNING, self)
+            message(self, "The extra yt-dlp options have a quote mark that's never closed.",
+                    "Check the extra options")
             self.extra.SetFocus()
             return
         self.opts.update({
@@ -391,7 +417,7 @@ class Settings(wx.Dialog):
             text = wx.StaticText(p, label=label)
             c = wx.Choice(p, choices=items)
             c.SetSelection(index)
-            labelled(p, s, label, c, text, tip)
+            labelled(p, s, label, c, text, tip, stacked=True)
             return c
 
         def pick(vals, value, fallback=0):
@@ -463,7 +489,7 @@ class Settings(wx.Dialog):
                                 size=(220, -1))
         self.volume.SetLineSize(5)
         self.volume.SetPageSize(20)
-        labelled(p, s, "Sound volume:", self.volume, _vlabel,
+        labelled(p, s, "Sound volume:", self.volume, _vlabel, stacked=True, tip=
                  "How loud the app's sounds are, under the computer's own volume. Arrow keys move it in steps "
                  "of 5 percent; Play a Sample plays one at that level. All the way down is silent.")
         self._say_volume()
@@ -905,8 +931,10 @@ class SoundPicker(wx.Dialog):
         reset.Bind(wx.EVT_BUTTON, lambda e: self.on_reset())
         self.actions.Bind(wx.EVT_LISTBOX, lambda e: self.on_action())
         self.sounds.Bind(wx.EVT_LISTBOX, lambda e: self.on_sound())
+        # Caught for the whole dialog, before the list: on Windows a list doesn't claim Enter, so the
+        # dialog would press Use These and close instead of playing the sound.
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
         for lst in (self.actions, self.sounds):
-            lst.Bind(wx.EVT_KEY_DOWN, self.on_key)
             lst.Bind(wx.EVT_LISTBOX_DCLICK, lambda e: self.play_now())
         self._fill_actions()
         self._fill_sounds()
@@ -970,7 +998,8 @@ class SoundPicker(wx.Dialog):
             play(kind, self.theme(), self.volume(), self.map)
 
     def on_key(self, event):
-        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+        if (event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER) and not event.HasAnyModifiers()
+                and wx.Window.FindFocus() in (self.actions, self.sounds)):
             self.play_now()
         else:
             event.Skip()
@@ -987,7 +1016,7 @@ class SoundPicker(wx.Dialog):
         name, said = import_sound(src)
         announce(said)
         if not name:
-            wx.MessageBox(said, "Import a Sound File", wx.OK | wx.ICON_INFORMATION, self)
+            message(self, said, "Import a Sound File")
             return
         self._fill_sounds()
         kind = self._kind()
@@ -1177,6 +1206,9 @@ class AccountsDialog(wx.Dialog):
             self.status.SetLabel("Choose the browser you're signed in with first.")
             announce(self.status.GetLabel())
             return
+        if getattr(self, "_checking", False):
+            return  # one check at a time: repeats ran side by side and chimed twice
+        self._checking = True
         self._save_browser()
         self.status.SetLabel("Checking your YouTube sign-in in %s..." % accounts_words(self._browser()))
         announce(self.status.GetLabel())
@@ -1186,6 +1218,7 @@ class AccountsDialog(wx.Dialog):
     def _checked(self, said):
         if not self:
             return
+        self._checking = False
         from .system import announce, cue
         self.status.SetLabel(said)
         self.status.Wrap(max(300, self.GetClientSize().width - 30))
@@ -1469,6 +1502,8 @@ class Guide(wx.Dialog):
     def _visible(self, key):
         if key in ("browser", "permission", "services") and self.skip_accounts:
             return False
+        if key == "services" and not self._browser():
+            return False  # it would read "sign in to your services in No browser"
         if key == "permission" and (not self._browser() or not self.acc.permission_steps(self._browser())):
             return False  # nothing to allow: straight on
         return True
@@ -1634,6 +1669,7 @@ class CheckList(wx.Dialog):
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
         mac_check_list_reads_once(self.list)
         mac_accessibility_label(self.list, "Items")
+        windows_name(self.list, "Items")  # else Windows names it with the whole paragraph above it
         self.list.SetToolTip("Space checks or unchecks the selected item; the count below says how many are "
                              "checked. Its context menu has more for each item.")
         if checked:
@@ -1856,6 +1892,7 @@ class Search(wx.Frame):
         brow.Add(self.ok, 0, wx.ALL, 6)
         self.ok.Disable()
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
+        fit_choices(p)  # "Search on" sized itself to "YouTube" and cut off "YouTube Music"
         p.SetSizer(s)
         textsize.apply(self)  # View, Bigger Text reaches every window
         self._menus()
@@ -1886,7 +1923,7 @@ class Search(wx.Frame):
         add(f, "&Search\tCtrl+F", lambda: (self.query.SetFocus(), self.query.SelectAll()))
         add(f, "&Download Checked\tCtrl+Return", self.download_checked)
         add(f, "&More Results\tCtrl+Shift+M", self.more)
-        add(f, "Look Up Exact Date and &Info\tCtrl+I", self._look_up_selected)
+        add(f, "&Look Up Exact Date and Details\tCtrl+I", self._look_up_selected)  # the row menu's name
         add(f, "Actions for the Selected &Result...\tCtrl+K", lambda: self.list._context_menu())
         if self.play:
             add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
@@ -1896,6 +1933,8 @@ class Search(wx.Frame):
         if sys.platform == "darwin":
             add(f, "Settings...\tCtrl+,", lambda: self.main.on_settings(None), wx.ID_PREFERENCES)
             add(f, "About", lambda: self.main.on_about(None), wx.ID_ABOUT)
+        else:  # Control-Comma did nothing in Search on Windows
+            add(f, "Setti&ngs...\tCtrl+,", lambda: self.main.on_settings(None))
         ed = wx.Menu()  # on the Mac, Command-V in a field needs a Paste item to answer it
         ed.Append(wx.ID_UNDO, "&Undo\tCtrl+Z")
         ed.AppendSeparator()
@@ -1938,6 +1977,7 @@ class Search(wx.Frame):
         i = self.list.GetSelection()
         if i == wx.NOT_FOUND or i >= len(self.results):
             self.status.SetLabel("Select a result first.")
+            say("Select a result first.")
             return
         look_up_row(self, self.list, self.results, i, self.main)
 
@@ -2203,6 +2243,7 @@ class Search(wx.Frame):
         i = self.list.GetSelection()
         if i == wx.NOT_FOUND or i >= len(self.results):
             self.status.SetLabel("Select a result first, then Play Selected.")
+            say("Select a result first, then Play Selected.")
             return
         pl = self._previewing()
         if pl:
@@ -2267,6 +2308,10 @@ class DescribeDialog(wx.Dialog):
         self.make_btn.Bind(wx.EVT_BUTTON, lambda e: self._act("make"))
         self.more_btn.Bind(wx.EVT_BUTTON, lambda e: self.look_further())
         menus.attach(self.list, self.row_menu)
+        self.list.SetFocus()
+        # Every button waits for the search, so the window would open silent for several seconds.
+        looking = self.status.GetLabel()
+        wx.CallLater(600, lambda: self and self.looking and say(looking))
         threading.Thread(target=lambda: wx.CallAfter(self._found, run_find(url)), daemon=True).start()
 
     def _found(self, res):
@@ -2377,8 +2422,8 @@ class DescribeDialog(wx.Dialog):
             self.list.SetSelection(max(0, at - 1) if self.options else wx.NOT_FOUND)
         else:
             msg = "That's the end of the search. Nothing more."
-        self.status.SetLabel(msg)
-        self.status.Wrap(700)
+        self.status.SetLabel(msg)  # WrapText fits it to the window; a fixed 700 ran off narrow ones
+        self.Layout()
         from .system import announce, cue
         cue("results" if fresh else "no_more")
         announce(msg)

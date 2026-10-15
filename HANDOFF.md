@@ -40,7 +40,7 @@ left behind. The MacBook's moves on its first launch.
 | classic dialog app | `legacy/MediaDownload.applescript` | the old AppleScript app, kept compiling for anyone who prefers it |
 | public repo | [Matthew2244/wavelength](https://github.com/Matthew2244/wavelength) | MIT |
 
-**Where it stands (2026-10-14):** 3.5.0 is the latest release (quicker: a worker kept waiting with the engine loaded takes about half a second off every play, search, lookup and download; Search fetches the next page ahead, so More is instant). 3.4.0 (speed keys on every keyboard layout: [ ] or < >, N for normal; says Slowest or Fastest at the ends; fixes the Mac player's clock freezing after starting at a speed, and a speed change starting a paused player). 3.3.3 (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
+**Where it stands (2026-10-14):** 3.6.0 is the latest release (every shortcut means one thing, see item 38; Settings and More Options in one column, item 39; twelve smaller fixes from a review, under Tested). 3.5.0 (quicker: a worker kept waiting with the engine loaded takes about half a second off every play, search, lookup and download; Search fetches the next page ahead, so More is instant). 3.4.0 (speed keys on every keyboard layout: [ ] or < >, N for normal; says Slowest or Fastest at the ends; fixes the Mac player's clock freezing after starting at a speed, and a speed change starting a paused player). 3.3.3 (search results arrive with the results sound only, nothing spoken over the first row; Matthew's call, the sound is enough). 3.3.2 (VoiceOver reads each search result and checkable row once; messages and tour steps read as their words alone, with no "Message" or "Step" first). 3.3.1 (saving Settings no longer crashes the Mac app; Settings closes before its message on both systems). 3.3.0 (the main window takes links only; searching is the Search window's). 3.2.2 (every message that comes as a dialog closes is its own window; Escape and the close box on the tour's last step finish it). 3.2.1: Control-Tab really works on the Mac, What Is Wavelength?. 3.2.0 made the tour a conversation and added the settings_saved sound. 3.1.1 kept focus put when the section changes. 3.1.0 brought Settings in sections, help
 tags everywhere, the opening and closing tunes and the ear candy, and two rounds of fixes
 from reviews as other users (see Tested). Signed and notarized; both appcasts serve it, the
 old ytdl-accessible feed address included (checked). Installed on the Studio and the MacBook
@@ -552,8 +552,43 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    the last because the engine re-reads earlier ones. Tests that feed pages by hand set
    `Search.PREFETCH = False` and `manager_mod.SPARE = False`; anything destroying a
    PlayerFrame in a test must stop `pl.timer` first, or a later yield crashes in wx.
+38. **Every shortcut means one thing** (Matthew, 2026-10-14: "a good amount of them do multiple
+   things"). Fixed in 3.6.0: Command-Down opened a file in the main window and turned the volume
+   down in the player; Command-Shift-Up/Down moved a download there and nudged the volume here;
+   Command-K was the row's menu and Command-Shift-K cleared the list; Control-Alt-Period was Forward
+   on the Mac and Faster on Windows. **The player's rule now:** Left and Right skip, Up and Down
+   the volume (Shift: small steps), Page Up and Page Down the item, and from any other window the
+   same key with Command-Option (Control-Alt) added; speed is Period and Comma (like > and <),
+   Normal N and Mute K on both systems. Windows differs only where it must (Home/End, U/D: arrows
+   with Control-Alt rotate some screens) and never gives a key another meaning.
+   Clear Finished is Command-Shift-Delete, beside Remove's Command-Delete. Download This in the
+   player is Command-Return, like every other download. Command-P in the main window plays or
+   pauses, as in Search, instead of restarting. `test_every_shortcut_means_one_thing` reads the
+   menus of the main window, Search and the player and fails on a key with two meanings (keys
+   shared on purpose are listed in `SAME_IN_EVERY_WINDOW`); `menus.player_keys(windows)` lets
+   `test_player_keys_mean_the_same_on_mac_and_windows` check both systems from either.
+39. **Settings is one column on the right** (Matthew, 2026-10-14: settings "appearing on the left
+   or right"). Popups used to sit beside their labels, so each started at a different place
+   depending on the label's length, while checkboxes and buttons sat at the left edge. Now every
+   label is above its control (`labelled(..., stacked=True)`) and every control starts at the
+   same left edge, beside the Sections list.
 
 ## Tested
+
+- **3.6.0** (2026-10-14): Matthew asked for distinct shortcuts and a tidy Settings. The menus of the
+  main window, Search and the player were read into one map (`test_every_shortcut_means_one_thing`);
+  Settings and More Options were drawn to pictures (`tools/snap.py`) to check every control starts
+  at one edge. A read-only review of the other windows found twelve things, all fixed: the check
+  lists named after their intro paragraph on Windows (`windows_name(..., "Items")`); Return closing
+  Choose Sounds on Windows (the dialog's `EVT_CHAR_HOOK` plays now); popups cut off in Search, the
+  player and More Options (`fit_choices`); silent failures (Look Up and Play Selected with nothing
+  selected, Choose Exact Stream's lookup, Audio Description opening) now spoken (`dialogs.say`);
+  Escape-proof OK boxes replaced with `message()` (About, the More Options warnings, the helper
+  tools note); OK before Cancel in Windows' Tab order (`buttons()` creates them in place order);
+  duplicate Alt letters within menus (`test_menu_letters_are_unique_in_each_menu`); Settings from
+  Search and the player on Windows; the tour's services step with no browser skipped; a fixed
+  700-pixel wrap in Audio Description; Check Sign-in running twice at once. `tools/train.py` 23 of
+  23. **Not tried by a person yet:** the new keys with real key presses, and anything on Windows.
 
 - **3.2.0 to 3.3.0** (2026-10-14, all with Matthew at the Mac): Control-Tab was found dead
   on the Mac with a key-logging copy of Settings and real keys (Control arrived, the Tab with

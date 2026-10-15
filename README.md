@@ -84,19 +84,19 @@ Wavelength plays things too: what you've downloaded, and links you haven't.
 
 - **Play a link without downloading it.** Paste it and press Play. YouTube video comes with picture, sound and captions; SoundCloud, podcasts and plain audio links play as audio; live radio and live streams play live. In Search, Play Selected lets you hear a result before deciding to keep it.
 - **Play a whole album, playlist or podcast without downloading:** paste the link and press Play, and its items play in turn.
-- **Play what you've downloaded:** select a row and press Play (Command-P, or Control-P on Windows), or Play All Finished (Command-Shift-P, or Control-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
-- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Command-Left and Command-Right change item (Control-Left and Control-Right on Windows). [ and ] change speed, from a quarter to three times, without changing pitch; < and > do the same, for keyboards where brackets are awkward to reach. N (or backslash) puts it back to normal, and pressing past the slowest or fastest speed says so. Command-Up and Command-Down change the volume (Control-Up and Control-Down on Windows; with Shift, in small steps), M mutes and unmutes, and V says the speed and volume. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
-- **From any window:** the Player menu in the main window and Search controls the player without going to it, with the same keys in every window. On Windows they're different from the Mac's, because Control-Alt with an arrow can rotate the screen there and Control-Alt with some letters types characters on many keyboards.
+- **Play what you've downloaded:** select a row and press Play (Command-P, or Control-P on Windows; on the one already playing, the same key pauses it), or Play All Finished (Command-Shift-P, or Control-Shift-P) to queue everything. Download This keeps a copy of something you're streaming.
+- **By keyboard:** Space plays and pauses. Left and Right skip back and forward (10 seconds, or what you choose in Settings), with Shift for a minute. Page Up and Page Down change item (Fn-Up and Fn-Down on a Mac laptop). [ and ] change speed, from a quarter to three times, without changing pitch; < and > do the same, for keyboards where brackets are awkward to reach. N (or backslash) puts it back to normal, and pressing past the slowest or fastest speed says so. Up and Down change the volume (with Shift, in small steps), M mutes and unmutes, and V says the speed and volume. T says the time ("12 seconds of 19 seconds. 6 seconds left."). C turns captions on and off. D changes how audio description is read. Escape closes the player. All of it is also in the Playback menu.
+- **From any window:** the Player menu in the main window and Search controls the player without going to it, with the same keys in every window. Most are the player's own key with Command-Option added (Control-Alt on Windows). A few differ on Windows, because Control-Alt with an arrow can rotate the screen there and Control-Alt with some letters types characters on many keyboards; no key means one thing on the Mac and another on Windows.
 
   | Does | Mac | Windows |
   |---|---|---|
   | Play or pause | Command-Option-P | Control-Alt-P |
-  | Previous, next item | Command-Option-Left, Right | Control-Alt-Page Up, Page Down |
-  | Back, forward | Command-Option-Comma, Period | Control-Alt-Home, End |
+  | Previous, next item | Command-Option-Page Up, Page Down | Control-Alt-Page Up, Page Down |
+  | Back, forward | Command-Option-Left, Right | Control-Alt-Home, End |
   | Louder, quieter | Command-Option-Up, Down | Control-Alt-U, D |
-  | Mute or unmute | Command-Option-0 | Control-Alt-K |
-  | Faster, slower | Command-Option-], [ | Control-Alt-Period, Comma |
-  | Normal speed | Command-Option-Backslash | Control-Alt-N |
+  | Mute or unmute | Command-Option-K | Control-Alt-K |
+  | Faster, slower | Command-Option-Period, Comma | Control-Alt-Period, Comma |
+  | Normal speed | Command-Option-N | Control-Alt-N |
   | Say the time | Command-Option-T | Control-Alt-T |
   | Say the speed and volume | Command-Option-V | Control-Alt-V |
 
@@ -143,7 +143,7 @@ Everything is in the menus with its shortcut, and Help, Keyboard Shortcuts lists
 | Go to the Link field, the Downloads list, Details | Command-L, Command-D, Command-E | Control-L, Control-D, Control-E |
 | Say what's happening | Command-J | Control-J |
 | Filter the list | Command-Shift-F | Control-Shift-F |
-| Play the selected download | Command-P | Control-P |
+| Play or pause the selected download | Command-P | Control-P |
 | Play everything finished | Command-Shift-P | Control-Shift-P |
 | Play the link without downloading | Command-Shift-Return | Control-Shift-Enter |
 | Audio description: find it, or make it | Command-Shift-A | Control-Shift-A |
@@ -154,7 +154,7 @@ Everything is in the menus with its shortcut, and Help, Keyboard Shortcuts lists
 | Stop, Stop All | Command-Period, Command-Shift-Period | Control-Period, Control-Shift-Period |
 | Retry | Command-Shift-R | Control-Shift-R |
 | Move a download up or down the queue | Command-Shift-Up and Down | Control-Shift-Up and Down |
-| Clear finished downloads from the list | Command-Shift-K | Control-Shift-K |
+| Clear finished downloads from the list | Command-Shift-Delete | Control-Shift-Backspace |
 | The selected row's menu | Command-K, or VO-Shift-M | Control-K, Shift-F10 or the Menu key |
 | Go to the downloads window, the player | Command-1, Command-2 | Control-1, Control-2 |
 | Text size: bigger, smaller, normal | Command-Plus, Command-Minus, Command-0 | Control-Plus, Control-Minus, Control-0 |
@@ -168,7 +168,7 @@ Help, About keeps a running tally of what you've downloaded ("Since October 13, 
 
 ### Settings
 
-Settings comes in five sections, listed on the left. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window, Control-Shift-Tab to the one before (Control on both systems, not Command). Changing section never moves you out of where you are. Every setting has a help tag that says what it does.
+Settings comes in five sections, listed on the left; the chosen section's settings sit in one column on the right, each label above its control. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window, Control-Shift-Tab to the one before (Control on both systems, not Command). Changing section never moves you out of where you are. Every setting has a help tag that says what it does.
 
 - **General:** offering a link you've copied when you switch to the app (also when you open it), spoken progress, and keeping the download engine up to date.
 - **Downloads:** downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, and keeping the computer awake.

@@ -225,7 +225,7 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(p, label=M("Play Selected"))
         self.play_btn.SetToolTip("Play the selected download in the player, or stream it from its link if the file "
-                                 "isn't here (%s-P)." % CMD)
+                                 "isn't here (%s-P). If it's already playing, this pauses it." % CMD)
         self.open_btn = wx.Button(p, label=M("&Open"))
         self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
         self.stop_btn = wx.Button(p, label=M("S&top"))
@@ -323,7 +323,7 @@ class MainFrame(wx.Frame):
         self._m(f, "Open Download &Folder\tCtrl+Shift+O", lambda e: self._open_folder())
         f.AppendSeparator()
         if sys.platform != "darwin":
-            self._m(f, "&Settings...\tCtrl+,", self.on_settings)
+            self._m(f, "Setti&ngs...\tCtrl+,", self.on_settings)
         self._m(f, "Close &Window\tCtrl+W", self.on_close_window)
         self._m(f, "&Quit\tCtrl+Q", lambda e: self.Close(), wx.ID_EXIT)
 
@@ -340,7 +340,7 @@ class MainFrame(wx.Frame):
             self._m(ed, "Settings...\tCtrl+,", self.on_settings, wx.ID_PREFERENCES)
 
         d = wx.Menu()
-        self._m(d, "&Play\tCtrl+P", lambda e: self.on_play())
+        self._m(d, "&Play or Pause\tCtrl+P", lambda e: self.on_play())
         self._m(d, "Play &All Finished\tCtrl+Shift+P", lambda e: self.on_play_all())
         self._m(d, "Play the Link &Without Downloading\tCtrl+Shift+Return", lambda e: self.on_play_link())
         self._m(d, "Audio &Description...\tCtrl+Shift+A", lambda e: self.on_describe())
@@ -348,16 +348,18 @@ class MainFrame(wx.Frame):
         self._m(d, "&Open File\tCtrl+Down", self.on_open)
         self._m(d, "Show in %s\tCtrl+R" % FOLDER_APP, self.on_show)
         self._m(d, "&Stop\tCtrl+.", self.on_stop)
-        self._m(d, "Stop &All\tCtrl+Shift+.", self.on_stop_all)
+        self._m(d, "Stop A&ll\tCtrl+Shift+.", self.on_stop_all)
         self._m(d, "&Retry\tCtrl+Shift+R", self.on_retry)
         self._m(d, "Retry Using a &Browser's Sign-in...", self.on_retry_signin)
         self._m(d, "Retry All &Failed", self.on_retry_failed)
         self._m(d, "Resume &Unfinished", self.on_resume)
         d.AppendSeparator()
-        self._m(d, "Move &Up\tCtrl+Shift+Up", lambda e: self.on_move(-1))
-        self._m(d, "Move Do&wn\tCtrl+Shift+Down", lambda e: self.on_move(+1))
+        self._m(d, "&Move Up\tCtrl+Shift+Up", lambda e: self.on_move(-1))
+        self._m(d, "Move Dow&n\tCtrl+Shift+Down", lambda e: self.on_move(+1))
         self._m(d, "Remo&ve from List\tCtrl+Back", self.on_remove)
-        self._m(d, "&Clear Finished\tCtrl+Shift+K", self.on_clear)
+        # Command-Shift-Delete, beside Remove's Command-Delete: Command-K is the row's menu, and a
+        # second K that clears the list was one key meaning two unrelated things.
+        self._m(d, "&Clear Finished\tCtrl+Shift+Back", self.on_clear)
         d.AppendSeparator()
         self._m(d, "Actions for the Selected Download...\tCtrl+K", lambda e: self.list._context_menu())
 
@@ -379,7 +381,7 @@ class MainFrame(wx.Frame):
         self._m(h, "&Welcome Tour...", lambda e: self.on_guide("welcome"))
         self._m(h, "What &Is %s?" % APP_NAME, lambda e: self.show_what_it_is())
         h.AppendSeparator()
-        self._m(h, "Get &Helper Tools...", lambda e: self.get_helpers(ask=False))
+        self._m(h, "Get Helpe&r Tools...", lambda e: self.get_helpers(ask=False))
         self._m(h, "Update the Download &Engine", self.on_update_engine)
         self._m(h, "Check for App &Updates...", self.on_check_updates)
         self._m(h, "&About %s" % APP_NAME, self.on_about, wx.ID_ABOUT)
@@ -1405,10 +1407,24 @@ class MainFrame(wx.Frame):
                 "uploaded": job.upload_date, "uploaded_ts": job.upload_ts, "approx": job.upload_approx,
                 "views": job.views}
 
+    def _player_on(self, job) -> bool:
+        """Is the player showing this download now, from its file or its link?"""
+        pl = self.player
+        if not (job and pl and pl.IsShown() and pl.item):
+            return False
+        it = pl.item
+        return bool((it.get("path") and it["path"] in (job.files or []))
+                    or (job.url and job.url in (it.get("url"), it.get("page"))))
+
     def on_play(self):
+        """Play the selected download; on the one already in the player, play or pause it, the
+        same as Command-P in Search, so the key never restarts something from the top."""
         job = self.selected()
         if not job:
             self.tell("Select a download first.")
+            return
+        if self._player_on(job):
+            self.player.toggle()
             return
         item = self._file_item(job)
         if item:
@@ -1689,7 +1705,7 @@ class MainFrame(wx.Frame):
         active = job.state in ("downloading", "converting", "looking", "waiting")
         again = [menus.item(label, lambda k=k: self.download_again(job, k)) for k, label in words.FORMAT_LABELS]
         return [
-            menus.item("Play", self.on_play, has_file, "Ctrl+P"),
+            menus.item("Play or Pause" if self._player_on(job) else "Play", self.on_play, has_file, "Ctrl+P"),
             menus.item("Open File", lambda: self.on_open(None), has_file, "Ctrl+Down"),
             menus.item("Show in %s" % FOLDER_APP, lambda: self.on_show(None), has_file, "Ctrl+R"),
             menus.item("Play the Link Without Downloading", lambda: self.play_links([{
@@ -1955,8 +1971,8 @@ class MainFrame(wx.Frame):
             return
         names = [engine.TOOL_WORDS[m] for m in missing]
         if not engine.tool_sources():
-            wx.MessageBox("Some helper tools are missing: %s. Install them with this system's package manager."
-                          % "; ".join(names), "Helper tools", wx.OK | wx.ICON_INFORMATION, self)
+            dialogs.message(self, "Some helper tools are missing: %s. Install them with this system's package "
+                            "manager." % "; ".join(names), "Helper tools")
             return
         msg = ("Wavelength needs %s:\n\n%s\n\nGet %s now? It's a one-time download of about %d MB, "
                "kept in the app's own folder." % ("a helper tool" if len(names) == 1 else "some helper tools",
@@ -2084,11 +2100,12 @@ class MainFrame(wx.Frame):
                                                       else words.duration(st.get("seconds", 0))) if st.get("seconds") else "")
 
     def on_about(self, _):
-        wx.MessageBox(
-            "%s %s\n\nSaves audio and video from about 1,750 sites, and says what it's doing.\n\n%s\n\n"
+        # Its own message window: Escape closes it on the Mac too, which a plain OK box can't do.
+        dialogs.message(
+            self, "%s %s\n\nSaves audio and video from about 1,750 sites, and says what it's doing.\n\n%s\n\n"
             "Download engine: yt-dlp %s.\nFree and open source, MIT license.\n\nBy Matthew Whitaker."
             % (APP_NAME, __version__, self.tally(), engine.engine_version()),
-            "About %s" % APP_NAME, wx.OK | wx.ICON_INFORMATION, self)
+            "About %s" % APP_NAME, "Close")
 
     # -------------------------------------------------------- closing
 
@@ -2150,7 +2167,8 @@ def key_words(accel: str) -> str:
              "BACK": "Delete" if sys.platform == "darwin" else "Backspace",
              "BACKSPACE": "Delete" if sys.platform == "darwin" else "Backspace", "DELETE": "Forward Delete"
              if sys.platform == "darwin" else "Delete", "UP": "Up Arrow", "DOWN": "Down Arrow",
-             "LEFT": "Left Arrow", "RIGHT": "Right Arrow", ".": "Period", ",": "Comma",
+             "LEFT": "Left Arrow", "RIGHT": "Right Arrow", "PAGEUP": "Page Up", "PAGEDOWN": "Page Down",
+             ".": "Period", ",": "Comma",
              "=": "Plus", "-": "Minus"}
     parts = accel.split("+")
     if accel.endswith("++"):

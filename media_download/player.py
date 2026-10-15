@@ -2,7 +2,7 @@
 
 Built for listening first and looking second, and fine for both:
 - Space plays and pauses; Left and Right skip (the length is a setting), Shift for a
-  minute; Command-Left and Right change item; [ and ] (or < and >) change speed, without
+  minute; Up and Down change the volume; Page Up and Page Down change item; [ and ] (or < and >) change speed, without
   changing pitch, and N or backslash makes it normal; T says the time; C turns captions on and off. Every one is also in the
   Playback menu and on a labelled button.
 - Nothing is spoken unless asked for (T, or a new item starting while the window is in
@@ -190,7 +190,7 @@ class PlayerFrame(wx.Frame):
         self.slider = wx.Slider(p, minValue=0, maxValue=1, style=wx.SL_HORIZONTAL)
         mac_accessibility_label(self.slider, "Position")
         self.slider.SetToolTip("Where it's playing. Left and Right move by the skip length set in Settings; Shift with "
-                               "them, or Page Up and Down, move a minute. T says the time.")
+                               "them moves a minute. T says the time.")
         self.time = wx.StaticText(p, label="0:00")
         self.time.SetFont(wx.Font(wx.FontInfo(16)))
         row.Add(self.pos_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
@@ -204,12 +204,12 @@ class PlayerFrame(wx.Frame):
         self.play_btn = wx.Button(p, label="Play")
         self.fwd_btn = wx.Button(p, label="Forward")
         self.next_btn = wx.Button(p, label="Next")
-        for b, tip in ((self.prev_btn, "The previous item (Command-Left)."),
+        for b, tip in ((self.prev_btn, "The previous item (Page Up%s)." % (", or Fn-Up" if sys.platform == "darwin" else "")),
                        (self.back_btn, "Back by the skip length (Left arrow; Shift-Left for a minute)."),
                        (self.play_btn, "Play or pause (Space)."),
                        (self.fwd_btn, "Forward by the skip length (Right arrow; Shift-Right for a minute)."),
-                       (self.next_btn, "The next item (Command-Right).")):
-            b.SetToolTip(tip.replace("Command", "Control") if sys.platform == "win32" else tip)
+                       (self.next_btn, "The next item (Page Down%s)." % (", or Fn-Down" if sys.platform == "darwin" else ""))):
+            b.SetToolTip(tip)
             row.Add(b, 0, wx.RIGHT, 6)
         s.Add(row, 0, wx.LEFT | wx.RIGHT, 12)
 
@@ -218,19 +218,20 @@ class PlayerFrame(wx.Frame):
         self.speed_choice = wx.Choice(p, choices=[speed_words(v) for v in SPEEDS])
         self.speed_choice.SetSelection(SPEEDS.index(self.speed) if self.speed in SPEEDS else NORMAL)
         mac_accessibility_label(self.speed_choice, "Speed")
+        from .dialogs import fit_choices
+        fit_choices(p)  # a Mac popup sizes itself to its first choice and cuts off the rest
         self.speed_choice.SetToolTip("How fast it plays, a quarter speed to three times, without changing the pitch. "
                                      "Remembered. [ and ], or < and >, step it; N goes back to normal.")
         vlab = wx.StaticText(p, label="Volume:")
         self.volume = wx.Slider(p, value=int(self.base_volume * 100), minValue=0, maxValue=100, size=(160, -1))
         mac_accessibility_label(self.volume, "Volume")
         mac_value_description(self.volume, "%d percent" % int(self.base_volume * 100))
-        self.volume.SetToolTip("How loud the player is. Remembered. %s-Up and Down change it from anywhere in "
-                               "the player, with Shift for small steps; M mutes."
-                               % ("Command" if sys.platform == "darwin" else "Control"))
+        self.volume.SetToolTip("How loud the player is. Remembered. Up and Down Arrow change it anywhere in the "
+                               "player, with Shift for small steps; M mutes.")
         self.download_btn = wx.Button(p, label="Download This")
         self.download_btn.SetToolTip("Download what's playing, in the main window's format; it joins the downloads "
-                                     "list (%s-S). Only for links, since a downloaded file is already saved."
-                                     % ("Command" if sys.platform == "darwin" else "Control"))
+                                     "list (%s-%s). Only for links, since a downloaded file is already saved."
+                                     % (("Command", "Return") if sys.platform == "darwin" else ("Control", "Enter")))
         self.show_btn = wx.Button(p, label="Show File")
         self.show_btn.SetToolTip("Show the playing file in %s (%s-R). Only for downloaded files, not links." % (
             "Finder" if sys.platform == "darwin" else "File Explorer", "Command" if sys.platform == "darwin" else "Control"))
@@ -303,16 +304,20 @@ class PlayerFrame(wx.Frame):
         add("Back a Minute (Shift-Left)", lambda: self.skip(-60))
         add("Forward a Minute (Shift-Right)", lambda: self.skip(60))
         m.AppendSeparator()
-        add("Previous Item\tCtrl+Left", lambda: self.go(-1))
-        add("Next Item\tCtrl+Right", lambda: self.go(+1))
+        # Page Up and Page Down (Fn-Up and Fn-Down on a Mac laptop), so that from any other window
+        # each of these is the same key with Command-Option (Control-Alt) added.
+        add("Previous Item (Page Up)", lambda: self.go(-1))
+        add("Next Item (Page Down)", lambda: self.go(+1))
         m.AppendSeparator()
         add("Slower ([ or <)", lambda: self.step_speed(-1))
         add("Faster (] or >)", lambda: self.step_speed(+1))
         add("Normal Speed (N)", lambda: self.set_speed(1.0))
-        add("Louder\tCtrl+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.1)))
-        add("Quieter\tCtrl+Down", lambda: self.set_volume(max(0.0, self.base_volume - 0.1)))
-        add("A Little Louder\tCtrl+Shift+Up", lambda: self.set_volume(min(1.0, self.base_volume + 0.02)))
-        add("A Little Quieter\tCtrl+Shift+Down", lambda: self.set_volume(max(0.0, self.base_volume - 0.02)))
+        # Plain Up and Down, like Left and Right: Command-Down opens a file and Command-Shift-Up
+        # moves a download in the main window, so the player no longer borrows them for volume.
+        add("Louder (Up Arrow)", lambda: self.volume_step(+1))
+        add("Quieter (Down Arrow)", lambda: self.volume_step(-1))
+        add("A Little Louder (Shift-Up)", lambda: self.volume_step(+1, small=True))
+        add("A Little Quieter (Shift-Down)", lambda: self.volume_step(-1, small=True))
         add("Mute or Unmute (M)", self.toggle_mute)
         add("Say the Speed and Volume (V)", self.say_levels)
         m.AppendSeparator()
@@ -326,7 +331,7 @@ class PlayerFrame(wx.Frame):
             self.Bind(wx.EVT_MENU, lambda e, mm=minutes: self.set_sleep(mm), item)
         m.AppendSubMenu(sleep, "Sleep Timer")
         m.AppendSeparator()
-        add("Download This\tCtrl+S", self.download_this)
+        add("Download This\tCtrl+Return", self.download_this)  # downloading is Command-Return everywhere
         add("Show the File\tCtrl+R", self.show_file)
         add("Actions for the Selected Queue Item...\tCtrl+K", lambda: self.qlist._context_menu())
         add("Close Player\tCtrl+W", self.Close)
@@ -343,6 +348,8 @@ class PlayerFrame(wx.Frame):
         if sys.platform == "darwin":
             add("Settings...\tCtrl+,", lambda: self.main.on_settings(None), wx.ID_PREFERENCES)
             add("About", lambda: self.main.on_about(None), wx.ID_ABOUT)
+        else:  # Control-Comma did nothing in the player on Windows
+            add("Setti&ngs...\tCtrl+,", lambda: self.main.on_settings(None))
         bar.Append(m, "&Playback")
         self.SetMenuBar(bar)
         # The same Command-Option keys as the Player menu in the other windows, so one set of
@@ -800,6 +807,10 @@ class PlayerFrame(wx.Frame):
         self.say("Speed %s. Volume %d%s." % (speed_words(self.speed).lower(), int(self.base_volume * 100),
                                              ", muted" if self.muted else ""))
 
+    def volume_step(self, sign: int, small: bool = False):
+        step = 0.02 if small else 0.1
+        self.set_volume(max(0.0, min(1.0, self.base_volume + sign * step)))
+
     def set_volume(self, v: float, say=True):
         self.muted = False  # changing the volume means you want to hear it
         self.base_volume = round(v, 2)
@@ -1005,7 +1016,8 @@ class PlayerFrame(wx.Frame):
             event.Skip()
 
     def on_key(self, event):
-        """Plain keys for playing: Space, arrows, T, C, speed. Not while typing or in the queue."""
+        """Plain keys for playing: Space, arrows (Left and Right skip, Up and Down the volume), Page Up
+        and Page Down (the item), T, C, speed. Not while typing or in the queue."""
         focus = self.FindFocus()
         for native in (self.slider, self.volume):  # wx doesn't see a focused slider; the Mac does
             if mac_has_focus(native):
@@ -1016,8 +1028,9 @@ class PlayerFrame(wx.Frame):
             # volume slider), trapping the keyboard. So the player keeps its own order.
             self._tab(-1 if event.ShiftDown() else 1, focus)
             return
-        if isinstance(focus, wx.TextCtrl) or (focus is self.qlist and key in (wx.WXK_UP, wx.WXK_DOWN,
-                                                                                wx.WXK_RETURN, wx.WXK_SPACE)):
+        if isinstance(focus, wx.TextCtrl) or (focus is self.qlist and key in (
+                wx.WXK_UP, wx.WXK_DOWN, wx.WXK_PAGEUP, wx.WXK_PAGEDOWN, wx.WXK_HOME, wx.WXK_END,
+                wx.WXK_RETURN, wx.WXK_SPACE)):
             event.Skip()
             return
         mods = event.GetModifiers()
@@ -1034,6 +1047,15 @@ class PlayerFrame(wx.Frame):
                 self.skip(sign * 60)
             elif mods == 0:
                 self.skip(sign * self.skip_len())
+            else:
+                event.Skip()
+        elif key in (wx.WXK_PAGEUP, wx.WXK_PAGEDOWN) and mods == 0:
+            self.go(-1 if key == wx.WXK_PAGEUP else 1)
+        elif key in (wx.WXK_UP, wx.WXK_DOWN) and focus is not self.volume and not isinstance(focus, wx.Choice):
+            # The volume slider and the Speed popup keep their own Up and Down.
+            sign = 1 if key == wx.WXK_UP else -1
+            if mods in (0, wx.MOD_SHIFT):
+                self.volume_step(sign, small=mods == wx.MOD_SHIFT)
             else:
                 event.Skip()
         elif mods == 0 and key in (ord("T"), ord("t")):

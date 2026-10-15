@@ -517,6 +517,127 @@ def test_player_menu_from_any_window(frame, monkeypatch):
     assert len(keys) == len(set(keys))  # one key, one meaning
 
 
+def test_player_keys_mean_the_same_on_mac_and_windows():
+    """A Command-Option key on the Mac and the Control-Alt key on Windows with the same letter must
+    do the same thing: Control-Alt-Period was Forward on the Mac and Faster on Windows."""
+    from media_download import menus
+    mac = {k: a for _, a, k in filter(None, menus.player_keys(False))}
+    win = {k: a for _, a, k in filter(None, menus.player_keys(True))}
+    assert len(mac) == len(set(mac.values())) and len(win) == len(set(win.values()))
+    for key in set(mac) & set(win):
+        assert mac[key] == win[key], key
+
+
+def _menu_keys(win, out):
+    def walk(menu):
+        for it in menu.GetMenuItems():
+            if it.GetSubMenu():
+                walk(it.GetSubMenu())
+                continue
+            label = it.GetItemLabel()
+            if "\t" in label:
+                name, key = label.split("\t", 1)
+                out.setdefault(key, set()).add(name.replace("&", "").rstrip("."))
+    bar = win.GetMenuBar()
+    for i in range(bar.GetMenuCount()):
+        walk(bar.GetMenu(i))
+
+
+# Keys more than one window has, each meaning the same thing in each (Matthew, 2026-10-14: "there
+# needs to be distinction between all keyboard shortcuts"). A key not listed here may have only
+# one name in the whole app; a new window reusing a key for something else fails this.
+SAME_IN_EVERY_WINDOW = {
+    "Ctrl+D": {"Go to Downloads List", "Go to the Results"},
+    "Ctrl+L": {"Go to Link Field", "Go to the Search Field"},
+    "Ctrl+F": {"Search"},
+    "Ctrl+K": {"Actions for the Selected Download", "Actions for the Selected Result",
+               "Actions for the Selected Queue Item"},
+    "Ctrl+R": {"Show in Finder", "Show in File Explorer", "Show the File"},
+    "Ctrl+Return": {"Download Link", "Download Checked", "Download This"},
+    "Ctrl+Shift+A": {"Audio Description", "Find or Make Audio Description"},
+    "Ctrl+W": {"Close Window", "Close Search", "Close Player"},
+    "Ctrl+P": {"Play or Pause", "Play or Pause Selected"},
+}
+
+
+def test_every_shortcut_means_one_thing(frame):
+    from media_download import player
+    dlg = gui.dialogs.Search(frame, "", "youtube", lambda *a: [])
+    pl = player.PlayerFrame(frame)
+    try:
+        keys = {}
+        for w in (frame, dlg, pl):
+            _menu_keys(w, keys)
+    finally:
+        pl.timer.Stop()
+        pl.Destroy()
+        dlg.on_done = None
+        dlg.Destroy()
+    for key, names in keys.items():
+        if len(names) > 1:
+            assert names <= SAME_IN_EVERY_WINDOW.get(key, set()), (key, names)
+    # The player keeps none of the main window's list keys for itself
+    for key in ("Ctrl+Up", "Ctrl+Down", "Ctrl+Shift+Up", "Ctrl+Shift+Down", "Ctrl+Left", "Ctrl+Right"):
+        assert len(keys.get(key, ())) <= 1, key
+
+
+def test_menu_letters_are_unique_in_each_menu(frame):
+    """Windows' Alt letters: two items with one letter in a menu cycle between them instead of
+    choosing (Stop All and Play All Finished were both A)."""
+    from media_download import player
+    dlg = gui.dialogs.Search(frame, "", "youtube", lambda *a: [])
+    pl = player.PlayerFrame(frame)
+
+    def check(menu, where):
+        seen = {}
+        for it in menu.GetMenuItems():
+            label = it.GetItemLabel().split("\t")[0]
+            if "&" in label:
+                letter = label[label.index("&") + 1].lower()
+                assert letter not in seen, (where, seen[letter], label)
+                seen[letter] = label
+            if it.GetSubMenu():
+                check(it.GetSubMenu(), where)
+    try:
+        for w in (frame, dlg, pl):
+            bar = w.GetMenuBar()
+            for i in range(bar.GetMenuCount()):
+                check(bar.GetMenu(i), bar.GetMenuLabelText(i))
+    finally:
+        pl.timer.Stop()
+        pl.Destroy()
+        dlg.on_done = None
+        dlg.Destroy()
+
+
+def test_player_arrows_and_page_keys(frame, monkeypatch):
+    """Left and Right skip, Up and Down the volume (Shift: small steps), Page Up and Down the item."""
+    from media_download import player
+    monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(player, "announce", lambda t: None)
+    pl = player.PlayerFrame(frame)
+    try:
+        monkeypatch.setattr(pl, "FindFocus", lambda: pl.play_btn)
+        went = []
+        monkeypatch.setattr(pl, "go", lambda step: went.append(step))
+        pl.set_volume(0.5)
+        pl.on_key(_press(wx.WXK_UP))
+        assert pl.base_volume == 0.6
+        pl.on_key(_press(wx.WXK_DOWN, shift=True))
+        assert pl.base_volume == 0.58
+        pl.on_key(_press(wx.WXK_PAGEDOWN))
+        pl.on_key(_press(wx.WXK_PAGEUP))
+        assert went == [1, -1]
+        # In the queue list the arrows and Page keys move through the list instead
+        monkeypatch.setattr(pl, "FindFocus", lambda: pl.qlist)
+        pl.on_key(_press(wx.WXK_UP))
+        pl.on_key(_press(wx.WXK_PAGEDOWN))
+        assert pl.base_volume == 0.58 and went == [1, -1]
+    finally:
+        pl.timer.Stop()
+        pl.Destroy()
+
+
 def test_speeds_quarter_to_three():
     from media_download import player
     assert player.SPEEDS[0] == 0.25 and player.SPEEDS[-1] == 3.0 and player.SPEEDS[player.NORMAL] == 1.0
