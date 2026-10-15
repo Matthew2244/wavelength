@@ -19,6 +19,9 @@ SLUG = "Wavelength"
 args = [
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", NAME,
     "--collect-data", "certifi", "--collect-all", "yt_dlp_ejs",
+    # The engine's own metadata, so the app knows which yt-dlp it ships and prefers it over an
+    # older fetched copy. Without it importlib.metadata says "0".
+    "--copy-metadata", "yt_dlp",
     # curl_cffi lets the engine look like a real browser to sites that turn others away.
     "--collect-all", "curl_cffi",
     # The app's own finish and fail sounds (system.sound_file).

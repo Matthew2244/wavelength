@@ -192,8 +192,33 @@ def auto_parallel() -> int:
 SEARCH_DIRS = [] if sys.platform == "win32" else ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
 
 
+def _exe(name: str) -> str:
+    return name + (".exe" if sys.platform == "win32" else "")
+
+
+def _runnable(p: str) -> bool:
+    return os.path.isfile(p) and os.access(p, os.X_OK)
+
+
+def ffmpeg_dir() -> str | None:
+    """The first folder holding both ffmpeg and ffprobe. yt-dlp is told one folder and looks
+    for ffprobe only beside ffmpeg, so the two must be found together."""
+    dirs = list(SEARCH_DIRS)
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        dirs.append(os.path.dirname(on_path))
+    dirs.append(TOOLS)
+    for d in dirs:
+        if _runnable(os.path.join(d, _exe("ffmpeg"))) and _runnable(os.path.join(d, _exe("ffprobe"))):
+            return d
+    return None
+
+
 def find_tool(name: str) -> str | None:
-    exe = name + (".exe" if sys.platform == "win32" else "")
+    exe = _exe(name)
+    if name in ("ffmpeg", "ffprobe"):
+        d = ffmpeg_dir()
+        return os.path.join(d, exe) if d else None
     own = os.path.join(TOOLS, exe)
     for d in SEARCH_DIRS:
         p = os.path.join(d, exe)
@@ -359,6 +384,8 @@ def installed_engines() -> list[tuple[str, str]]:
     out = []
     try:
         for name in os.listdir(ENGINES):
+            if name.startswith("."):
+                continue  # an update interrupted mid-download, never a working engine
             d = os.path.join(ENGINES, name)
             if os.path.isfile(os.path.join(d, "yt_dlp", "__init__.py")):
                 out.append((name, d))
@@ -457,6 +484,9 @@ def update_engine(say=lambda s: None) -> tuple[str, str]:
         return "current", "The download engine is up to date (%s)." % have
     say("Updating the download engine from %s to %s." % (have, ver))
     os.makedirs(ENGINES, exist_ok=True)
+    for name in os.listdir(ENGINES):
+        if name.startswith(".new-"):
+            shutil.rmtree(os.path.join(ENGINES, name), ignore_errors=True)
     tmp = tempfile.mkdtemp(dir=ENGINES, prefix=".new-")
     try:
         for url, sha in wheels:

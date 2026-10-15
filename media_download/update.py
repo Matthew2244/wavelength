@@ -117,6 +117,31 @@ def how_to_update_source() -> str:
     return f'pip install -U "git+https://github.com/{REPO}"  (or git pull in a clone)'
 
 
+def windows_swap(work: str, pid: int, new_app: str, target: str, relaunch: bool) -> tuple[str, str]:
+    """Write the Windows swap script into work. Returns (script path, command line to run it).
+
+    The script stays plain ASCII and gets every path as an argument: cmd reads a batch file in
+    the OEM code page, so a path written into it (C:\\Users\\José) would arrive garbled, while
+    arguments arrive whole. The command is a string in cmd's /s form, since cmd /c strips the
+    outer quotes of a line holding several quoted paths. ping waits a second where timeout
+    can't (no console); /R:3 /W:1 keep one locked file from stalling the swap forever.
+    """
+    script = os.path.join(work, "swap.bat")
+    with open(script, "w", encoding="ascii", newline="") as f:
+        f.write(
+            "@echo off\r\n"
+            ":wait\r\n"
+            f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
+            'robocopy "%~1" "%~2" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS >nul\r\n'
+            'if "%~3"=="1" start "" "%~2\\%~4"\r\n'
+            'cd /d "%TEMP%"\r\n'
+            'rmdir /s /q "%~5"\r\n'
+        )
+    command = 'cmd /s /c ""%s" "%s" "%s" %s "%s.exe" "%s""' % (
+        script, new_app, target, "1" if relaunch else "0", APP_NAME, work)
+    return script, command
+
+
 def install(info: dict, relaunch: bool = True) -> str:
     """Download, verify and stage the new version; the swap happens when this app quits.
 
@@ -126,6 +151,11 @@ def install(info: dict, relaunch: bool = True) -> str:
     target = installed_app()
     if not target:
         raise UpdateError(f"this copy runs from Python, so update it with: {how_to_update_source()}")
+    from . import winsparkle
+    if winsparkle.installed():
+        # Copying a zip over an installed copy would leave Windows' uninstaller and updates behind.
+        raise UpdateError("this copy came from the installer, so get the new Wavelength-Setup.exe "
+                          "from the release page and run it")
     parent = os.path.dirname(target)
     if not os.access(parent, os.W_OK) or not os.access(target, os.W_OK):
         raise UpdateError(f"there is no permission to replace the app in {parent}. Download it from {PAGE}")
@@ -183,17 +213,7 @@ def install(info: dict, relaunch: bool = True) -> str:
         subprocess.Popen(["/bin/sh", script], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
-        script = os.path.join(work, "swap.bat")
-        exe_name = f"{APP_NAME}.exe"
-        with open(script, "w") as f:
-            f.write(
-                "@echo off\r\n"
-                ":wait\r\n"
-                f'tasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
-                f'robocopy "{new_app}" "{target}" /MIR /NFL /NDL /NJH /NJS >nul\r\n'
-                + (f'start "" "{os.path.join(target, exe_name)}"\r\n' if relaunch else "")
-                + f'rmdir /s /q "{work}"\r\n'
-            )
-        subprocess.Popen(["cmd", "/c", script], creationflags=0x00000008 | 0x00000200,  # detached, new group
+        script, command = windows_swap(work, pid, new_app, target, relaunch)
+        subprocess.Popen(command, creationflags=0x00000008 | 0x00000200,  # detached, new group
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return f"Version {info['version']} is downloaded and checked. It replaces this one as soon as the app quits."

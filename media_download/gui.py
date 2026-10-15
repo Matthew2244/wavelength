@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import webbrowser
+import zlib
 
 import wx
 import wx.adv
@@ -2179,6 +2180,15 @@ def key_words(accel: str) -> str:
 class App(wx.App):
     def OnInit(self):
         self.SetAppName(APP_NAME)
+        if sys.platform != "darwin":
+            # The Mac keeps one copy of an app open by itself; Windows doesn't, and two copies
+            # would each save the download list over the other's.
+            self._one = wx.SingleInstanceChecker("%s-%s-%x" % (APP_NAME, wx.GetUserId(),
+                                                               zlib.crc32(engine.SUPPORT.encode("utf-8"))))
+            if self._one.IsAnotherRunning():
+                wx.MessageBox("Wavelength is already open. Switch to it with Alt-Tab.", APP_NAME,
+                              wx.OK | wx.ICON_INFORMATION)
+                return False
         if sys.platform == "win32":  # follow Windows' dark mode, as the Mac already does by itself
             try:
                 self.MSWEnableDarkMode()

@@ -124,10 +124,13 @@ def _announce_windows(text: str) -> str | None:
             feats = backend.features
             if name != "UIA" and not feats.is_supported_at_runtime:
                 continue
-            if feats.supports_output:
-                backend.output(text, interrupt=False)  # speech and braille
-            else:
-                backend.speak(text, interrupt=False)
+            try:
+                if feats.supports_output:
+                    backend.output(text, interrupt=False)  # speech and braille
+                else:
+                    backend.speak(text, interrupt=False)
+            except Exception:  # noqa: BLE001 - this reader hiccuped (NVDA restarting): try the next
+                continue
             return name
     except Exception:  # noqa: BLE001 - no Prism, or it failed to load: the status bar still shows it
         _win_reader["failed"] = True

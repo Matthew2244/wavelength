@@ -708,3 +708,56 @@ def test_sha256_from_reads_both_deno_layouts():
            "\r\nPath      : C:\\a\\deno\\deno-x86_64-pc-windows-msvc.zip\r\n\r\n")
     assert engine.sha256_from(win) == h
     assert engine.sha256_from("Not Found") is None
+
+
+def _fake_tool(folder, name):
+    os.makedirs(folder, exist_ok=True)
+    p = os.path.join(folder, name + (".exe" if sys.platform == "win32" else ""))
+    with open(p, "w") as fh:
+        fh.write("#!/bin/sh\n")
+    os.chmod(p, 0o755)
+
+
+def test_ffmpeg_and_ffprobe_are_found_as_a_pair(tmp_path, monkeypatch):
+    from media_download import engine
+    lone, both = str(tmp_path / "lone"), str(tmp_path / "both")
+    _fake_tool(lone, "ffmpeg")  # ffmpeg with no ffprobe beside it: yt-dlp couldn't find ffprobe
+    _fake_tool(both, "ffmpeg")
+    _fake_tool(both, "ffprobe")
+    monkeypatch.setattr(engine, "SEARCH_DIRS", [lone, both])
+    monkeypatch.setattr(engine.shutil, "which", lambda name: None)
+    assert os.path.dirname(engine.find_tool("ffmpeg")) == both
+    assert os.path.dirname(engine.find_tool("ffprobe")) == both
+    monkeypatch.setattr(engine, "SEARCH_DIRS", [lone])
+    monkeypatch.setattr(engine, "TOOLS", str(tmp_path / "empty"))
+    assert engine.find_tool("ffmpeg") is None and engine.find_tool("ffprobe") is None
+
+
+def test_an_interrupted_engine_update_is_never_used(tmp_path, monkeypatch):
+    from media_download import engine
+    monkeypatch.setattr(engine, "ENGINES", str(tmp_path))
+    for name in (".new-x5555abc", "2026.8.19"):
+        os.makedirs(tmp_path / name / "yt_dlp")
+        (tmp_path / name / "yt_dlp" / "__init__.py").write_text("")
+    assert [v for v, _ in engine.installed_engines()] == ["2026.8.19"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the swap script is Windows's")
+def test_windows_swap_handles_accented_paths_with_spaces(tmp_path):
+    import subprocess
+    from media_download import update
+    root = tmp_path / "José Q"
+    new_app, target, work = root / "new app", root / "Wavelength", root / "work dir"
+    for d in (new_app, target, work):
+        d.mkdir(parents=True)
+    (new_app / "Wavelength.exe").write_text("new")
+    (target / "Wavelength.exe").write_text("old")
+    (target / "stale.dll").write_text("gone after the mirror")
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    script, command = update.windows_swap(str(work), gone.pid, str(new_app), str(target), False)
+    open(script, encoding="ascii").read()  # plain ASCII, whatever the paths
+    subprocess.run(command, timeout=120)
+    assert (target / "Wavelength.exe").read_text() == "new"
+    assert not (target / "stale.dll").exists()
+    assert not work.exists()

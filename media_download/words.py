@@ -60,7 +60,10 @@ def first_name() -> str:
             buf = ctypes.create_unicode_buffer(256)
             # NameDisplay: the person's full name, where Windows knows it.
             if ctypes.windll.secur32.GetUserNameExW(3, buf, ctypes.byref(size)) and buf.value.strip():
-                return buf.value.split()[0]
+                name = buf.value.strip()
+                if "," in name:  # work and school accounts often read "Whitaker, Matthew"
+                    name = name.split(",", 1)[1].strip() or name
+                return name.split()[0]
             return ""
         import pwd
         full = pwd.getpwuid(os.getuid()).pw_gecos.split(",")[0].strip()

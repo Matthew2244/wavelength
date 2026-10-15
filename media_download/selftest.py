@@ -44,6 +44,12 @@ def run() -> int:
             imp = [e for e in run_task({"task": "impersonate"}, timeout=60) if e.get("ev") == "impersonate"]
             if not imp or not imp[0].get("targets"):
                 problems.append("impersonation: curl_cffi missing from the app")
+        if getattr(sys, "frozen", False):
+            try:
+                import importlib.metadata as md
+                md.version("yt-dlp")  # without it the app can't tell which engine it ships
+            except Exception as exc:  # noqa: BLE001
+                problems.append("engine metadata: %s" % exc)
         try:
             import yt_dlp_ejs  # noqa: F401  the YouTube challenge solver must be inside
         except Exception as exc:  # noqa: BLE001
