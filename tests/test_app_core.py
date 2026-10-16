@@ -785,3 +785,15 @@ def test_altgr_letters_are_read_from_the_layout():
     assert keyboard.altgr_char(ord("N"), polish) == "ń"
     assert keyboard.altgr_char(ord("V"), hungarian) == "@"
     assert keyboard.altgr_char(ord("N"), us) == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="MCI is Windows's")
+def test_windows_sounds_play_through_their_own_device_without_raising(tmp_path):
+    import wave
+    from media_download import system
+    path = str(tmp_path / "beep é.wav")
+    with wave.open(path, "wb") as w:
+        w.setparams((1, 2, 22050, 0, "NONE", "not compressed"))
+        w.writeframes(b"\x00\x10" * 2205)  # a tenth of a second
+    system._play_windows(path)  # no sound card on CI: MCI or its fallback must not raise
+    system._play_windows(path)

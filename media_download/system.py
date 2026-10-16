@@ -1,9 +1,11 @@
 """What differs between Mac and Windows: speaking, showing files, sounds."""
 from __future__ import annotations
 
+import itertools
 import os
 import subprocess
 import sys
+import threading
 
 
 
@@ -834,6 +836,29 @@ def _scaled_wav(path: str, volume: float) -> str:
     return out
 
 
+_mci_count = itertools.count(1)
+
+
+def _play_windows(path: str) -> None:
+    """Play a WAV to its end on this thread. Each sound opens its own MCI device, so a cue that
+    starts while another is playing joins it, as on the Mac; winsound.PlaySound stops whatever
+    is already playing. If MCI can't open the file, winsound plays it (one at a time)."""
+    import ctypes
+    import winsound
+    mci = ctypes.windll.winmm.mciSendStringW
+    alias = "wl%d" % next(_mci_count)
+    if mci('open "%s" type waveaudio alias %s' % (path, alias), None, 0, None) != 0:
+        try:
+            winsound.PlaySound(path, winsound.SND_FILENAME)
+        except RuntimeError:  # no sound device at all: a sound that can't play is never an error
+            pass
+        return
+    try:
+        mci("play %s wait" % alias, None, 0, None)
+    finally:
+        mci("close %s" % alias, None, 0, None)
+
+
 def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
     """Play what resolve() chose. A sound that can't play is never an error. `wait` is for the
     closing sound on Windows, where the sound dies with the app: it plays to the end first,
@@ -853,18 +878,12 @@ def play_resolved(what, volume: float = 1.0, wait: bool = False) -> None:
             import winsound
             if how == "file" and ref.lower().endswith(".wav"):
                 path = _scaled_wav(ref, volume) if volume < 0.999 else ref
-                winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+                t = threading.Thread(target=_play_windows, args=(path,), daemon=True)
+                t.start()
                 if wait:
                     # The sound dies with the app: give it time to finish, but never more than
                     # two seconds, so a long sound of your own can't freeze the window.
-                    import time
-                    import wave
-                    try:
-                        with wave.open(path) as w:
-                            length = w.getnframes() / float(w.getframerate())
-                    except Exception:  # noqa: BLE001
-                        length = 0.8
-                    time.sleep(min(length, 2.0))
+                    t.join(2.0)
             else:
                 winsound.MessageBeep(winsound.MB_OK)
     except Exception:  # noqa: BLE001
