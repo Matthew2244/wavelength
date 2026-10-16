@@ -76,7 +76,10 @@ if sys.platform == "darwin":
     plist = f"{NAME}.app/Contents/Info.plist"
     embed_sparkle(f"{NAME}.app", SIGN_ID)
     for key, kind, value in (("SUFeedURL", "-string", FEED), ("SUPublicEDKey", "-string", SPARKLE_PUBLIC_KEY),
-                             ("SUEnableAutomaticChecks", "-bool", "YES"),
+                             # The app looks for updates itself and says so without a window
+                             # popping up mid-task (gui.MainFrame._tick_updates); Sparkle shows its
+                             # window when asked, from Help, Check for App Updates.
+                             ("SUEnableAutomaticChecks", "-bool", "NO"),
                              ("SUScheduledCheckInterval", "-integer", "86400")):
         subprocess.run(["plutil", "-replace", key, kind, value, plist], check=True)
     if os.environ.get("MEDIA_DOWNLOAD_TEST_FEED"):  # a local test feed is plain http

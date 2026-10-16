@@ -81,6 +81,11 @@ def start() -> bool:
             _state["failed"] = True
             return False
         _state["controller"] = ctrl  # alloc'd, so it stays alive for the life of the app
+        # The app does the looking (every few hours, told by a sound and a sentence) so that
+        # Sparkle's window never pops up over whatever someone is doing; it comes when asked.
+        updater = send(ctrl, "updater")
+        if updater:
+            send(updater, "setAutomaticallyChecksForUpdates:", False, restype=None, argtypes=(ctypes.c_bool,))
         return True
     except Exception:  # noqa: BLE001
         _state["failed"] = True

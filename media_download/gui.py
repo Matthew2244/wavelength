@@ -39,7 +39,6 @@ def M(label: str) -> str:
 
 
 HELP_URL = "https://github.com/Matthew2244/wavelength#readme"
-DAY = 24 * 3600
 CMD = "Command" if sys.platform == "darwin" else "Control"
 FOLDER_APP = "Finder" if sys.platform == "darwin" else "File Explorer"
 ENTER = "Return" if sys.platform == "darwin" else "Enter"  # what the key is called on each system
@@ -108,6 +107,9 @@ class MainFrame(wx.Frame):
         self.pending_playlists: list = []
         self.asking = False
         self.update_info = None
+        self.notices = []  # (sound, sentence) waiting for a moment nobody is in a dialog
+        self.next_update_check = 0.0
+        self.next_engine_check = 0.0
         self.player = None
         self.search_win = None
         self.mgr = Manager(self.cfg, self._from_manager)
@@ -1016,7 +1018,10 @@ class MainFrame(wx.Frame):
         elif what == "all_done":
             self._all_done(data)
         elif what == "engine":
-            self.SetStatusText(data.get("text", ""))
+            if data.get("outcome") == "updated":
+                self.notices.append(("update", data.get("text", "")))
+            else:
+                self.SetStatusText(data.get("text", ""))
         elif what == "site_paused":
             self._sound("waiting")
             self.tell("%s asked for fewer downloads, so its downloads are paused until %s. They'll carry on "
@@ -1369,6 +1374,9 @@ class MainFrame(wx.Frame):
 
     def on_tick(self, _):
         self.refresh()
+        if self.started:
+            self._tick_updates()
+            self._deliver_notice()
         keep_awake(bool(self.cfg.get("app_keep_awake", True)) and self.mgr.busy())
         every = int(self.cfg.get("app_announce_progress") or 0)
         if every and time.time() - self.last_spoken_progress >= every:
@@ -1995,13 +2003,7 @@ class MainFrame(wx.Frame):
         missing = engine.missing_tools()
         if missing:
             self.get_helpers(ask=True, missing=missing)
-        if self.cfg.get("auto_update", True) and engine.engine_check_due():
-            def work():
-                outcome, sentence = engine.update_engine()
-                if outcome == "updated":
-                    wx.CallAfter(self.SetStatusText, sentence)
-            threading.Thread(target=work, daemon=True).start()
-        self.quiet_update_check()
+        self.quiet_update_check()  # starts Sparkle or WinSparkle; the looking is _tick_updates'
         self.started = True
         # A worker started and waiting, so the first play, search or link is quick too.
         wx.CallLater(1500, lambda: manager_mod.warm())
@@ -2070,33 +2072,82 @@ class MainFrame(wx.Frame):
 
         def work():
             outcome, sentence = engine.update_engine(lambda t: wx.CallAfter(self.tell, t))
+            if outcome == "updated":
+                wx.CallAfter(self._sound, "update")
             wx.CallAfter(self.tell, sentence)
         threading.Thread(target=work, daemon=True).start()
 
     def quiet_update_check(self):
-        if sparkle.start():
-            return  # Sparkle checks daily on its own and shows its own window
-        if winsparkle.start(lambda: wx.CallAfter(self._quit_for_update)):
-            return  # the same on Windows, for an installed copy
-        if time.time() - self.ui.ReadFloat("last_update_check", 0) < DAY:
-            return
-        self.ui.WriteFloat("last_update_check", time.time())
+        """Start Sparkle (Mac) or WinSparkle (an installed Windows copy) for when they're asked.
+        Neither looks by itself: _tick_updates does, so nothing pops up mid-task."""
+        if not sparkle.start():
+            winsparkle.start(lambda: wx.CallAfter(self._quit_for_update))
 
-        def work():
-            info = update.latest()
-            if update.newer(info):
-                wx.CallAfter(self._announce_update, info)
-        threading.Thread(target=work, daemon=True).start()
+    # How often the app looks while it stays open: a release made mid-session is heard the
+    # same afternoon, not tomorrow. One small request to GitHub each time.
+    APP_CHECK_EVERY = 4 * 3600
+    ENGINE_CHECK_EVERY = 3600  # how often to ask whether the daily engine check is due
 
-    def _announce_update(self, info):
+    def _tick_updates(self):
+        now = time.time()
+        if now >= self.next_update_check:
+            self.next_update_check = now + self.APP_CHECK_EVERY
+
+            def look():
+                info = update.latest()
+                if update.newer(info):
+                    wx.CallAfter(self._found_update, info)
+            threading.Thread(target=look, daemon=True).start()
+        if now >= self.next_engine_check:
+            self.next_engine_check = now + self.ENGINE_CHECK_EVERY
+            if self.cfg.get("auto_update", True) and engine.engine_check_due():
+                def work():
+                    outcome, sentence = engine.update_engine()
+                    if outcome == "updated":
+                        wx.CallAfter(self.notices.append, ("update", sentence))
+                threading.Thread(target=work, daemon=True).start()
+
+    def _found_update(self, info):
+        """A newer Wavelength is out: the update sound and one sentence, once per version, at a
+        moment nobody is in a dialog. No window opens by itself; Help, Check for App Updates
+        brings Sparkle's (or the installer's) window with what's new."""
         self.update_info = info
         self._update_title()
-        self._sound("update")
-        self.SetStatusText("Version %s is available. Help, Check for App Updates installs it." % info["version"])
+        if self.ui.Read("told_update_version", "") == info["version"]:
+            return
+        self.ui.Write("told_update_version", info["version"])
+        self.ui.Flush()
+        self.notices.append(("update", "Wavelength %s is out. Help, Check for App Updates shows what's new "
+                                       "and installs it." % info["version"]))
+
+    def _mark_told(self, info):
+        """Heard about it already (Check for App Updates found it): the background look won't
+        announce this version again."""
+        self.update_info = info
+        self._update_title()
+        self.ui.Write("told_update_version", info["version"])
+        self.ui.Flush()
+
+    def _deliver_notice(self):
+        """Say a waiting notice when Wavelength is in front and no dialog is open: never over a
+        question someone is answering, never into another app."""
+        if not self.notices or self._modal_open() or not wx.GetApp().IsActive():
+            return
+        sound, text = self.notices.pop(0)
+        if sound:
+            self._sound(sound)
+        self.tell(text)
 
     def on_check_updates(self, _):
         if sparkle.check() or winsparkle.check():
-            return  # Sparkle's (or WinSparkle's) window says what it found
+            # Their window says what it found; the update sound says it by ear as it opens.
+            def look():
+                info = update.latest()
+                if update.newer(info):
+                    wx.CallAfter(self._sound, "update")
+                    wx.CallAfter(self._mark_told, info)
+            threading.Thread(target=look, daemon=True).start()
+            return
         self.tell("Checking for a newer version. You have %s." % update.current_version())
         wx.Yield()
         info = update.latest()
@@ -2110,6 +2161,8 @@ class MainFrame(wx.Frame):
             self.tell("Version %s is available. This copy runs from Python: %s"
                       % (info["version"], update.how_to_update_source()))
             return
+        self._sound("update")
+        self._mark_told(info)
         busy = self.mgr.busy()
         dlg = wx.MessageDialog(
             self, "Version %s is available. You have %s.\n\nInstall it now? The app downloads it, checks it, "

@@ -87,8 +87,9 @@ def start(on_shutdown) -> bool:
         dll.win_sparkle_set_app_details("Matthew Whitaker", "Wavelength", __version__)
         dll.win_sparkle_set_can_shutdown_callback(can)
         dll.win_sparkle_set_shutdown_request_callback(shut)
-        dll.win_sparkle_set_automatic_check_for_updates(1)
-        dll.win_sparkle_set_update_check_interval(86400)
+        # The app does the looking and says so; WinSparkle's window comes when asked (Help, Check
+        # for App Updates), never by itself over whatever someone is doing.
+        dll.win_sparkle_set_automatic_check_for_updates(0)
         dll.win_sparkle_init()
         return True
     except Exception:  # noqa: BLE001 - updates failing must never stop the app

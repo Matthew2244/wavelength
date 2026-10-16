@@ -977,3 +977,57 @@ def test_a_retried_failure_leaves_the_batch_tally(monkeypatch):
     while not ends and time.time() < deadline:
         time.sleep(0.05)
     assert ends and ends[-1]["done"] == 2 and ends[-1]["failed"] == 0
+
+
+class _FakeConfig:
+    def __init__(self):
+        self.d = {}
+
+    def Read(self, k, default=""):
+        return self.d.get(k, default)
+
+    def Write(self, k, v):
+        self.d[k] = v
+
+    def Flush(self):
+        pass
+
+
+def _update_frame(modal=False):
+    import types
+    f = types.SimpleNamespace(update_info=None, notices=[], ui=_FakeConfig(), said=[], sounds=[])
+    f._update_title = lambda: None
+    f._modal_open = lambda: modal
+    f._sound = f.sounds.append
+    f.tell = f.said.append
+    return f
+
+
+def test_a_new_version_is_told_once_with_the_update_sound(monkeypatch):
+    wx = pytest.importorskip("wx")
+    from media_download import gui
+    monkeypatch.setattr(wx, "GetApp", lambda: type("A", (), {"IsActive": lambda self: True})())
+    f = _update_frame()
+    gui.MainFrame._found_update(f, {"version": "9.9.9"})
+    gui.MainFrame._found_update(f, {"version": "9.9.9"})  # the next look, four hours on
+    assert len(f.notices) == 1 and f.update_info["version"] == "9.9.9"
+    gui.MainFrame._deliver_notice(f)
+    assert f.sounds == ["update"] and "9.9.9 is out" in f.said[0]
+
+
+def test_a_notice_waits_for_a_dialog_to_close_and_for_the_app_to_be_in_front(monkeypatch):
+    wx = pytest.importorskip("wx")
+    from media_download import gui
+    active = {"yes": False}
+    monkeypatch.setattr(wx, "GetApp", lambda: type("A", (), {"IsActive": lambda self: active["yes"]})())
+    f = _update_frame(modal=False)
+    f.notices.append(("update", "Updated the download engine to 2099.1.1."))
+    gui.MainFrame._deliver_notice(f)  # another app in front: nothing said into it
+    assert f.said == [] and f.sounds == []
+    active["yes"] = True
+    f._modal_open = lambda: True
+    gui.MainFrame._deliver_notice(f)  # a question open: it waits
+    assert f.said == []
+    f._modal_open = lambda: False
+    gui.MainFrame._deliver_notice(f)
+    assert f.sounds == ["update"] and f.said == ["Updated the download engine to 2099.1.1."]
