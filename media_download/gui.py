@@ -309,9 +309,7 @@ class MainFrame(wx.Frame):
         self.details.SetValue(self.welcome())
         self._update_buttons()
         self.link.SetFocus()
-        if unfinished:
-            self.tell("%s didn't finish last time. Choose Resume Unfinished in the Downloads menu to carry on."
-                      % words.n(unfinished, "download"))
+        self.unfinished_at_start = unfinished  # said with the hello, once the window has been read
         engine.clean_temp()
         self.started = False
         wx.CallLater(800, self.startup_checks)
@@ -593,10 +591,13 @@ class MainFrame(wx.Frame):
 
     # -------------------------------------------------------- talking
 
-    def tell(self, text: str):
-        """A short message: status bar for the eye, VoiceOver for the ear. Focus stays put."""
+    def tell(self, text: str, polite: bool = False):
+        """A short message: status bar for the eye, VoiceOver for the ear. Focus stays put.
+        `polite` lets the screen reader finish what it's saying first (system.announce)."""
         self.SetStatusText(text)
-        announce(text)
+        if getattr(self.player, "ad_active", False):
+            polite = True  # a description is being read: wait for it rather than cut it off
+        announce(text, polite) if polite else announce(text)
 
     def tell_in_window(self, text: str, button: str = "Got It", parent=None):
         """A message that comes as a dialog closes: its own small window, so it's heard before the
@@ -1095,12 +1096,19 @@ class MainFrame(wx.Frame):
             self.last_tally = time.time()
             c = self.mgr.batch_counts
             bits.append("%d of %d done." % (c["done"], self.mgr.batch_total))
-        if len(failed) == 1:
+        if len(failed) == 1 and summary_coming:
+            # "All downloads finished" follows in a moment and would cut this off: it says it instead.
+            self.failure_for_summary = "Failed: %s. %s" % (words.job_name(failed[0]), failed[0].reason)
+        elif len(failed) == 1:
             bits.append("Failed: %s. %s" % (words.job_name(failed[0]), failed[0].reason))
         elif failed and not summary_coming:
             bits.append("%s failed." % words.n(len(failed), "download"))
         if bits:
-            self.tell(self._with_milestone(" ".join(bits)))
+            # Good news waits its turn (a row being read in Search, a dialog); bad news cuts in.
+            if failed:
+                self.tell(self._with_milestone(" ".join(bits)))
+            else:
+                self.tell(self._with_milestone(" ".join(bits)), polite=True)
         if failed and self.mgr.busy():
             self._sound("failed")
         elif done and self.mgr.busy():
@@ -1158,7 +1166,11 @@ class MainFrame(wx.Frame):
             self.RequestUserAttention()
         if done + failed > 1:
             text = "All downloads finished: %d done%s." % (done, ", %d failed" % failed if failed else "")
-            wx.CallLater(1800, lambda: self.tell(self._with_milestone(text)))
+
+            def summary():
+                why, self.failure_for_summary = getattr(self, "failure_for_summary", ""), ""
+                self.tell(self._with_milestone(text + (" " + why if why else "")))
+            wx.CallLater(1800, summary)
         self.last_tally = 0.0
         if self.cfg.get("notify") and (done or failed):
             if failed:
@@ -1387,16 +1399,16 @@ class MainFrame(wx.Frame):
             self._deliver_notice()
         keep_awake(bool(self.cfg.get("app_keep_awake", True)) and self.mgr.busy())
         every = int(self.cfg.get("app_announce_progress") or 0)
-        if every and time.time() - self.last_spoken_progress >= every:
+        if every and time.time() - self.last_spoken_progress >= every and not self._modal_open():
             with self.mgr.lock:
                 active = [j for j in self.mgr.jobs if j.state == "downloading"]
             if active:
                 self.last_spoken_progress = time.time()
                 if len(active) == 1:
                     j = active[0]
-                    announce("%s percent: %s" % (int(j.percent or 0), j.title or j.site))
+                    announce("%s percent: %s" % (int(j.percent or 0), j.title or j.site), True)
                 else:
-                    announce(self.GetTitle().split(": ", 1)[-1])
+                    announce(self.GetTitle().split(": ", 1)[-1], True)
         if self.mgr.dirty:
             self.mgr.save()
 
@@ -1898,7 +1910,8 @@ class MainFrame(wx.Frame):
         in_field = wx.Window.FindFocus() is self.link
         how = ("Press %s to download it." % ENTER if in_field else
                "%s, then %s, to download it." % (key_words("Ctrl+L"), ENTER))
-        self.tell("Link from the clipboard, %s, in the Link field. %s" % (words.site_name(url), how))
+        # Polite: an offer waits for the screen reader (the window, the hello) to finish.
+        self.tell("Link from the clipboard, %s, in the Link field. %s" % (words.site_name(url), how), polite=True)
 
     # -------------------------------------------------------- text size (low vision)
 
@@ -2002,10 +2015,11 @@ class MainFrame(wx.Frame):
 
     def startup_checks(self):
         self._sound("opening")
-        if self.greeting and self.cfg.get("app_onboarded"):
-            # After the opening tune, once the screen reader has read the window; a first run
-            # has the welcome tour to say hello instead.
-            wx.CallLater(2200, self.notices.insert, 0, (None, self.greeting))
+        line = self._launch_line()
+        if line:
+            # One sentence, not two cutting each other off, said politely so the screen reader
+            # finishes reading the window first.
+            wx.CallLater(1500, self.notices.insert, 0, (None, line, True))
         # Someone new gets the welcome tour once; anyone who has downloaded before never does.
         if not self.cfg.get("app_onboarded"):
             if (self.cfg.get("app_stats") or {}).get("count"):
@@ -2022,7 +2036,7 @@ class MainFrame(wx.Frame):
         wx.CallLater(1500, lambda: manager_mod.warm())
         # A link copied before opening the app is offered too, the commonest way in.
         if self.cfg.get("app_clipboard", True) and self.IsActive() and not self._modal_open():
-            wx.CallLater(800, self._check_clipboard)
+            wx.CallLater(2500, self._check_clipboard)  # after the launch line, never over it
 
     def get_helpers(self, ask=True, missing=None):
         missing = missing if missing is not None else engine.missing_tools()
@@ -2133,6 +2147,25 @@ class MainFrame(wx.Frame):
         self.notices.append(("update", "Wavelength %s is out. Help, Check for App Updates shows what's new "
                                        "and installs it." % info["version"]))
 
+    GREET_AGAIN_AFTER = 45 * 60  # reopened sooner than this, the hello stays on screen and unsaid
+
+    def _launch_line(self) -> str:
+        """What's said as the app opens: today's hello and, if any, the downloads left unfinished.
+        No hello on a first run (the tour says it), when opened with a link (that link's news
+        comes first) or when it was heard less than GREET_AGAIN_AFTER ago."""
+        bits = []
+        launched_with_links = any(a.startswith("http") for a in sys.argv[1:])
+        if (self.greeting and self.cfg.get("app_onboarded") and not launched_with_links
+                and time.time() - self.ui.ReadFloat("last_greeting_said", 0) > self.GREET_AGAIN_AFTER):
+            bits.append(self.greeting)
+            self.ui.WriteFloat("last_greeting_said", time.time())
+            self.ui.Flush()
+        n = getattr(self, "unfinished_at_start", 0)
+        if n:
+            bits.append("%s didn't finish last time. Resume Unfinished in the Downloads menu carries on."
+                        % words.n(n, "download"))
+        return " ".join(bits)
+
     def _mark_told(self, info):
         """Heard about it already (Check for App Updates found it): the background look won't
         announce this version again."""
@@ -2146,10 +2179,20 @@ class MainFrame(wx.Frame):
         question someone is answering, never into another app."""
         if not self.notices or self._modal_open() or not wx.GetApp().IsActive():
             return
-        sound, text = self.notices.pop(0)
+        if len(self.notices) > 1:
+            # Said one a second, each would cut off the one before: join them into one sentence.
+            waiting, self.notices = self.notices, []
+            sound = next((n[0] for n in waiting if n[0]), None)
+            text = " ".join(n[1] for n in waiting)
+            polite = [all(len(n) > 2 and n[2] for n in waiting)]
+        else:
+            sound, text, *polite = self.notices.pop(0)
         if sound:
             self._sound(sound)
-        self.tell(text)
+        if polite and polite[0]:
+            self.tell(text, polite=True)
+        else:
+            self.tell(text)
 
     def on_check_updates(self, _):
         if sparkle.check() or winsparkle.check():

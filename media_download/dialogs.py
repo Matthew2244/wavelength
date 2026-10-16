@@ -71,10 +71,11 @@ class WrapText(wx.StaticText):
         wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
 
 
-def say(text: str) -> None:
-    """Show nothing new, just say it: for a status line that changes while focus stays elsewhere."""
+def say(text: str, polite: bool = False) -> None:
+    """Show nothing new, just say it: for a status line that changes while focus stays elsewhere.
+    `polite` waits for the screen reader to finish (a window's intro after its focused row)."""
     from . import system
-    system.announce(text)
+    system.announce(text, polite) if polite else system.announce(text)
 
 
 def failure_words(exc) -> str:
@@ -1417,7 +1418,7 @@ class Guide(wx.Dialog):
                    "press Change Folder.")
         self.folder_words = wx.StaticText(p, label="")
         s.Add(self.folder_words, 0, wx.ALL, 6)
-        b = wx.Button(p, label="Change Folder...")
+        b = self.folder_btn = wx.Button(p, label="Change Folder...")
         b.SetToolTip("Choose another folder for downloads. It's saved as soon as you choose.")
         b.Bind(wx.EVT_BUTTON, lambda e: (self.main.on_folder(None, parent=self), self._fill_folder()))
         s.Add(b, 0, wx.ALL, 6)
@@ -1425,7 +1426,12 @@ class Guide(wx.Dialog):
         p.SetSizer(s)
 
     def _fill_folder(self):
-        self.folder_words.SetLabel("Saving to: " + words.pretty_folder(self.cfg.get("to", "")))
+        where = words.pretty_folder(self.cfg.get("to", ""))
+        self.folder_words.SetLabel("Saving to: " + where)
+        # Tab skips plain text: the button carries the answer too, as in the main window.
+        self.folder_btn.SetToolTip("Saving to %s. Choose another folder. It's saved as soon as you choose." % where)
+        mac_accessibility_label(self.folder_btn, "Change Folder. Now saving to %s" % where)
+        windows_name(self.folder_btn, "Change Folder. Now saving to %s" % where)
 
     def _page_format(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
@@ -1655,9 +1661,12 @@ class Guide(wx.Dialog):
         self.texts[key].SetFocus()
         if sys.platform == "win32":
             # NVDA and JAWS read only the line the caret is on in a text box; say the whole step.
-            from .system import announce
-            text = self.texts[key].GetValue()
-            wx.CallLater(500, lambda: self and announce(text))
+            # The caret's line (the first) was just read with the focus: say the rest, politely,
+            # and only if this is still the step on screen (Next pressed quickly moves on).
+            rest = self.texts[key].GetValue().split("\n", 1)[1:] if "\n" in self.texts[key].GetValue() else []
+            if rest and rest[0].strip():
+                wx.CallLater(500, lambda: self and self.texts.get(key) is not None and self.texts[key].IsShown()
+                             and say(rest[0].strip(), polite=True))
 
     # ---- the checks
     def _open_settings(self):
@@ -1782,7 +1791,7 @@ class CheckList(wx.Dialog):
             self.list.SetSelection(0)
         if sys.platform == "darwin":  # VoiceOver doesn't read a dialog's text on its own; NVDA does
             from .system import announce
-            wx.CallLater(600, lambda: self and announce(intro))
+            wx.CallLater(600, lambda: self and say(intro, polite=True))  # after the focused row, not over it
 
     def _set_all(self, on):
         for i in range(self.list.GetCount()):
@@ -1866,7 +1875,7 @@ class PlaylistQuestion(wx.Dialog):
         (b_one if can_single else b_choose).SetFocus()
         if sys.platform == "darwin":  # the question itself is plain text VoiceOver won't read unasked
             from .system import announce
-            wx.CallLater(600, lambda: self and announce(msg.GetLabel()))
+            wx.CallLater(600, lambda: self and say(msg.GetLabel(), polite=True))
 
 
 class Search(wx.Frame):
@@ -2378,7 +2387,7 @@ class DescribeDialog(wx.Dialog):
         self.list.SetFocus()
         # Every button waits for the search, so the window would open silent for several seconds.
         looking = self.status.GetLabel()
-        wx.CallLater(600, lambda: self and self.looking and say(looking))
+        wx.CallLater(600, lambda: self and self.looking and say(looking, polite=True))
         in_background(lambda: run_find(url), self._found, failed_result)
 
     def _found(self, res):
@@ -2423,7 +2432,7 @@ class DescribeDialog(wx.Dialog):
         if opts:
             self.list.SetSelection(0)
             self.list.SetFocus()
-            wx.CallLater(600, lambda: self and announce(msg))  # after the focused row is read
+            wx.CallLater(600, lambda: self and say(msg, polite=True))  # after the focused row is read, not over it
         else:
             announce(msg)
         self._buttons()

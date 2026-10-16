@@ -106,7 +106,7 @@ def load_prism():
     return prism
 
 
-def _announce_windows(text: str) -> str | None:
+def _announce_windows(text: str, polite: bool = False) -> str | None:
     """Speak through the running Windows screen reader with Prism. Returns the reader's name."""
     if _win_reader["failed"]:
         return None
@@ -128,9 +128,10 @@ def _announce_windows(text: str) -> str | None:
                 continue
             try:
                 if feats.supports_output:
-                    backend.output(text, interrupt=False)  # speech and braille
+                    # Urgent news cuts in, as VoiceOver's high priority does; polite lines wait.
+                    backend.output(text, interrupt=not polite)  # speech and braille
                 else:
-                    backend.speak(text, interrupt=False)
+                    backend.speak(text, interrupt=not polite)
             except Exception:  # noqa: BLE001 - this reader hiccuped (NVDA restarting): try the next
                 continue
             return name
@@ -526,15 +527,18 @@ def _install_key_monitor() -> bool:
 MAC_TAB, MAC_SHIFT, MAC_CONTROL, MAC_OPTION, MAC_COMMAND = 48, 1 << 17, 1 << 18, 1 << 19, 1 << 20
 
 
-def announce(text: str) -> None:
+def announce(text: str, polite: bool = False) -> None:
     """Have the screen reader say something without moving focus.
+
+    `polite` waits for what the screen reader is already saying (VoiceOver's medium priority)
+    instead of cutting in: for a hello or an offer, never for news someone is waiting on.
 
     Mac: VoiceOver, through an accessibility announcement. Windows: NVDA, JAWS and the
     others through Prism, or UI Automation for Narrator. The same text also goes to the
     status bar, so nothing depends on this working.
     """
     if sys.platform == "win32":
-        _announce_windows(text)
+        _announce_windows(text, polite)
         return
     if sys.platform != "darwin":
         return
@@ -561,7 +565,8 @@ def announce(text: str) -> None:
         info = send(objc.objc_getClass(b"NSMutableDictionary"), "dictionary")
         send(info, "setObject:forKey:", nsstr(text), nsstr("AXAnnouncementKey"),
              restype=None, argtypes=(ctypes.c_void_p, ctypes.c_void_p))
-        high = send(objc.objc_getClass(b"NSNumber"), "numberWithInt:", 90, argtypes=(ctypes.c_int,))
+        high = send(objc.objc_getClass(b"NSNumber"), "numberWithInt:", 50 if polite else 90,
+                    argtypes=(ctypes.c_int,))
         send(info, "setObject:forKey:", high, nsstr("AXPriorityKey"),
              restype=None, argtypes=(ctypes.c_void_p, ctypes.c_void_p))
         app = send(objc.objc_getClass(b"NSApplication"), "sharedApplication")

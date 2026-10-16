@@ -32,7 +32,7 @@ def finish(frame, monkeypatch, jobs, busy, batch_total, counts=None):
     frame.mgr.batch_counts = counts or {
         "done": sum(j.state in ("done", "skipped") for j in jobs),
         "failed": sum(j.state == "failed" for j in jobs)}
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
     monkeypatch.setattr(gui, "play", lambda k, *a: None)
     monkeypatch.setattr(frame.mgr, "busy", lambda: busy)
     frame.mgr.batch_total = batch_total
@@ -115,7 +115,7 @@ def test_describe_window_offers_people_first(frame, monkeypatch):
 
 def test_unavailable_folder_is_said_and_nothing_added(frame, monkeypatch):
     said, asked = [], []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
 
     class No:
         def __init__(self, parent, msg, *a, **k):
@@ -170,7 +170,7 @@ def test_about_tally_reads_naturally(frame):
 
 def test_whats_happening_names_what_is_downloading(frame, monkeypatch):
     said = []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
     a = job("downloading", "Green Onions", percent=45)
     b = job("waiting", "The Sermon")
     c = job("done", "Turning")
@@ -213,7 +213,7 @@ def _drain():
 
 
 def test_search_opens_once_and_closes_for_good(frame, monkeypatch):
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     frame.link.SetValue("")
     frame.on_search(None)
     first = frame.search_win
@@ -228,7 +228,7 @@ def test_search_opens_once_and_closes_for_good(frame, monkeypatch):
 
 def test_search_download_checked_adds_rows(frame, monkeypatch):
     added = []
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     monkeypatch.setattr(frame.mgr, "add", lambda j: added.append(j))
     monkeypatch.setattr(frame, "folder_ready", lambda: True)
     frame.on_search(None)
@@ -260,7 +260,7 @@ def test_shortcut_list_comes_from_the_menus(frame):
 
 
 def test_search_again_keeps_ticks(frame, monkeypatch):
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     searched = []
     frame.on_search(None, query="")
     dlg = frame.search_win
@@ -281,7 +281,7 @@ def test_search_again_keeps_ticks(frame, monkeypatch):
 def test_search_page_of_repeats_is_not_the_end(frame, monkeypatch):
     """YouTube repeats results across pages. A page of only repeats moves on by itself; the
     next page starts after the positions fetched, not after the count kept."""
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     frame.on_search(None, query="")
     dlg = frame.search_win
     page = gui.dialogs.SEARCH_PAGE
@@ -308,7 +308,7 @@ def test_search_page_of_repeats_is_not_the_end(frame, monkeypatch):
 
 
 def test_search_never_clears_a_link_typed_since(frame, monkeypatch):
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     added = []
     monkeypatch.setattr(frame.mgr, "add", lambda j: added.append(j))
     monkeypatch.setattr(frame, "folder_ready", lambda: True)
@@ -328,8 +328,8 @@ def test_search_never_clears_a_link_typed_since(frame, monkeypatch):
 def test_search_pages_have_no_ceiling(frame, monkeypatch):
     """Results come a page at a time, checks survive each new page, and only a page with nothing
     new ends it."""
-    monkeypatch.setattr(gui, "announce", lambda t: None)
-    monkeypatch.setattr(gui.dialogs, "announce", lambda t: None, raising=False)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
+    monkeypatch.setattr(gui.dialogs, "announce", lambda t, *a: None, raising=False)
     frame.on_search(None, query="")
     dlg = frame.search_win
     page = gui.dialogs.SEARCH_PAGE
@@ -357,7 +357,7 @@ def test_search_pages_have_no_ceiling(frame, monkeypatch):
 def test_look_further_for_described_versions(frame, monkeypatch):
     """Described versions are searched a page at a time, people's versions stay above Make,
     and Look Further stops only when the search runs out."""
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     page = gui.describe.VERSIONS_PAGE
     pages = {page + 1: {"candidates": [{"url": "https://y.example/b", "title": "B described"}], "searched": page},
              2 * page + 1: {"candidates": [], "searched": 0}}
@@ -401,7 +401,7 @@ def test_list_menu_says_only_what_fits_the_row(frame):
 
 def test_search_row_menu(frame, monkeypatch):
     from media_download import menus
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     frame.on_search(None, query="")
     dlg = frame.search_win
     dlg.searched = ("q", "youtube")
@@ -423,7 +423,7 @@ def test_search_row_menu(frame, monkeypatch):
 
 
 def test_search_order_keeps_checks(frame, monkeypatch):
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     frame.on_search(None, query="")
     dlg = frame.search_win
     dlg.searched = ("q", "youtube")
@@ -450,7 +450,7 @@ def test_sound_picker_choose_hear_and_cancel(frame, monkeypatch):
     monkeypatch.setattr(gui.dialogs.wx, "CallLater", lambda ms, fn, *a: (fn(*a), type("T", (), {"Stop": lambda s: None})())[1])
     import media_download.system as system
     monkeypatch.setattr(system, "play", lambda kind, theme, vol, smap=None: played.append((kind, (smap or {}).get(kind, ""))))
-    monkeypatch.setattr(system, "announce", lambda t: None)
+    monkeypatch.setattr(system, "announce", lambda t, *a: None)
     dlg = gui.dialogs.SoundPicker(frame, {"added": "none"}, lambda: "pizzicato", lambda: 0.5)
     keys = dlg.keys
     assert dlg.actions.GetString(keys.index("added")) == "Added to the list: No sound"
@@ -508,7 +508,7 @@ def test_settings_sections(frame):
 
 def test_player_menu_from_any_window(frame, monkeypatch):
     said = []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
     frame.player = None
     frame.player_do("toggle")
     assert said[-1].startswith("Nothing is in the player")
@@ -617,7 +617,7 @@ def test_player_arrows_and_page_keys(frame, monkeypatch):
     """Left and Right skip, Up and Down the volume (Shift: small steps), Page Up and Down the item."""
     from media_download import player
     monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
-    monkeypatch.setattr(player, "announce", lambda t: None)
+    monkeypatch.setattr(player, "announce", lambda t, *a: None)
     pl = player.PlayerFrame(frame)
     try:
         monkeypatch.setattr(pl, "FindFocus", lambda: pl.play_btn)
@@ -648,7 +648,7 @@ def test_speeds_quarter_to_three():
 
 
 def test_accounts_window(frame, monkeypatch):
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     cfg = dict(frame.cfg, app_signin="")
     dlg = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "checked")
     monkeypatch.setattr(dlg, "EndModal", lambda code: None)
@@ -721,7 +721,7 @@ def test_long_lines_rewrap(frame):
 
 def test_clipboard_offer_says_how_to_reach_the_field_and_never_repeats(frame, monkeypatch):
     said = []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
     monkeypatch.setattr(frame, "IsActive", lambda: True)
     monkeypatch.setattr(frame, "_modal_open", lambda: False)
     monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: frame.list))
@@ -750,7 +750,7 @@ def test_clipboard_offer_says_how_to_reach_the_field_and_never_repeats(frame, mo
 def test_a_failed_search_says_why_and_keeps_more_on_offer(frame, monkeypatch):
     said = []
     from media_download import system
-    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(system, "announce", lambda t, *polite: said.append(t))
     monkeypatch.setattr(system, "cue", lambda k: None)
     page = gui.dialogs.SearchPage()
     page.error = "The site says too many requests."
@@ -866,7 +866,7 @@ def test_control_tab_says_the_section(frame, monkeypatch):
     """Focus stays put on Control-Tab, so the new section is said, or it sounds like nothing happened."""
     from media_download import system
     said = []
-    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(system, "announce", lambda t, *polite: said.append(t))
     dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="general")
     k = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
     k.SetKeyCode(wx.WXK_TAB)
@@ -943,7 +943,7 @@ def test_mac_key_monitor_moves_section_only_while_settings_is_in_front(frame, mo
     """The Mac never delivers Control-Tab to a window; the app-wide key monitor catches it."""
     from media_download import system
     said = []
-    monkeypatch.setattr(system, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(system, "announce", lambda t, *polite: said.append(t))
     dlg = gui.dialogs.Settings(frame, dict(frame.cfg), section="general")
     ctrl, shift = system.MAC_CONTROL, system.MAC_SHIFT
     monkeypatch.setattr(dlg, "IsActive", lambda: False)
@@ -1022,7 +1022,7 @@ def test_last_tour_step_escape_and_close_both_finish(frame, monkeypatch):
 def test_words_in_the_link_field_point_to_search(frame, monkeypatch):
     """The main window takes links; searching is the Search window's job (Matthew, 2026-10-14)."""
     said, searched = [], []
-    monkeypatch.setattr(gui, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: said.append(t))
     monkeypatch.setattr(frame, "on_search", lambda *a, **k: searched.append(k))
     frame.link.SetValue("green onions")
     frame.on_download(None)
@@ -1113,7 +1113,7 @@ def test_player_speed_keys_and_ends(frame, monkeypatch):
     from media_download import player
     monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
     said = []
-    monkeypatch.setattr(player, "announce", lambda t: said.append(t))
+    monkeypatch.setattr(player, "announce", lambda t, *polite: said.append(t))
     pl = player.PlayerFrame(frame)
     try:
         monkeypatch.setattr(pl, "FindFocus", lambda: pl.play_btn)
@@ -1162,7 +1162,7 @@ def test_player_starts_at_speed_in_one_step(frame, monkeypatch):
     import wx.media  # noqa: F401
     from media_download import player
     monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
-    monkeypatch.setattr(player, "announce", lambda t: None)
+    monkeypatch.setattr(player, "announce", lambda t, *a: None)
     pl = player.PlayerFrame(frame)
     real = pl.media
     try:
@@ -1188,7 +1188,7 @@ def test_player_starts_at_speed_in_one_step(frame, monkeypatch):
 def test_search_fetches_the_next_page_ahead(frame, monkeypatch):
     """More is instant: the next page is fetched while the person reads this one."""
     import threading
-    monkeypatch.setattr(gui, "announce", lambda t: None)
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
     monkeypatch.setattr(gui.dialogs.Search, "PREFETCH", True)
     frame.on_search(None, query="")
     dlg = frame.search_win
@@ -1259,3 +1259,17 @@ def test_a_waiting_worker_is_used_once_and_only_while_it_matches(monkeypatch):
     assert p2 is not started[1] and not started[1].alive  # the stale one is never used
     monkeypatch.setattr(manager, "SPARE", False)
     manager._drop_spare()
+
+
+def test_a_last_failure_keeps_its_reason_in_the_summary(frame, monkeypatch):
+    """The batch summary used to cut the failure's reason off 0.3 s in: now it carries it."""
+    bad = job("failed", "Rehearsal", reason="That one is for members only.")
+    said = finish(frame, monkeypatch, [bad], busy=False, batch_total=3, counts={"done": 2, "failed": 1})
+    assert said == []  # nothing said yet: the summary says it
+    later = []
+    monkeypatch.setattr(gui.wx, "CallLater", lambda ms, fn, *a: later.append((fn, a)))
+    monkeypatch.setattr(frame, "RequestUserAttention", lambda *a: None)
+    frame._all_done({"done": 2, "failed": 1, "took": 1})
+    for fn, a in later:
+        fn(*a)
+    assert said == ["All downloads finished: 2 done, 1 failed. Failed: Rehearsal. That one is for members only."]

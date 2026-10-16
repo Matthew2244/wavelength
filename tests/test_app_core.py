@@ -999,7 +999,7 @@ def _update_frame(modal=False):
     f._update_title = lambda: None
     f._modal_open = lambda: modal
     f._sound = f.sounds.append
-    f.tell = f.said.append
+    f.tell = lambda text, polite=False: f.said.append(text)
     return f
 
 
@@ -1052,3 +1052,22 @@ def test_greetings_fit_the_time_of_day_and_never_repeat_in_a_row():
     seen = {words.greeting(friday_night, "", "", random.Random(i)) for i in range(200)}
     assert "Happy Friday. The weekend starts now." in seen
     assert words.greeting(datetime.datetime(2027, 1, 1, 10), "", "", random.Random(3)) or True
+
+
+def test_the_launch_line_joins_the_hello_and_unfinished_and_rests_when_heard_recently(monkeypatch):
+    pytest.importorskip("wx")
+    import types
+    from media_download import gui
+    monkeypatch.setattr(gui.sys, "argv", ["Wavelength"])
+    f = types.SimpleNamespace(greeting="Good morning, Matthew.", cfg={"app_onboarded": True},
+                              ui=_FakeConfig(), unfinished_at_start=2, GREET_AGAIN_AFTER=45 * 60)
+    f.ui.ReadFloat = lambda k, d=0: f.ui.d.get(k, d)
+    f.ui.WriteFloat = f.ui.Write
+    line = gui.MainFrame._launch_line(f)
+    assert line.startswith("Good morning, Matthew. 2 downloads didn't finish last time.")
+    again = gui.MainFrame._launch_line(f)  # reopened a minute later: only the news, no second hello
+    assert again.startswith("2 downloads") and "Good morning" not in again
+    monkeypatch.setattr(gui.sys, "argv", ["Wavelength", "https://example.com/v"])
+    f.ui.d.clear()
+    f.unfinished_at_start = 0
+    assert gui.MainFrame._launch_line(f) == ""  # opened with a link: its news comes first
