@@ -100,10 +100,33 @@ def _drop_spare() -> None:
         _kill(proc)
 
 
+class WorkerError(OSError):
+    """A worker that couldn't be started or handed its task. str() is the reason; said() is the
+    sentence for the person. An OSError, so callers that already catch those keep working."""
+
+    def said(self) -> str:
+        return "Wavelength's worker couldn't start: %s. Try again. If it keeps happening, reinstall the app." % self
+
+
 def _popen(task: dict) -> subprocess.Popen:
-    proc = _take_spare() or _start_worker()
-    proc.stdin.write(json.dumps(task) + "\n")
-    proc.stdin.close()
+    line = json.dumps(task) + "\n"
+    proc = _take_spare()
+    if proc is not None:
+        try:
+            proc.stdin.write(line)
+            proc.stdin.close()
+        except (OSError, ValueError):  # the spare died after it was checked: start a fresh one
+            _kill(proc)
+            proc = None
+    if proc is None:
+        try:
+            proc = _start_worker()
+            proc.stdin.write(line)
+            proc.stdin.close()
+        except (OSError, ValueError) as exc:
+            if proc is not None:
+                _kill(proc)
+            raise WorkerError(str(exc) or exc.__class__.__name__) from exc
     warm()  # the next one, ready for whatever comes after
     return proc
 
@@ -285,6 +308,7 @@ class Manager:
         with self.lock:
             if job.state in ACTIVE:
                 return
+            was, ended = job.state, job.finished
             job.reset_progress()
             job.net_retries = 0
             if job.cookie_fallback:  # asked for by hand: the sign-in may be readable now
@@ -296,9 +320,30 @@ class Manager:
                 self.batch_started = time.time()
                 self.batch_counts = {"done": 0, "failed": 0}
                 self.batch_total = 0
+            elif ended and ended >= self.batch_started and was in self.batch_counts:
+                # Already counted in this batch: take that out, or a failure retried into a success
+                # still reads "1 failed" at the end.
+                self.batch_counts[was] = max(0, self.batch_counts[was] - 1)
+                self.batch_total = max(0, self.batch_total - 1)
             self.batch_total += 1
             self.dirty = True
         self.listener(job, "changed")
+        self.pump()
+
+    def fail(self, job: Job, reason: str) -> None:
+        """Fail a job from outside a worker (a playlist that turned out empty), finishing it the
+        way a worker failure does: counted in the batch, said, and the batch closed if it's the last."""
+        with self.lock:
+            if job not in self.jobs or job.state in ("done", "failed"):
+                return
+            job.state = "failed"
+            job.stage = ""
+            job.reason = reason
+            job.finished = time.time()
+            if self.batch_started is not None:
+                self.batch_counts["failed"] += 1
+            self.dirty = True
+        self.listener(job, "finished")
         self.pump()
 
     def move(self, job: Job, delta: int) -> None:
@@ -360,6 +405,8 @@ class Manager:
                 if hold > now:
                     wake.append(hold)
                     continue
+                if j.not_before and j.state in ("looking", "waiting") and j.id not in self.procs:
+                    j.not_before, j.wait_reason = 0.0, ""  # the wait is over: the row stops saying so
                 if j.state == "looking" and j.id not in self.procs and self.probing < PROBE_AT_ONCE:
                     self.probing += 1
                     j.run += 1
@@ -689,9 +736,13 @@ class Manager:
             self.updating_engine = True
         self.listener(job, "changed")
         if first:
-            outcome, sentence = engine.update_engine()
-            with self.lock:
-                self.updating_engine = False
+            try:
+                outcome, sentence = engine.update_engine()
+            except Exception as exc:  # noqa: BLE001 - never leave every download waiting on this
+                outcome, sentence = "failed", "Couldn't update the download engine (%s)." % exc
+            finally:
+                with self.lock:
+                    self.updating_engine = False
             self.listener(None, "engine", {"outcome": outcome, "text": sentence})
         else:
             while self.updating_engine:

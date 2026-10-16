@@ -359,7 +359,7 @@ def worth_updating_for(text: str) -> bool:
                 "claudesignedout",
                 # the download folder, not the engine: an unplugged drive fails the same on every version
                 "permission denied", "no such file or directory", "read-only file system",
-                "input/output error", "winerror 3")
+                "input/output error", "winerror 3]", "thumbnail embedding")
     return not any(word in lowered for word in hopeless)
 
 
@@ -403,8 +403,11 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
     if "http error 429" in lowered or "too many requests" in lowered:
         return ("%s says too many requests. Wait a few minutes, then Retry. Fewer downloads at once "
                 "in Settings helps too." % who)
+    if "winerror 32" in lowered:  # the file is in use: antivirus or the search indexer, for a moment
+        return ("Another program had the file open while it was being saved, often antivirus checking it. "
+                "Retry in a moment.")
     if any(w in lowered for w in ("permission denied", "read-only file system", "input/output error",
-                                  "winerror 3", "errno 13", "errno 30")):
+                                  "winerror 3]", "errno 13", "errno 30")):
         return ("The file couldn't be saved: the download folder can't be written. If it's on a drive that "
                 "was unplugged, plug it back in and Retry, or choose another folder with Change Folder.")
     if "drm" in lowered:

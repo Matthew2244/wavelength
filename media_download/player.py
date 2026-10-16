@@ -62,7 +62,8 @@ def captions_for(path: str) -> list:
     stem = os.path.splitext(base)[0]
     try:
         for name in sorted(os.listdir(folder)):
-            if (name.startswith(stem) and name.lower().endswith((".srt", ".vtt"))
+            # "Intro.en.srt" belongs to Intro.m4a; "Intro (Live).en.srt" doesn't.
+            if (name.startswith(stem + ".") and name.lower().endswith((".srt", ".vtt"))
                     and describe.SUFFIX.strip(" -") not in name):  # captions, not the description
                 with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as fh:
                     return words.caption_cues(fh.read())
@@ -145,6 +146,9 @@ class PlayerFrame(wx.Frame):
         self.cues: list = []
         self.loaded = False
         self.load_started = 0.0
+        self._gen = 0  # which play_index a stream lookup belongs to, so a stale one is dropped
+        self._resolving = False
+        self.ad_free_from = 0.0  # where the last description finished being read
         self.length = 0.0
         self.dragging = False
         self.last_second = -1
@@ -410,6 +414,9 @@ class PlayerFrame(wx.Frame):
         self.ad_cues, self.ad_next = [], 0
         self.index = k
         self.item = self.queue[k]
+        self._gen += 1
+        self._resolving = False
+        self.ad_free_from = 0.0
         self.loaded = False
         self.load_started = 0.0  # the "didn't start" clock belongs to this item, not the last one
         self.length = 0.0
@@ -430,9 +437,10 @@ class PlayerFrame(wx.Frame):
         else:
             self.status("Getting the stream for %s." % (self.item.get("title") or words.site_name(self.item["url"])))
             item = self.item
-            threading.Thread(target=self._resolve, args=(item,), daemon=True).start()
+            self._resolving = True
+            threading.Thread(target=self._resolve, args=(item, self._gen), daemon=True).start()
 
-    def _resolve(self, item):
+    def _resolve(self, item, gen):
         found = {}
 
         def on(ev):
@@ -445,17 +453,19 @@ class PlayerFrame(wx.Frame):
                   "cookies": item.get("cookies") or self.main.cfg.get("app_signin", ""),
                   "format": item.get("format", "")}, on,
                  timeout=120)
-        wx.CallAfter(self._resolved, item, found)
+        wx.CallAfter(self._resolved, item, found, gen)
 
-    def _resolved(self, item, found):
-        if not self or item is not self.item:
-            return  # moved on meanwhile
+    def _resolved(self, item, found, gen):
+        if not self or item is not self.item or gen != self._gen:
+            return  # moved on meanwhile, or this item was started again
+        self._resolving = False
         if not found.get("url") and not item.get("tried_list"):
             # Perhaps a playlist, an album or a podcast feed: list it and play its items in turn.
             item["tried_list"] = True
             item["first_log"] = found.get("log", [])  # the real reason, if it isn't a list either
             self.status("Looking for a list of items in that link.")
-            threading.Thread(target=self._list, args=(item,), daemon=True).start()
+            self._resolving = True
+            threading.Thread(target=self._list, args=(item, gen), daemon=True).start()
             return
         if not found.get("url"):
             reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]),
@@ -474,7 +484,8 @@ class PlayerFrame(wx.Frame):
                     uploaded_ts=found.get("uploaded_ts") or item.get("uploaded_ts"),
                     approx=found.get("approx") if found.get("uploaded_ts") else item.get("approx"),
                     views=found.get("views") or item.get("views"),
-                    live=bool(found.get("is_live") or not found.get("duration")), got=found.get("want"))
+                    live=bool(found.get("is_live") or not (found.get("duration") or item.get("duration"))),
+                    got=found.get("want"))
         self.cues = [tuple(c) for c in found.get("cues") or []]
         self.title.SetLabel(item["title"] or "Playing")
         self.title.SetToolTip(item["title"] or "")
@@ -483,7 +494,7 @@ class PlayerFrame(wx.Frame):
         self._fill_queue()
         self._load(found["url"], local=False)
 
-    def _list(self, item):
+    def _list(self, item, gen):
         got = {}
 
         def on(ev):
@@ -492,18 +503,20 @@ class PlayerFrame(wx.Frame):
         run_task({"task": "probe", "spec": {"url": item["url"], "dest": engine.TEMP, "kind": "best",
                                             "cookies": item.get("cookies") or self.main.cfg.get("app_signin", "")}}, on,
                  timeout=180)
-        wx.CallAfter(self._listed, item, got)
+        wx.CallAfter(self._listed, item, got, gen)
 
-    def _listed(self, item, got):
-        if not self or item is not self.item:
+    def _listed(self, item, got, gen):
+        if not self or item is not self.item or gen != self._gen:
             return
+        self._resolving = False
         entries = got.get("entries") or []
         if not entries:
-            self._resolved(item, {"log": item.get("first_log") or ["NOPLAYABLE"]})
+            self._resolved(item, {"log": item.get("first_log") or ["NOPLAYABLE"]}, gen)
             return
         new = [{"url": e["url"], "title": e.get("title") or "", "uploader": e.get("uploader") or "",
                 "want": item.get("want", "audio"), "tried_list": True,
-                **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views") if e.get(k)}} for e in entries]
+                **{k: e[k] for k in ("uploaded", "uploaded_ts", "approx", "views", "duration") if e.get(k)}}
+               for e in entries]
         self.queue[self.index:self.index + 1] = new
         self.say("%s: %s. Playing them in turn." % (got.get("title") or "A list", words.n(len(new), "item")))
         self.play_index(self.index)
@@ -516,6 +529,8 @@ class PlayerFrame(wx.Frame):
 
     def fail(self, reason: str):
         self.loaded = False
+        self.load_started = 0.0  # Space tries again after a failure
+        self._resolving = False
         self.status(reason)
         self.say(reason)
         self._update_buttons()
@@ -589,6 +604,7 @@ class PlayerFrame(wx.Frame):
         up the descriptions from the new place (not by stepping through every earlier one)."""
         was_paused_for_ad = self.ad_paused
         self._end_ad(resume=True)
+        self.ad_free_from = 0.0
         self.ad_next = next((i for i, c in enumerate(self.ad_cues) if c[0] >= now - 0.2), len(self.ad_cues))
         if was_paused_for_ad:
             self._update_buttons()
@@ -596,6 +612,7 @@ class PlayerFrame(wx.Frame):
     def _ad_tick(self, now: float):
         if self.ad_active:
             if not self.reader.speaking():
+                self.ad_free_from = now
                 self._end_ad(resume=True)
             return
         if self.ad_mode == "off" or not self.ad_cues or self.ad_next >= len(self.ad_cues) or not self.playing():
@@ -604,8 +621,10 @@ class PlayerFrame(wx.Frame):
         if now + 0.15 < start:
             return
         self.ad_next += 1
-        if now - start > 3:
-            return  # long past (a skip landed after it): don't read a stale description
+        if now - max(start, self.ad_free_from) > 3:
+            # Long past (a skip landed after it): don't read a stale description. One that came
+            # due while another was being read counts from when that reading ended.
+            return
         self.ad_active, self.ad_text = True, text
         self.caption.SetLabel("Description: " + text)
         self._fit_caption()
@@ -714,7 +733,10 @@ class PlayerFrame(wx.Frame):
 
     def toggle(self):
         if not self.loaded:
-            if self.item and self.index >= 0:
+            if self._resolving or self.load_started:
+                # Starting it again would race the load already under way and leave it silent.
+                self.say("Still getting ready to play.")
+            elif self.item and self.index >= 0:
                 self.play_index(self.index)
             return
         if self.ad_active:
@@ -872,6 +894,10 @@ class PlayerFrame(wx.Frame):
             self.say("Sleep timer off.")
         elif minutes == -1:
             self.say("Stopping at the end of this item.")
+        elif not self.playing():
+            # Set while paused: it counts listening, so it starts when you press Play.
+            self.sleep_at, self.sleep_left = 0.0, minutes * 60.0
+            self.say("Stopping after %s of listening." % words.duration(minutes * 60))
         else:
             self.say("Stopping in %s, at %s." % (words.duration(minutes * 60), words.clock_time(self.sleep_at)))
 
@@ -984,6 +1010,7 @@ class PlayerFrame(wx.Frame):
         if k < self.index:
             self.index -= 1
         self._fill_queue()
+        self._update_buttons()  # removing the last one leaves nothing for Next
         self.say("Removed %s from the queue." % (gone.get("title") or "it"))
 
     def download_this(self):

@@ -34,13 +34,14 @@ def emit(ev: str, **data) -> None:
 class Logger:
     def __init__(self):
         self.tail = []
+        self.retrying = False
 
     def _keep(self, msg):
         self.tail.append(msg)
         del self.tail[:-30]
 
     def debug(self, msg):
-        if "has already been downloaded" in msg or "already been recorded" in msg:
+        if ("has already been downloaded" in msg or "already been recorded" in msg) and not self.retrying:
             emit("already")
         if msg.startswith("[download] Destination:") or msg.startswith("[Merger]") \
                 or msg.startswith("[ExtractAudio]") or msg.startswith("[SplitChapters]"):
@@ -82,7 +83,24 @@ def _make_ydl(yt_dlp, args, logger, extra=None):
                  "color": {"stdout": "no_color", "stderr": "no_color"}})
     if extra:
         opts.update(extra)
-    return yt_dlp.YoutubeDL(opts)
+    ydl = yt_dlp.YoutubeDL(opts)
+    ydl.add_post_processor(_keep_existing(yt_dlp, bool(opts.get("keepvideo"))), when="before_dl")
+    return ydl
+
+
+def _keep_existing(yt_dlp, keep: bool):
+    """A file already in the folder under the name this download would take ("Song.wav") is
+    the person's, not a leftover: yt-dlp would take it as downloaded, convert it to the MP3 asked
+    for, and delete it. Keep the original whenever that file exists before the download."""
+    class KeepExisting(yt_dlp.postprocessor.PostProcessor):
+        def run(self, info):
+            try:
+                there = os.path.exists(self._downloader.prepare_filename(info))
+            except Exception:  # noqa: BLE001
+                there = False
+            self._downloader.params["keepvideo"] = keep or there
+            return [], info
+    return KeepExisting()
 
 
 def do_download(yt_dlp, task):
@@ -130,30 +148,44 @@ def do_download(yt_dlp, task):
     from . import engine
     from .options import temp_dir
     os.makedirs(temp_dir(spec), exist_ok=True)
-    try:
-        # Inside the try: an unclosed quote in the extra options is the person's to fix, and must
-        # read as that, not as a failure worth updating the engine and retrying for.
-        args = download_args(spec, task.get("fragments", 4)) + tool_flags(task.get("fragments", 4))
-        ydl = _make_ydl(yt_dlp, args, logger, {"progress_hooks": [hook], "postprocessor_hooks": [pp_hook],
-                                                "post_hooks": [post_hook]})
-    except (Exception, SystemExit) as exc:  # bad raw flags under More Options; argparse exits
-        emit("log", text="BADOPTIONS: %s" % (exc if str(exc) not in ("2", "") else spec.get("extra", "")))
+    def attempt(spec):
+        try:
+            # Inside the try: an unclosed quote in the extra options is the person's to fix, and must
+            # read as that, not as a failure worth updating the engine and retrying for.
+            args = download_args(spec, task.get("fragments", 4)) + tool_flags(task.get("fragments", 4))
+            ydl = _make_ydl(yt_dlp, args, logger, {"progress_hooks": [hook], "postprocessor_hooks": [pp_hook],
+                                                    "post_hooks": [post_hook]})
+        except (Exception, SystemExit) as exc:  # bad raw flags under More Options; argparse exits
+            emit("log", text="BADOPTIONS: %s" % (exc if str(exc) not in ("2", "") else spec.get("extra", "")))
+            return None
+        with ydl:
+            info_file = spec.get("info_file")
+            # Stream links from most sites last hours; past that, look the link up again.
+            fresh = info_file and os.path.exists(info_file) and time.time() - (spec.get("info_time") or 0) < 3 * 3600
+            try:
+                if fresh:
+                    return ydl.download_with_info_file(info_file)
+                return ydl.download([spec["url"]])
+            except yt_dlp.utils.DownloadError:
+                return 1
+            except Exception as exc:  # noqa: BLE001
+                logger.error("ERROR: %s" % exc)
+                return 1
+
+    code = attempt(spec)
+    if code is None:
         emit("end", ok=False)
         return
-    with ydl:
-        info_file = spec.get("info_file")
-        # Stream links from most sites last hours; past that, look the link up again.
-        fresh = info_file and os.path.exists(info_file) and time.time() - (spec.get("info_time") or 0) < 3 * 3600
-        try:
-            if fresh:
-                code = ydl.download_with_info_file(info_file)
-            else:
-                code = ydl.download([spec["url"]])
-        except yt_dlp.utils.DownloadError:
-            code = 1
-        except Exception as exc:  # noqa: BLE001
-            logger.error("ERROR: %s" % exc)
-            code = 1
+    if code != 0 and spec.get("cover_art", True) and \
+            any("thumbnail embedding" in t.lower() for t in logger.tail[-5:]):
+        # A WAV, AIFF or WMA source keeps its own format, and those can't hold cover art: finish
+        # it without, rather than fail a download that worked. The file is already in the temp
+        # folder, so this only redoes the last steps; that isn't "already downloaded" news.
+        logger.retrying = True
+        code = attempt(dict(spec, cover_art=False))
+        if code is None:
+            emit("end", ok=False)
+            return
     if code == 0:
         # Chapter files and subtitles are made beside the main file but never reported by
         # yt-dlp's final hook, so the row and Show in Finder knew only the whole file.

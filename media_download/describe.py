@@ -118,10 +118,12 @@ def write_outputs(rows: list, folder: str, title: str, stem: str | None = None) 
     from .options import _safe_folder
     base = os.path.join(folder, (stem if stem else _safe_folder(title)[:150]) + SUFFIX)
     os.makedirs(folder, exist_ok=True)
-    blocks = ["1\n%s --> %s\n[%s]" % (srt_time(0), srt_time(0.5), HEADER)] if not rows else []
+    # The machine-made line comes first in every .srt (the player skips "[...]" cues), so it
+    # reads as made automatically in any other player too.
+    blocks = ["1\n%s --> %s\n[%s]" % (srt_time(0), srt_time(0.5), HEADER)]
     for i, row in enumerate(rows):
         end = rows[i + 1]["time"] if i + 1 < len(rows) else row["time"] + 5
-        blocks.append("%d\n%s --> %s\n%s" % (i + 1, srt_time(row["time"]), srt_time(max(row["time"] + 1, end)),
+        blocks.append("%d\n%s --> %s\n%s" % (i + 2, srt_time(row["time"]), srt_time(max(row["time"] + 1, end)),
                                              row["text"]))
     with open(base + ".srt", "w", encoding="utf-8") as fh:
         fh.write("\n\n".join(blocks) + "\n")
@@ -177,9 +179,8 @@ def describe_frames(frames, folder, title, claude, progress=lambda done, total: 
         try:
             # The prompt goes in on stdin: on Windows `claude` may be a .cmd wrapper, and cmd.exe
             # would cut a many-line argument at its first line break.
-            out = subprocess.run([claude, "-p", "--allowedTools", "Read", "--output-format", "text"],
-                                 input=PROMPT % (title, listing), cwd=folder, capture_output=True,
-                                 encoding="utf-8", errors="replace", timeout=900, **engine.hidden_window())
+            out = _run_claude([claude, "-p", "--allowedTools", "Read", "--output-format", "text"],
+                              PROMPT % (title, listing), folder)
         except (OSError, subprocess.TimeoutExpired):
             gaps.append((chunk[0][1], chunk[-1][1]))
             continue
@@ -195,14 +196,36 @@ def describe_frames(frames, folder, title, claude, progress=lambda done, total: 
         except ValueError:
             gaps.append((chunk[0][1], chunk[-1][1]))
             continue
+        if not isinstance(got, list):
+            gaps.append((chunk[0][1], chunk[-1][1]))
+            continue
         for row, (_, when) in zip(got, chunk):
-            text = str(row.get("text", "")).strip()
+            if not isinstance(row, dict):
+                continue  # one odd answer costs that moment, never the batches already done
+            text = str(row.get("text") or "").strip()
             if text and text.upper() != "SKIP":
                 rows.append({"time": float(when), "text": text})
                 carried = text
     progress(len(frames), len(frames))
     rows.sort(key=lambda r: r["time"])
     return rows
+
+
+def _run_claude(cmd: list, prompt: str, folder: str, timeout: float = 900) -> subprocess.CompletedProcess:
+    """Run claude -p, ending the whole process tree on a timeout. On Windows claude is often a
+    .cmd wrapper, and killing it alone would leave node running and reading frames."""
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=folder,
+                         encoding="utf-8", errors="replace", **engine.hidden_window())
+    try:
+        out, err = p.communicate(prompt, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True,
+                           **engine.hidden_window())
+        p.kill()
+        p.communicate()
+        raise
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
 def new_workdir() -> str:

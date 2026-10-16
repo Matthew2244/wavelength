@@ -33,6 +33,8 @@ class WrapText(wx.StaticText):
     """A line of text that re-wraps to its window's width whenever the window or the text changes,
     so a long status or intro never runs off the edge, at any text size."""
 
+    refit = False  # message() on Windows: grow the window when a re-wrap adds a line
+
     def __init__(self, parent, label=""):
         super().__init__(parent, label=label)
         self._full = label
@@ -46,10 +48,23 @@ class WrapText(wx.StaticText):
         return self._full
 
     def _rewrap(self):
+        before = self.GetBestSize().height
         width = self.GetParent().GetClientSize().width - 30
         super().SetLabel(self._full)
         if width > 120:
             self.Wrap(width)
+        if self.refit and self.GetBestSize().height > before:
+            # Windows sends a size event during SetSizerAndFit, and this wrap is a little narrower
+            # than the one the window was fitted to: a line more, cut off or under the button.
+            # Only the height grows, so the next size event wraps the same and this stops.
+            top = wx.GetTopLevelParent(self)
+            sizer = top.GetSizer() if top else None
+            if sizer:
+                w, h = top.GetClientSize()
+                need = sizer.CalcMin().height
+                if need > h:
+                    top.SetClientSize((w, need))
+                    top.Layout()
 
     def _on_size(self, event):
         event.Skip()
@@ -60,6 +75,30 @@ def say(text: str) -> None:
     """Show nothing new, just say it: for a status line that changes while focus stays elsewhere."""
     from . import system
     system.announce(text)
+
+
+def failure_words(exc) -> str:
+    """What to say when a background lookup couldn't run at all (its worker didn't start)."""
+    said = getattr(exc, "said", None)
+    return said() if callable(said) else "That didn't work: %s. Try again." % (str(exc) or exc.__class__.__name__)
+
+
+def in_background(work, done, failed):
+    """work() off the main thread, its result to done() on it. If work raises (a worker that
+    couldn't start, a pipe to a dead one), done() still hears back, with failed(exc): otherwise
+    a window waits on "Searching..." forever."""
+    def run():
+        try:
+            res = work()
+        except Exception as exc:  # noqa: BLE001 - whatever it was, the window must hear back
+            res = failed(exc)
+        wx.CallAfter(done, res)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def failed_result(exc) -> dict:
+    """A lookup's failure, in the shape its done-path reads: {"error": sentence}."""
+    return {"error": failure_words(exc)}
 
 
 message_log = None  # tests set a list: messages are recorded there and never shown
@@ -79,6 +118,7 @@ def message(parent, text: str, title: str = "Wavelength", button: str = "Got It"
         # NVDA and JAWS read only the caret's line of a text box, but read a new window's own
         # text by themselves: plain text, and the focus on the button.
         t = WrapText(dlg, label=text)
+        t.refit = True
     else:
         # No name and no help tag on the box: VoiceOver said "Message, text" before every message
         # and a hint after it (Matthew, 2026-10-14). The words alone are the message.
@@ -287,10 +327,8 @@ class MoreOptions(wx.Dialog):
         self.stream_text.SetLabel("Looking up the link. This takes a few seconds.")
         say("Looking up the link's streams.")
 
-        def work():
-            res = self.run_probe(self.link)
-            wx.CallAfter(self._picked, res)
-        threading.Thread(target=work, daemon=True).start()
+        link = self.link
+        in_background(lambda: self.run_probe(link), self._picked, failed_result)
 
     def _picked(self, res):
         if not self:  # closed while the lookup was still going
@@ -713,6 +751,13 @@ class SearchPage(list):
     error = ""
 
 
+def failed_page(exc) -> SearchPage:
+    """A search page that couldn't be fetched at all: empty, saying why."""
+    page = SearchPage()
+    page.error = failure_words(exc)
+    return page
+
+
 SEARCH_PAGE = 25  # results per page; pages keep coming until the site has no more
 
 # How Search can order what it has loaded. YouTube's own "sort by upload date" no longer works
@@ -813,6 +858,20 @@ def _check_range(win, lst, a, b, on):
     win._count(speak=True)
 
 
+def current_rows(win, entries):
+    """The window's list of rows as it is now: Search replaces `results` on each sort or search."""
+    for name in ("results", "entries"):
+        rows = getattr(win, name, None)
+        if isinstance(rows, list):
+            return rows
+    return entries
+
+
+def row_of(e, rows):
+    """Where this very result is in `rows` (by identity, not by value), or None."""
+    return next((k for k, x in enumerate(rows) if x is e), None)
+
+
 def look_up_row(win, lst, entries, i, main):
     """Ask the site for everything about one row (an exact date where the list only had "about 2
     years ago", the length and date YouTube Music's song search leaves out), update the row, say it."""
@@ -821,7 +880,12 @@ def look_up_row(win, lst, entries, i, main):
     announce("Looking up %s." % (e.get("title") or "it"))
 
     def done(info):
-        if not win or i >= len(entries) or entries[i] is not e:
+        if not win:
+            return
+        # Search can be re-sorted or searched again while this looks up, replacing its list:
+        # find the row again in the window's list as it is now, or say nothing if it's gone.
+        i = row_of(e, current_rows(win, entries))
+        if i is None or i >= lst.GetCount():
             return
         if info.get("error"):
             announce(info["error"])
@@ -1213,7 +1277,7 @@ class AccountsDialog(wx.Dialog):
         self.status.SetLabel("Checking your YouTube sign-in in %s..." % accounts_words(self._browser()))
         announce(self.status.GetLabel())
         browser = self._browser()
-        threading.Thread(target=lambda: wx.CallAfter(self._checked, self.check(browser)), daemon=True).start()
+        in_background(lambda: self.check(browser), self._checked, failure_words)
 
     def _checked(self, said):
         if not self:
@@ -1609,8 +1673,9 @@ class Guide(wx.Dialog):
     def _check_readable(self):
         b = self._browser()
         self._say(self.perm_status, "Checking %s..." % self.acc.spec_words(b))
-        threading.Thread(target=lambda: wx.CallAfter(self._readable_said, b, self.main.signin_readable(b)),
-                         daemon=True).start()
+        # None means readable, so a failure must come back as words, never None.
+        in_background(lambda: self.main.signin_readable(b), lambda said: self._readable_said(b, said),
+                      failure_words)
 
     def _readable_said(self, b, said):
         if self:
@@ -1626,8 +1691,7 @@ class Guide(wx.Dialog):
     def _check_youtube(self):
         b = self._browser()
         self._say(self.svc_status, "Checking YouTube...")
-        threading.Thread(target=lambda: wx.CallAfter(self._youtube_said, self.main.check_signin(b)),
-                         daemon=True).start()
+        in_background(lambda: self.main.check_signin(b), self._youtube_said, failure_words)
 
     def _youtube_said(self, said):
         if self:
@@ -2071,10 +2135,8 @@ class Search(wx.Frame):
         self.go.Disable()
         self.more_btn.Disable()
 
-        def work():
-            res = self.run_search(q, site_key, start)
-            wx.CallAfter(self._show, q, site_key, site, start, res)
-        threading.Thread(target=work, daemon=True).start()
+        in_background(lambda: self.run_search(q, site_key, start),
+                      lambda res: self._show(q, site_key, site, start, res), failed_page)
 
     def _show(self, q, site_key, site, start, res):
         if not self:
@@ -2146,10 +2208,10 @@ class Search(wx.Frame):
         ahead = {"key": (q, site_key, start), "res": None, "done": False, "wanted": False}
         self.ahead = ahead
 
-        def work():
-            ahead["res"] = self.run_search(q, site_key, start)
-            wx.CallAfter(self._ahead_ready, ahead)
-        threading.Thread(target=work, daemon=True).start()
+        def landed(res):
+            ahead["res"] = res
+            self._ahead_ready(ahead)
+        in_background(lambda: self.run_search(q, site_key, start), landed, failed_page)
 
     def _ahead_ready(self, ahead):
         if not self:
@@ -2312,7 +2374,7 @@ class DescribeDialog(wx.Dialog):
         # Every button waits for the search, so the window would open silent for several seconds.
         looking = self.status.GetLabel()
         wx.CallLater(600, lambda: self and self.looking and say(looking))
-        threading.Thread(target=lambda: wx.CallAfter(self._found, run_find(url)), daemon=True).start()
+        in_background(lambda: run_find(url), self._found, failed_result)
 
     def _found(self, res):
         if not self:
@@ -2399,13 +2461,23 @@ class DescribeDialog(wx.Dialog):
         self.status.SetLabel("Looking further, from search result %d..." % start)
         from .system import announce
         announce(self.status.GetLabel())
-        threading.Thread(target=lambda: wx.CallAfter(self._more_found, start, self.run_more(self.title, start)),
-                         daemon=True).start()
+        title = self.title
+        in_background(lambda: self.run_more(title, start), lambda res: self._more_found(start, res), failed_result)
 
     def _more_found(self, start, res):
         if not self:
             return
         self.looking = False
+        if res.get("error"):
+            # The look failed (no connection, a timeout): say why, and keep Look Further on offer
+            # for the same results. Never "the end of the search".
+            from .system import announce, cue
+            self.status.SetLabel("Couldn't look further. %s" % res["error"])
+            self.Layout()
+            cue("failed")
+            announce(self.status.GetLabel())
+            self._buttons()
+            return
         self.next_start = start + describe.VERSIONS_PAGE
         self.more_left = bool(res.get("searched"))
         have = {o.get("url") for o in self.options}

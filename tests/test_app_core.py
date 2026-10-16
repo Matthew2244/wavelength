@@ -386,7 +386,8 @@ def test_description_files_round_trip(tmp_path, monkeypatch):
     assert os.path.basename(srt) == "Me at the zoo - audio description.srt"
     assert "No person wrote or checked it" in open(txt).read()
     cues = words.caption_cues(open(srt).read())
-    assert [c[2] for c in cues] == ["A man stands by a fence.", "He turns to the camera."]
+    assert cues[0][2].startswith("[")  # the machine-made line comes first
+    assert [c[2] for c in cues[1:]] == ["A man stands by a fence.", "He turns to the camera."]
     video = tmp_path / "Me at the zoo.mp4"
     video.write_text("x")
     assert describe.for_item(str(video), None) == srt          # beside a downloaded video
@@ -797,3 +798,182 @@ def test_windows_sounds_play_through_their_own_device_without_raising(tmp_path):
         w.writeframes(b"\x00\x10" * 2205)  # a tenth of a second
     system._play_windows(path)  # no sound card on CI: MCI or its fallback must not raise
     system._play_windows(path)
+
+
+def test_every_made_description_srt_says_it_was_machine_made(tmp_path):
+    from media_download import describe, words
+    out = describe.write_outputs([{"time": 2, "text": "A man walks."}], str(tmp_path), "T")
+    cues = words.caption_cues(open([p for p in out if p.endswith(".srt")][0], encoding="utf-8").read())
+    assert cues[0][2].startswith("[") and describe.HEADER in cues[0][2]
+    assert cues[1][2] == "A man walks."
+
+
+def test_captions_belong_only_to_their_own_file(tmp_path):
+    pytest.importorskip("wx")
+    from media_download import player
+    for name in ("Intro.m4a", "Intro (Live).en.srt", "Song.m4a", "Song 2.en.srt", "Song 2.m4a"):
+        (tmp_path / name).write_text("1\n00:00:01,000 --> 00:00:02,000\n%s\n" % name, encoding="utf-8")
+    assert player.captions_for(str(tmp_path / "Intro.m4a")) == []
+    assert player.captions_for(str(tmp_path / "Song.m4a")) == []
+    assert player.captions_for(str(tmp_path / "Song 2.m4a"))[0][2] == "Song 2.en.srt"
+
+
+# ---------------------------------------------------------------- a worker that won't start
+
+class _Pipe:
+    def __init__(self, broken=False):
+        self.broken, self.text, self.closed = broken, "", False
+
+    def write(self, s):
+        if self.broken:
+            raise BrokenPipeError(32, "Broken pipe")
+        self.text += s
+
+    def close(self):
+        self.closed = True
+
+
+class _Proc:
+    def __init__(self, broken=False):
+        self.stdin = _Pipe(broken)
+
+
+def test_a_dead_spare_worker_falls_back_to_a_fresh_one(monkeypatch):
+    dead, fresh, killed = _Proc(broken=True), _Proc(), []
+    monkeypatch.setattr(manager, "_take_spare", lambda: dead)
+    monkeypatch.setattr(manager, "_start_worker", lambda: fresh)
+    monkeypatch.setattr(manager, "_kill", killed.append)
+    monkeypatch.setattr(manager, "warm", lambda: None)
+    assert manager._popen({"task": "search"}) is fresh
+    assert killed == [dead] and '"search"' in fresh.stdin.text and fresh.stdin.closed
+
+
+def test_a_worker_that_cannot_start_raises_one_clear_error(monkeypatch):
+    def nope():
+        raise FileNotFoundError(2, "No such file or directory")
+    monkeypatch.setattr(manager, "_take_spare", lambda: None)
+    monkeypatch.setattr(manager, "_start_worker", nope)
+    monkeypatch.setattr(manager, "warm", lambda: None)
+    with pytest.raises(manager.WorkerError) as got:
+        manager.run_task({"task": "search"})
+    assert isinstance(got.value, OSError)  # the download path's `except` still catches it
+    assert got.value.said().startswith("Wavelength's worker couldn't start: ")
+    assert "reinstall" in got.value.said()
+
+
+def test_failing_a_job_from_outside_finishes_it_like_a_worker_failure():
+    events = []
+    m = manager.Manager({"app_parallel": 2}, lambda job, what, data=None: events.append(what))
+    j = Job(url="https://a.com/list", dest="/tmp")
+    j.state = "waiting_choice"
+    m.jobs.append(j)
+    m.batch_started, m.batch_total = time.time(), 1
+    m.fail(j, "That playlist is empty, or its items couldn't be listed.")
+    assert j.state == "failed" and j.finished and j.reason.startswith("That playlist is empty")
+    assert events[0] == "finished" and events[-1] == "all_done"  # said, and the batch closed
+    assert m.batch_started is None
+
+
+# ---------------------------------------------------------------- windows (need wx)
+
+def test_a_finished_lookup_finds_its_row_again_after_a_re_sort():
+    pytest.importorskip("wx")
+    from media_download import dialogs
+    a, b = {"url": "a"}, {"url": "b"}
+    win = type("W", (), {})()
+    win.results = [b, a]  # re-sorted while the lookup ran: a new list, a moved row
+    assert dialogs.row_of(a, dialogs.current_rows(win, [a, b])) == 1
+    win.results = [{"url": "a"}]  # searched again: an equal dict is not the same row
+    assert dialogs.row_of(a, dialogs.current_rows(win, [a, b])) is None
+    assert dialogs.current_rows(object(), [a]) == [a]
+
+
+def test_a_lookup_that_could_not_run_still_says_why():
+    pytest.importorskip("wx")
+    from media_download import dialogs
+    page = dialogs.failed_page(manager.WorkerError("Broken pipe"))
+    assert page == [] and page.error.startswith("Wavelength's worker couldn't start: Broken pipe.")
+    assert dialogs.failed_result(RuntimeError("boom")) == {"error": "That didn't work: boom. Try again."}
+
+
+def test_one_off_options_never_spread_across_many_results():
+    pytest.importorskip("wx")
+    import types
+    from media_download import gui
+    added = []
+    me = types.SimpleNamespace(
+        next_opts={"name": "My Song", "format_id": "251", "format_words": "opus", "start": "1:00",
+                   "end": "2:00", "subtitles": True},
+        cfg={"to": "/tmp"}, PER_LINK=gui.MainFrame.PER_LINK, seen_links=set(),
+        mgr=types.SimpleNamespace(lock=threading.RLock(), jobs=[], add=added.append),
+        _picks=lambda: ("best", 0), _show_opts=lambda: None, refresh=lambda: None)
+    me._job_from_ui = lambda url, per_link=True, picks=None: gui.MainFrame._job_from_ui(me, url, per_link, picks)
+    fresh, skipped = gui.MainFrame.add_entries(me, [{"url": "https://a.com/1"}, {"url": "https://a.com/2"}])
+    assert len(fresh) == 2 and skipped == 0
+    assert all(j.name == "" and j.format_id == "" and j.start == "" and j.end == "" for j in added)
+    assert all(j.subtitles for j in added)  # the rest of More Options applies, once
+    assert me.next_opts == {"name": "My Song", "format_id": "251", "format_words": "opus", "start": "1:00",
+                            "end": "2:00"}  # kept for the next single link
+
+
+def test_a_file_in_use_on_windows_is_not_blamed_on_the_folder():
+    from media_download import words
+    line = "ERROR: Unable to rename file: [WinError 32] The process cannot access the file"
+    assert "another program" in words.explain_failure(line, False, "YouTube", "").lower()
+    assert words.worth_updating_for("ERROR: [WinError 3] The system cannot find the path") is False
+    assert "folder" in words.explain_failure("ERROR: [WinError 3] The system cannot find the path", False, "YouTube", "")
+
+
+def test_a_wav_source_with_cover_art_never_asks_for_an_engine_update():
+    from media_download import words
+    assert words.worth_updating_for("ERROR: Postprocessing: Supported filetypes for thumbnail embedding are: mp3") is False
+
+
+def test_a_retried_failure_leaves_the_batch_tally(monkeypatch):
+    import json as _json
+    from media_download import manager as M
+    from media_download.jobs import Job
+
+    class Proc:
+        def __init__(self, lines):
+            self.stdout, self.pid = iter(lines), 0
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+    plan = {"a": [False, True], "b": [True]}
+    retried = threading.Event()
+
+    def held(lines):  # b keeps running until a has been retried, so both are in one batch
+        retried.wait(10)
+        yield from lines
+
+    def fake(task):
+        url = task["spec"]["url"]
+        if task["task"] == "probe":
+            return Proc([_json.dumps({"ev": "info", "title": url}), _json.dumps({"ev": "end", "ok": True})])
+        if url == "b":
+            plan[url].pop(0)
+            return Proc(held([_json.dumps({"ev": "end", "ok": True})]))
+        if plan[url].pop(0):
+            return Proc([_json.dumps({"ev": "end", "ok": True})])
+        return Proc([_json.dumps({"ev": "log", "text": "ERROR: Private video"}), _json.dumps({"ev": "end", "ok": False})])
+    monkeypatch.setattr(M, "_popen", fake)
+    ends = []
+    m = M.Manager({"app_parallel": 2}, lambda j, w, d=None: ends.append(d) if w == "all_done" else None)
+    dest = os.environ["MEDIA_DOWNLOAD_TEST_DIR"]
+    b = m.add(Job(url="b", dest=dest))
+    deadline = time.time() + 10
+    while b.state != "downloading" and time.time() < deadline:
+        time.sleep(0.05)
+    a = m.add(Job(url="a", dest=dest))
+    while a.state != "failed" and time.time() < deadline:
+        time.sleep(0.05)
+    m.retry(a)  # while b is still running: one batch, the failure already counted
+    retried.set()
+    deadline = time.time() + 10
+    while not ends and time.time() < deadline:
+        time.sleep(0.05)
+    assert ends and ends[-1]["done"] == 2 and ends[-1]["failed"] == 0

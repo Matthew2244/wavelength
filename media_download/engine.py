@@ -159,12 +159,22 @@ def save_settings(cfg: dict) -> None:
     """Write back only what this app changed, keeping everything else in the file as it is now.
     The `ytdl` command shares the file: writing every key the app loaded at startup undid a
     `ytdl --set` made while the app was open."""
-    try:
-        with open(CONFIG) as fh:
-            current = json.load(fh)
-        if not isinstance(current, dict):
+    current = None
+    for _ in range(3):
+        try:
+            with open(CONFIG) as fh:
+                current = json.load(fh)
+            break
+        except FileNotFoundError:
             current = {}
-    except (OSError, ValueError):
+            break
+        except (OSError, ValueError):
+            # Caught mid-write (the ytdl command saving at the same moment): saving over it
+            # now would keep only this app's changes and wipe every other setting.
+            time.sleep(0.2)
+    if current is None:
+        current = dict(_loaded)  # still unreadable: write back everything as last known
+    if not isinstance(current, dict):
         current = {}
     missing = object()
     changed = {k: v for k, v in cfg.items() if _loaded.get(k, missing) != v}
@@ -483,11 +493,14 @@ def update_engine(say=lambda s: None) -> tuple[str, str]:
     if _version_key(ver) <= _version_key(have):
         return "current", "The download engine is up to date (%s)." % have
     say("Updating the download engine from %s to %s." % (have, ver))
-    os.makedirs(ENGINES, exist_ok=True)
-    for name in os.listdir(ENGINES):
-        if name.startswith(".new-"):
-            shutil.rmtree(os.path.join(ENGINES, name), ignore_errors=True)
-    tmp = tempfile.mkdtemp(dir=ENGINES, prefix=".new-")
+    try:
+        os.makedirs(ENGINES, exist_ok=True)
+        for name in os.listdir(ENGINES):
+            if name.startswith(".new-"):
+                shutil.rmtree(os.path.join(ENGINES, name), ignore_errors=True)
+        tmp = tempfile.mkdtemp(dir=ENGINES, prefix=".new-")
+    except OSError as exc:
+        return "failed", "Couldn't update the download engine (%s). Still on %s." % (exc.strerror or exc, have)
     try:
         for url, sha in wheels:
             data = fetch(url, timeout=120)

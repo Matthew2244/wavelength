@@ -369,6 +369,7 @@ class MainFrame(wx.Frame):
         self._m(v, "Go to &Downloads List\tCtrl+D", lambda e: self._focus(self.list))
         self._m(v, "Go to D&etails\tCtrl+E", lambda e: self._focus(self.details))
         self._m(v, "&Filter the List\tCtrl+Shift+F", lambda e: self._focus(self.filter))
+        self._m(v, "Go to the D&ownloads Window\tCtrl+1", self.on_to_main)
         self._m(v, "Go to the &Player\tCtrl+2", self.on_to_player)
         self._m(v, "&What's Happening?\tCtrl+J", self.on_whats_happening)
         v.AppendSeparator()
@@ -462,11 +463,15 @@ class MainFrame(wx.Frame):
                     got["log"].append(ev.get("text", ""))
             run_task({"task": "probe", "spec": {"url": url, "dest": engine.TEMP, "kind": "best", "cookies": browser}},
                      on, timeout=900)
-            wx.CallAfter(self._browse, url, browser, got)
-        threading.Thread(target=work, daemon=True).start()
+            return got
+        dialogs.in_background(work, lambda got: self._browse(url, browser, got),
+                              lambda exc: {"log": [], "error": dialogs.failure_words(exc)})
 
     def _browse(self, url, browser, got):
         lst = got.get("list")
+        if got.get("error"):
+            self.tell(got["error"])
+            return
         if not lst or not lst.get("entries"):
             log = "\n".join(got["log"])
             self.tell(accounts.explain_signin(log, browser, words.site_name(url)) or
@@ -488,8 +493,11 @@ class MainFrame(wx.Frame):
             wx.CallAfter(self.play_links, [dict(e, cookies=browser) for e in chosen])
         elif self.folder_ready():
             fresh, already = self.add_entries(chosen)
-            self._sound("added")
-            self.tell_in_window("Added %s to download." % words.n(len(fresh), "item"), "Great")
+            if fresh:
+                self._sound("added")
+            text = ("Added %s to download." % words.n(len(fresh), "item") if fresh else "Nothing new added.") + \
+                (" %d %s already in the list." % (already, "was" if already == 1 else "were") if already else "")
+            self.tell_in_window(text, "Great" if fresh else "Okay")
 
     def signin_readable(self, browser: str) -> str | None:
         """None if the browser's sign-in can be read; else a sentence saying why not."""
@@ -511,6 +519,9 @@ class MainFrame(wx.Frame):
             self.tell("Using %s's sign-in." % accounts.spec_words(browser))
             return
         mac_fda = "Full Disk Access" in said and sys.platform == "darwin"
+        if not mac_fda:  # its own window: Escape closes it, which an OK-only box doesn't on the Mac
+            dialogs.message(self, said, "Sign-in can't be read")
+            return
         dlg = wx.MessageDialog(self, said + ("\n\nOpen that page of System Settings now?" if mac_fda else ""),
                                "Sign-in can't be read", (wx.OK | wx.CANCEL | wx.OK_DEFAULT) if mac_fda else wx.OK)
         if mac_fda:
@@ -587,11 +598,21 @@ class MainFrame(wx.Frame):
 
     # -------------------------------------------------------- adding
 
-    def _job_from_ui(self, url: str) -> Job:
-        o = self.next_opts
-        kind = [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()]
-        return Job(url=url, dest=self.cfg["to"], kind=kind,
-                   max_height=[h for h, _ in words.HEIGHTS][self.height.GetSelection()],
+    # More Options' choices that belong to one link: a file name, an exact stream, a section.
+    # Applied to many results at once they'd give ten files one name and one stream id.
+    PER_LINK = ("name", "format_id", "format_words", "format_audio_only", "start", "end")
+
+    def _picks(self) -> tuple:
+        """The Format and Video Quality choices, read from the window: main thread only."""
+        return ([k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()],
+                [h for h, _ in words.HEIGHTS][self.height.GetSelection()])
+
+    def _job_from_ui(self, url: str, per_link: bool = True, picks: tuple | None = None) -> Job:
+        """A job with the window's choices. `picks` (from _picks) lets a worker thread build one
+        without touching the controls."""
+        o = self.next_opts if per_link else {k: v for k, v in self.next_opts.items() if k not in self.PER_LINK}
+        kind, max_height = picks or self._picks()
+        return Job(url=url, dest=self.cfg["to"], kind=kind, max_height=max_height,
                    format_id=o.get("format_id", ""), format_audio_only=bool(o.get("format_audio_only")),
                    start=o.get("start", ""), end=o.get("end", ""), chapters=bool(o.get("chapters")),
                    subtitles=bool(o.get("subtitles")), transcript=bool(o.get("transcript")),
@@ -652,6 +673,7 @@ class MainFrame(wx.Frame):
             if first.id in self.rows:
                 self.list.SetSelection(self.rows.index(first.id))
                 self.show_details()
+                self._update_buttons()  # now, not at the next timer tick
             self.tell("Already in the list: %s." % words.job_name(first) if len(dupes) == 1
                       else "All %d are already in the list." % len(dupes))
             return 0
@@ -823,7 +845,7 @@ class MainFrame(wx.Frame):
                        if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
         fresh = []
         for e in entries:
-            job = self._job_from_ui(e["url"])
+            job = self._job_from_ui(e["url"], per_link=False)  # those wait for the next single link
             key = (job.url, job.kind, job.start, job.end, job.format_id)
             if key in pending:
                 continue
@@ -836,7 +858,7 @@ class MainFrame(wx.Frame):
             self.mgr.add(job)
             fresh.append(e)
         if fresh:
-            self.next_opts = {}
+            self.next_opts = {k: v for k, v in self.next_opts.items() if k in self.PER_LINK}
             self._show_opts()
             self.structure_changed = True
             self.refresh()
@@ -853,9 +875,22 @@ class MainFrame(wx.Frame):
         else:
             announce("That one's already in the list.")
 
+    def job_spec(self, url, picks=None):
+        """The probe spec for a link with the window's choices. Without `picks` it reads the
+        controls, so main thread only."""
+        return self._job_from_ui(url, picks=picks).spec()
+
     def look_up(self, url, done):
         """The full details of one result, off the main thread; done(info) back on it."""
-        threading.Thread(target=lambda: wx.CallAfter(done, self.probe_now(url)), daemon=True).start()
+        spec = self.job_spec(url)  # the controls are read here, never on the thread
+
+        def work():
+            try:
+                info = self.probe_now(url, spec)
+            except Exception as exc:  # noqa: BLE001 - a worker that couldn't start still answers
+                info = dialogs.failed_result(exc)
+            wx.CallAfter(done, info)
+        threading.Thread(target=work, daemon=True).start()
 
     # -------------------------------------------------------- choices
 
@@ -906,7 +941,9 @@ class MainFrame(wx.Frame):
 
     def on_more(self, _):
         link = (words.links_in(self.link.GetValue()) or [""])[0]
-        dlg = dialogs.MoreOptions(self, self.next_opts, link, self.probe_now)
+        picks = self._picks()  # the stream lookup runs on a thread; it can't read the controls
+        dlg = dialogs.MoreOptions(self, self.next_opts, link,
+                                  lambda u: self.probe_now(u, self.job_spec(u, picks)))
         if dlg.ShowModal() == wx.ID_OK:
             self.next_opts = {k: v for k, v in dlg.opts.items() if v}
             self._show_opts()
@@ -922,7 +959,9 @@ class MainFrame(wx.Frame):
         self.more_btn.SetToolTip(text + " " + MORE_TIP)  # Tab skips plain text; the button says it
         self.panel.Layout()
 
-    def probe_now(self, url):
+    def probe_now(self, url, spec=None):
+        """Look up one link. Called off the main thread, so the job is built from the window's
+        choices here only when no `spec` is given: callers on the main thread pass job_spec(url)."""
         out = {}
 
         def on(ev):
@@ -932,8 +971,7 @@ class MainFrame(wx.Frame):
                 out["error"] = "That link is a playlist; choose an exact stream for one item at a time."
             elif ev.get("ev") == "log":
                 out["log"] = out.get("log", "") + ev.get("text", "") + "\n"
-        job = self._job_from_ui(url)
-        run_task({"task": "probe", "spec": job.spec()}, on, timeout=180)
+        run_task({"task": "probe", "spec": spec or self.job_spec(url)}, on, timeout=180)
         if "log" in out and "formats" not in out:
             out["error"] = words.explain_failure(out["log"], False, words.site_name(url), accounts.signin(self.cfg))
         return out
@@ -1151,10 +1189,8 @@ class MainFrame(wx.Frame):
         entries = data.get("entries") or []
         title = data.get("title") or "This link"
         if not entries:
-            job.state = "failed"
-            job.reason = "That playlist is empty, or its items couldn't be listed."
-            self.dirty.add(job.id)
-            self.refresh()
+            # Through the manager, like any failure: counted, said, and the batch can close.
+            self.mgr.fail(job, "That playlist is empty, or its items couldn't be listed.")
             return
         url = job.url
         can_single = ("v=" in url and "list=" in url) or len(entries) == 1
@@ -1179,6 +1215,7 @@ class MainFrame(wx.Frame):
             else:
                 tl.Destroy()
                 self.mgr.remove(job)
+                self.mgr.pump()  # closes the batch if this was the last thing in it
                 self.tell_in_window("Nothing added from %s." % title, "Okay")
         elif ans == PQ.ONE:
             import urllib.parse as up
@@ -1195,6 +1232,7 @@ class MainFrame(wx.Frame):
             self.mgr.pump()
         else:
             self.mgr.remove(job)
+            self.mgr.pump()  # closes the batch if this was the last thing in it
             self.tell("Playlist not added.")
         self.structure_changed = True
         self.refresh()
@@ -1492,14 +1530,22 @@ class MainFrame(wx.Frame):
             return res
 
         def run_more(t, start):
-            res = {}
+            res, log, ended = {}, [], []
 
             def on(ev):
                 if ev.get("ev") == "candidates":
                     res["candidates"] = ev.get("items") or []
                     res["searched"] = ev.get("searched") or 0
+                elif ev.get("ev") == "log":
+                    log.append(ev.get("text") or "")
+                elif ev.get("ev") == "end":
+                    ended.append(bool(ev.get("ok")))
             run_task({"task": "find_versions", "title": t, "start": start, "count": describe.VERSIONS_PAGE},
                      on, timeout=600)
+            if not res.get("candidates") and ended != [True]:
+                # A failed look (network, timeout, a worker that died) must never read as the end
+                # of the search: say what happened, and Look Further stays on offer.
+                res["error"] = words.explain_failure("\n".join(log) or "The search timed out.", False, "YouTube")
             return res
 
         def make():
@@ -1611,6 +1657,7 @@ class MainFrame(wx.Frame):
         self.cfg["app_signin_browser"] = choice
         engine.save_settings(self.cfg)
         job.cookies = choice
+        job.cookie_fallback = ""  # retry() would otherwise put the old sign-in back over this choice
         job.engine_retry = False
         self.mgr.retry(job)
         self.tell_in_window("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice),
@@ -1669,6 +1716,7 @@ class MainFrame(wx.Frame):
         if self.rows:
             self.list.SetSelection(min(i, len(self.rows) - 1))
             self.show_details()
+        self._update_buttons()  # now, not at the next timer tick
         self.tell("Removed from the list: %s." % words.job_name(job))
 
     def on_clear(self, _):
@@ -1990,9 +2038,9 @@ class MainFrame(wx.Frame):
                                  wx.PD_APP_MODAL | wx.PD_AUTO_HIDE)
         state = {"text": "Starting...", "pct": 0, "done": False, "failed": []}
 
-        def say(t):
+        def say(t):  # on the download thread: speech goes through the main thread
             state["text"] = t
-            announce(t)
+            wx.CallAfter(announce, t)
 
         def progress(got, total):
             if total:

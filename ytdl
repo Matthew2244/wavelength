@@ -202,8 +202,11 @@ def load_config():
 def save_config(cfg):
     try:
         os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-        with open(CONFIG, "w") as fh:
+        # Whole or not at all: Wavelength reads this file too, and must never catch it half-written.
+        tmp = CONFIG + ".ytdl-tmp"
+        with open(tmp, "w") as fh:
             json.dump(cfg, fh, indent=2)
+        os.replace(tmp, CONFIG)
         return True
     except OSError as exc:
         say("Could not save your settings: %s" % exc)
