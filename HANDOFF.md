@@ -47,8 +47,9 @@ old ytdl-accessible feed address included (checked). Installed on the Studio and
 from the notarized zip (neither had the app open; verified 3.1.0, Gatekeeper "Notarized
 Developer ID", self-test OK; 3.1.1 the same way). Matthew's standing word: push and release
 every update without asking. Check `CFBundleShortVersionString` before assuming
-for any later release. No person has tried the Windows build yet: NVDA first, then the
-installer, WinSparkle and the sounds.
+for any later release. A friend of Matthew's has used the Windows build since 2026-10-15: Get
+Helper Tools failed for them on 3.6.0 and works from 3.6.2. Nothing else there has been
+checked with a person yet: NVDA, the installer, WinSparkle and the sounds.
 
 Downloads go to **Downloads > Media Downloads on the computer itself** by default,
 Mac and Windows (`engine.default_folder`; Windows asks for the real Downloads
@@ -115,7 +116,11 @@ fix (`worth_updating_for`), then one retry.
 present. Otherwise "Get Helper Tools" fetches them once into `.../tools/`. Mac:
 Martin Riedl's signed static ffmpeg builds, deno's GitHub release (sha256
 checked); each must pass `codesign --verify` and run. Windows: yt-dlp's own
-FFmpeg-Builds and deno's release.
+FFmpeg-Builds and deno's release. Deno's Windows `.sha256sum` is PowerShell's
+Algorithm/Hash/Path list, not "hash  name": `sha256_from` finds the hash in either.
+ffmpeg and ffprobe come as a pair from one folder (`ffmpeg_dir`), since yt-dlp looks
+for ffprobe only beside ffmpeg. `helpers-check` (Actions, run by hand) does the real
+download on x64 and ARM Windows.
 
 **The player** (`player.py`, `PlayerFrame`, one window, `main.player`). Plays
 files and links through `wx.media.MediaCtrl`: AVFoundation on the Mac (verified:
@@ -289,7 +294,8 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
    where the layout puts them elsewhere; `system.windows_name` names anything
    with no label before it (the progress bar).
 21. **The app's sounds are files, in themes**: `assets/sounds/<theme>/<event>.mp3`
-   (Mac, afplay, with `-v` for Settings' volume) and `.wav` (Windows, winsound).
+   (Mac, afplay, with `-v` for Settings' volume) and `.wav` (Windows: one MCI device per
+   sound so they overlap as on the Mac, winsound only as the fallback).
    Themes `rhodes` (default), `kalimba`, `pizzicato` (Kenney Music Jingles, CC0)
    and `soft` (Kenney Interface Sounds, CC0), each
    Kenney set with its `LICENSE-kenney.txt`, all in `CREDITS.md`; plus `system`
@@ -575,6 +581,15 @@ replace the unsigned Mac zip with the signed, notarized one. Watch CI to green.
 
 ## Tested
 
+- **3.6.1 to 3.6.3** (2026-10-15): a friend's report (helper tools failing on Windows) and two
+  sweeps by read-only reviewers, Mac and Windows, then the whole app by area. Proved on CI's
+  Windows machines, not only on the Mac: `helpers-check` ran Get Helper Tools for real on x64 and
+  ARM; `test_windows_swap_handles_accented_paths_with_spaces` ran the zip updater's swap.bat in a
+  `José Q` folder (it caught robocopy skipping same-size, same-time files); `test_altgr_letters_are_read_from_the_layout`
+  loaded the Polish, Hungarian and US layouts. The keep-your-file and WAV cover-art fixes were
+  reproduced first with a real yt-dlp download from a local server, then checked in four orders.
+  `test_a_retried_failure_leaves_the_batch_tally` fails without its fix. Nothing here was tried
+  with a screen reader by a person.
 - **3.6.0** (2026-10-14): Matthew asked for distinct shortcuts and a tidy Settings. The menus of the
   main window, Search and the player were read into one map (`test_every_shortcut_means_one_thing`);
   Settings and More Options were drawn to pictures (`tools/snap.py`) to check every control starts
@@ -793,15 +808,17 @@ family band trying it. Open threads, none started:
 - **The welcome tour and Set Up Accounts haven't been tried with VoiceOver by a
   person.** Driven over accessibility in the built app: the step text takes focus and
   reads first, steps count right, Next and Close work.
-- **Nobody has used the Windows build yet**, now including the installer's cleanup of
-  the old name, the Windows player keys, dark mode and Bigger Text on controls.
+- **One friend uses the Windows build** (helper tools confirmed working on 3.6.2). Not yet
+  tried by a person: the installer's cleanup of the old name, the Windows player keys,
+  dark mode, Bigger Text on controls, sounds overlapping, and AltGr letters on a real
+  Polish or Hungarian keyboard (tested only against the layouts on CI).
 
 - Audio description hasn't been heard by a person yet, and making one has only
   been tried on short videos. With no cap on moments, a two-hour film is
   hundreds of moments, so dozens of Claude calls and a long wait.
 - Windows can't play HLS, so YouTube video on Windows plays after downloading.
 
-- **Windows has not been tried by a person.** Speech there goes through Prism
+- **Windows speech hasn't been heard by a person yet.** It goes through Prism
   (`prismatoid`, MPL-2.0, bundles NVDA's controller client, LGPL): the first
   running reader of NVDA, JAWS, ZDSR, System Access, ZoomText, Sense Reader,
   PC-Talker, BoyPC, else UI Automation notifications (Narrator). Never SAPI or
