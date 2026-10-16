@@ -185,9 +185,12 @@ def test_whats_happening_names_what_is_downloading(frame, monkeypatch):
 
 def test_welcome_uses_the_first_name(frame, monkeypatch):
     monkeypatch.setattr(gui.words, "first_name", lambda: "Matthew")
+    monkeypatch.setattr(frame, "greeting", "")  # greetings switched off in Settings
     assert frame.welcome().startswith("Welcome to Wavelength, Matthew.")
     monkeypatch.setattr(gui.words, "first_name", lambda: "")
     assert frame.welcome().startswith("Welcome to Wavelength.")
+    monkeypatch.setattr(frame, "greeting", "Good morning, Matthew.")  # on: today's hello comes first
+    assert frame.welcome().startswith("Good morning, Matthew.\n\nWelcome to Wavelength.")
 
 
 def test_sounds_never_play_on_top_of_each_other(frame, monkeypatch):

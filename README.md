@@ -62,7 +62,7 @@ A link to a playlist or album asks whether you want all of it, some of it (check
 
 A few more are there just for fun, the same in every set: a bell when you finish the welcome tour, a little fanfare at your 100th, 250th and 1,000th download, a chime when a browser's sign-in checks out, and a little sound when Settings are saved. They're in Choose Sounds like the rest.
 
-**Bigger Text** (Command-Plus, or Control-Plus on Windows) reaches every window: Search, Settings, the player, every dialog and the status bar. Each section of Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
+**Bigger Text** (Command-Plus, or Control-Plus on Windows) reaches every window: Search, Settings, the player, every dialog and the status bar, and on both systems the buttons, pop-up menus and checkboxes grow with the text. Each section of Settings scrolls when it's taller than the screen, with Save and Cancel always in view. The player grows to fit its controls instead of cutting them off.
 
 **Your accounts.** In Settings, choose the browser you're signed in with, under Use a browser's sign-in. From then on every download, search and stream borrows that sign-in, so members-only, private and age-checked things work on any site that has them. Wavelength never asks for a password and never keeps one: the download engine reads your browser's sign-in when it needs it, and sends it only to the site it belongs to.
 
@@ -170,7 +170,7 @@ Help, About keeps a running tally of what you've downloaded ("Since October 13, 
 
 Settings comes in five sections, listed on the left; the chosen section's settings sit in one column on the right, each label above its control. Up and Down Arrow choose one, Tab goes into it, and Control-Tab moves to the next section from anywhere in the window, Control-Shift-Tab to the one before (Control on both systems, not Command). Changing section never moves you out of where you are. Every setting has a help tag that says what it does.
 
-- **General:** offering a link you've copied when you switch to the app (also when you open it), spoken progress, and keeping the download engine up to date.
+- **General:** offering a link you've copied when you switch to the app (also when you open it), a greeting that fits the time of day when the app opens (a different one most times; Monday mornings and Friday nights get their own), spoken progress, and keeping the download engine up to date.
 - **Downloads:** downloads at once (automatic is half your computer's cores, between two and eight), how many from the same site at once (three, so sites don't start refusing), pieces fetched at once within one download, a speed limit for shared or slow connections, cover art for audio files, and keeping the computer awake.
 - **Sounds:** the sound set, the volume, a sample, and Choose Sounds.
 - **Player:** how far Left and Right skip, playing the next item, remembering where you stopped, captions, and how audio description is read.

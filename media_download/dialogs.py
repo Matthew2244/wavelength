@@ -191,9 +191,9 @@ def fit_choices(win):
     for c in win.GetChildren():
         if isinstance(c, wx.Choice) and c.GetCount():
             dc = wx.ClientDC(c)
-            dc.SetFont(c.GetFont())
-            w = max(dc.GetTextExtent(c.GetString(i))[0] for i in range(c.GetCount()))
-            c.SetMinSize((w + 60, -1))
+            dc.SetFont(textsize.measuring_font(c))
+            w, th = max(tuple(dc.GetTextExtent(c.GetString(i))) for i in range(c.GetCount()))
+            c.SetMinSize((w + max(60, int(th * 3)), c.GetMinSize().height))
 
 
 def heading(dlg, sizer, text):
@@ -222,6 +222,7 @@ def buttons(dlg, ok_label, cancel_label="Cancel", default=True):
     if ok and default:
         ok.SetDefault()
     dlg.SetEscapeId(wx.ID_CANCEL)
+    textsize.apply_controls([ok, cancel])  # made after the window applied Bigger Text
     return row, ok, cancel
 
 
@@ -467,6 +468,9 @@ class Settings(wx.Dialog):
                           "When you come back to Wavelength with a link on the clipboard that it can download, "
                           "the link is put in the Link field and read out, ready for " + ENTER + ". Each link is "
                           "offered once.")
+        self.greet = check(p, s, "Greet me when Wavelength opens", cfg.get("app_greeting", True),
+                           "A hello that fits the time of day, said once as the app opens, and a different one "
+                           "most times. Turn it off for a quiet start.")
         self.say_vals = [0, 10, 30, 60]
         self.say = choice(p, s, "Speak progress while downloading:",
                           ["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"],
@@ -735,6 +739,7 @@ class Settings(wx.Dialog):
             "app_cover_art": self.cover.GetValue(), "app_sounds": self.sounds.GetValue(),
             "app_announce_progress": self.say_vals[self.say.GetSelection()],
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
+            "app_greeting": self.greet.GetValue(),
             "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),

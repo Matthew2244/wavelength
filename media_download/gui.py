@@ -107,6 +107,12 @@ class MainFrame(wx.Frame):
         self.pending_playlists: list = []
         self.asking = False
         self.update_info = None
+        self.greeting = ""
+        if self.cfg.get("app_greeting", True):
+            import datetime
+            self.greeting = words.greeting(datetime.datetime.now(), words.first_name(),
+                                           last=self.ui.Read("last_greeting", ""))
+            self.ui.Write("last_greeting", self.greeting)
         self.notices = []  # (sound, sentence) waiting for a moment nobody is in a dialog
         self.next_update_check = 0.0
         self.next_engine_check = 0.0
@@ -214,7 +220,7 @@ class MainFrame(wx.Frame):
         windows_name(self.list, "Downloads")
         self.list.SetToolTip("Select a download to read about it below. " + ENTER + " opens the file; "
                              "Delete removes the row (never the file). %s-K lists everything you can do with it." % CMD)
-        s.Add(self.list, 3, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        s.Add(self.list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)  # as much room as Details: it holds the full story of a row
 
         lab = wx.StaticText(p, label=M("Detail&s:"))
         self._texts.append(lab)
@@ -223,7 +229,7 @@ class MainFrame(wx.Frame):
         self.details.SetToolTip("Everything known about the selected download: status, where it's saved, its "
                                 "link, and the full error if it failed. Read only.")
         mac_accessibility_label(self.details, "Details")
-        s.Add(self.details, 2, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        s.Add(self.details, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
         self.play_btn = wx.Button(p, label=M("Play Selected"))
@@ -914,9 +920,9 @@ class MainFrame(wx.Frame):
         """A popup menu sizes itself to its first label on the Mac and cuts the rest off."""
         for c in (self.kind, self.height):
             dc = wx.ClientDC(c)
-            dc.SetFont(c.GetFont())
-            w = max(dc.GetTextExtent(c.GetString(i))[0] for i in range(c.GetCount()))
-            c.SetMinSize((w + 60, -1))
+            dc.SetFont(textsize.measuring_font(c))
+            w, th = max(tuple(dc.GetTextExtent(c.GetString(i))) for i in range(c.GetCount()))
+            c.SetMinSize((w + max(60, int(th * 3)), c.GetMinSize().height))
         self.panel.Layout()
 
     def _update_folder_text(self):
@@ -1030,6 +1036,8 @@ class MainFrame(wx.Frame):
             self.refresh()
 
     def welcome(self) -> str:
+        if self.greeting:  # today's hello first, then what the app is
+            return self.greeting + "\n\n" + WELCOME.format(name="")
         name = words.first_name()
         return WELCOME.format(name=", " + name if name else "")
 
@@ -1929,6 +1937,7 @@ class MainFrame(wx.Frame):
                     f.SetPointSize(self.text_pt)
                     c.SetFont(f)
                     c.InvalidateBestSize()
+        textsize.grow_mac_controls(self.panel, self.text_pt)
         self._fit_choices()
         self.panel.Layout()
         # Grow the window, up to the screen, so long labels at big sizes don't push buttons off the
@@ -1993,6 +2002,10 @@ class MainFrame(wx.Frame):
 
     def startup_checks(self):
         self._sound("opening")
+        if self.greeting and self.cfg.get("app_onboarded"):
+            # After the opening tune, once the screen reader has read the window; a first run
+            # has the welcome tour to say hello instead.
+            wx.CallLater(2200, self.notices.insert, 0, (None, self.greeting))
         # Someone new gets the welcome tour once; anyone who has downloaded before never does.
         if not self.cfg.get("app_onboarded"):
             if (self.cfg.get("app_stats") or {}).get("count"):

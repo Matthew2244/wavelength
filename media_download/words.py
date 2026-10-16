@@ -704,3 +704,54 @@ def clock_words(seconds) -> str:
     h, rest = divmod(total, 3600)
     m, s = divmod(rest, 60)
     return "%d:%02d:%02d" % (h, m, s) if h else "%d:%02d" % (m, s)
+
+
+# A hello that fits the time of day, said once as the app opens (Matthew, 2026-10-15: "detect
+# what point of the day it is and randomly say whatever... have fun"). Short, because it is
+# heard on every launch; "{n}" is ", Matthew" or nothing.
+GREETINGS = {
+    "late": ["Burning the midnight oil{n}?", "Still up{n}? Me too.", "Night owl hours{n}. Let's find something good.",
+             "The quiet hours{n}. Perfect for listening.", "Late-night session{n}. The best stuff happens now."],
+    "early": ["You're up early{n}.", "Early start{n}. Coffee first, then music?", "Up before the sun{n}? Respect.",
+              "The world's still asleep{n}. More bandwidth for us."],
+    "morning": ["Good morning{n}.", "Morning{n}. What are we tuning into today?", "Good morning{n}. Fresh day, fresh tracks.",
+                "Rise and shine{n}. Everything's warmed up.", "Morning{n}. Let's get something playing."],
+    "midday": ["Good afternoon{n}. Lunch-break listening?", "Hey{n}. Middle of the day, middle of the mix.",
+               "Afternoon{n}. What's on the menu?"],
+    "afternoon": ["Good afternoon{n}.", "Afternoon{n}. Need a soundtrack for the rest of the day?",
+                  "Hey{n}. Halfway through the day already.", "Good afternoon{n}. Ready when you are."],
+    "evening": ["Good evening{n}.", "Evening{n}. Time to wind down with something good.", "Good evening{n}. Showtime.",
+                "Hey{n}. The evening set starts now."],
+    "night": ["Good evening{n}. One more before bed?", "Late one tonight{n}?", "Night{n}. Let's find something smooth.",
+              "Winding down{n}? I've got you."],
+}
+GREETINGS_DAY = {
+    "monday_morning": ["Happy Monday{n}. We'll get through it together.", "Monday morning{n}. Let's ease into it."],
+    "friday_evening": ["Happy Friday{n}. The weekend starts now.", "It's Friday night{n}. Turn it up."],
+    "weekend_morning": ["Weekend morning{n}. No rush at all.", "Lazy weekend morning{n}? Good plan."],
+    "new_year": ["Happy New Year{n}!"],
+}
+
+
+def day_part(hour: int) -> str:
+    return ("late" if hour < 4 else "early" if hour < 7 else "morning" if hour < 12 else "midday" if hour < 14
+            else "afternoon" if hour < 17 else "evening" if hour < 21 else "night")
+
+
+def greeting(now, name: str = "", last: str = "", rng=None) -> str:
+    """One greeting for this moment, never the same line as `last`."""
+    import random
+    rng = rng or random
+    part = day_part(now.hour)
+    pool = list(GREETINGS[part])
+    if now.month == 1 and now.day == 1:
+        pool = GREETINGS_DAY["new_year"] * 3 + pool
+    elif now.weekday() == 0 and part in ("early", "morning"):
+        pool += GREETINGS_DAY["monday_morning"]
+    elif now.weekday() == 4 and part in ("evening", "night"):
+        pool += GREETINGS_DAY["friday_evening"]
+    elif now.weekday() >= 5 and part in ("early", "morning"):
+        pool += GREETINGS_DAY["weekend_morning"]
+    lines = [g.format(n=", " + name if name else "") for g in pool]
+    fresh = [g for g in lines if g != last] or lines
+    return rng.choice(fresh)

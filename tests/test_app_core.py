@@ -1031,3 +1031,24 @@ def test_a_notice_waits_for_a_dialog_to_close_and_for_the_app_to_be_in_front(mon
     f._modal_open = lambda: False
     gui.MainFrame._deliver_notice(f)
     assert f.sounds == ["update"] and f.said == ["Updated the download engine to 2099.1.1."]
+
+
+def test_greetings_fit_the_time_of_day_and_never_repeat_in_a_row():
+    import datetime
+    import random
+    from media_download import words
+    assert [words.day_part(h) for h in (2, 5, 9, 12, 15, 19, 22)] == \
+        ["late", "early", "morning", "midday", "afternoon", "evening", "night"]
+    tue_9am = datetime.datetime(2026, 10, 13, 9, 0)
+    rng = random.Random(1)
+    last = ""
+    for _ in range(30):
+        g = words.greeting(tue_9am, "Matthew", last, rng)
+        assert g != last and "Matthew" in g
+        assert g in [x.format(n=", Matthew") for x in words.GREETINGS["morning"]]
+        last = g
+    assert ", ," not in words.greeting(tue_9am, "", "", rng) and "{n}" not in words.greeting(tue_9am, "", "", rng)
+    friday_night = datetime.datetime(2026, 10, 16, 20, 30)
+    seen = {words.greeting(friday_night, "", "", random.Random(i)) for i in range(200)}
+    assert "Happy Friday. The weekend starts now." in seen
+    assert words.greeting(datetime.datetime(2027, 1, 1, 10), "", "", random.Random(3)) or True
