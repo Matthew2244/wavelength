@@ -24,9 +24,11 @@ What's here:
 
 ## Get the app
 
-**Mac:** download `Wavelength-mac.zip` from the [latest release](https://github.com/Matthew2244/wavelength/releases/latest), open it, and drag Wavelength into Applications. It's signed and notarized by Apple, so it opens without a warning.
+**Mac:** [download Wavelength for Mac](https://github.com/Matthew2244/wavelength/releases/latest/download/Wavelength-mac.zip), open the zip, and drag Wavelength into Applications. It's signed and notarized by Apple, so it opens without a warning.
 
-**Windows:** download `Wavelength-Setup.exe` from the same page and run it. It installs just for you, with no administrator password, adds Wavelength to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway. (`Wavelength-windows.zip` is there too, if you'd rather not install anything.)
+**Windows:** [download Wavelength for Windows](https://github.com/Matthew2244/wavelength/releases/latest/download/Wavelength-Setup.exe) and run it. It installs just for you, with no administrator password, adds Wavelength to the Start menu, and can be removed from Settings, Apps. Windows may say it doesn't recognise the app; choose More info, then Run anyway.
+
+On Windows, if you'd rather not install anything, [download the Windows zip](https://github.com/Matthew2244/wavelength/releases/latest/download/Wavelength-windows.zip) instead.
 
 The app updates itself, with [Sparkle](https://sparkle-project.org) on the Mac and its twin WinSparkle on Windows. While it's open it looks every few hours. When a new version is out you hear the update sound and one sentence saying so, once per version, and nothing pops up over what you're doing; if a dialog is open or you're in another app, it waits until you're back. Help, Check for App Updates shows what's new and offers Install Update, Remind Me Later or Skip This Version, with the same sound as it opens. Every update is signed, and the app refuses one that isn't, so nobody but the author can push an update to you. (The zip version on Windows updates itself in place instead.) The download engine inside the app, [yt-dlp](https://github.com/yt-dlp/yt-dlp), keeps itself current too, without waiting for a new app, and plays the same sound when it does.
 
