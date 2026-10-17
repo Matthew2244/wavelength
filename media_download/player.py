@@ -322,7 +322,7 @@ class PlayerFrame(wx.Frame):
         add("Quieter (Down Arrow)", lambda: self.volume_step(-1))
         add("A Little Louder (Shift-Up)", lambda: self.volume_step(+1, small=True))
         add("A Little Quieter (Shift-Down)", lambda: self.volume_step(-1, small=True))
-        add("Mute or Unmute (M)", self.toggle_mute)
+        add("Mute or Unmute (M or K)", self.toggle_mute)  # K: the same letter as Control-Alt-K from anywhere
         add("Say the Speed and Volume (V)", self.say_levels)
         m.AppendSeparator()
         add("Say the Time (T)", self.say_time)
@@ -1088,7 +1088,7 @@ class PlayerFrame(wx.Frame):
                 event.Skip()
         elif mods == 0 and key in (ord("T"), ord("t")):
             self.say_time()
-        elif mods == 0 and key in (ord("M"), ord("m")):
+        elif mods == 0 and key in (ord("M"), ord("m"), ord("K"), ord("k")):
             self.toggle_mute()
         elif mods == 0 and key in (ord("V"), ord("v")):
             self.say_levels()

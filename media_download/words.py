@@ -41,6 +41,23 @@ WHAT_IT_IS = (
     "and the site's own terms. YouTube's terms, for example, only allow downloading where YouTube shows a "
     "download button. That part is up to you, so respect the people who made the work. This isn't legal "
     "advice.")
+def no_file_yet(job) -> str:
+    """Why a row has no file to open or show, and what would help; never a bare "not yet"."""
+    state = getattr(job, "state", "")
+    if state == "failed":
+        return ("That one failed, so there's no file. Details says why, and Retry tries again (%s-Shift-R)."
+                % ("Command" if sys.platform == "darwin" else "Control"))
+    if state == "stopped":
+        return "That one stopped before it finished. Retry carries on from where it stopped."
+    if state == "downloading":
+        return "Still downloading, %d percent." % int(getattr(job, "percent", 0) or 0)
+    if state in ("converting", "looking", "waiting", "waiting_choice"):
+        return "Not finished yet: it's %s." % {"converting": "being finished off", "looking": "being looked up",
+                                               "waiting": "waiting its turn",
+                                               "waiting_choice": "waiting for your choice"}[state]
+    return "Its file isn't there any more. It may have been moved or deleted."
+
+
 TOUR_LEFT = "No problem. Help, Welcome Tour brings the tour back whenever you like."
 
 
@@ -396,8 +413,9 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
     if "confirm you" in lowered or "not a bot" in lowered or "http error 403" in lowered \
             or "sign in to confirm" in lowered:
         if cookies_used:
-            return ("%s refused it even with your browser's sign-in. Try a different browser "
-                    "in More Options." % who)
+            return ("%s refused it even with your browser's sign-in. Check that browser is signed in to "
+                    "%s, or choose Retry Using a Browser's Sign-in in the Downloads menu to try another."
+                    % (who, site or "the site"))
         return ("%s wants a signed-in browser for this one. Choose Retry Using a Browser's Sign-in in the "
                 "Downloads menu." % who)
     if "http error 429" in lowered or "too many requests" in lowered:

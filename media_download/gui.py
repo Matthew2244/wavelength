@@ -232,11 +232,13 @@ class MainFrame(wx.Frame):
         s.Add(self.details, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         row = wx.BoxSizer(wx.HORIZONTAL)
+        # Play Selected and Remove from List have no Alt letter: every one in them is taken by another
+        # control or a menu. Their keys are in their help tags (Control-P, Control-Backspace).
         self.play_btn = wx.Button(p, label=M("Play Selected"))
         self.play_btn.SetToolTip("Play the selected download in the player, or stream it from its link if the file "
                                  "isn't here (%s-P). If it's already playing, this pauses it." % CMD)
         self.open_btn = wx.Button(p, label=M("&Open"))
-        self.show_btn = wx.Button(p, label="Show in %s" % FOLDER_APP)
+        self.show_btn = wx.Button(p, label=M("Show in File E&xplorer" if FOLDER_APP == "File Explorer" else "Show in %s" % FOLDER_APP))
         self.stop_btn = wx.Button(p, label=M("S&top"))
         self.retry_btn = wx.Button(p, label=M("&Retry"))
         self.remove_btn = wx.Button(p, label=M("Remove from List"))
@@ -323,8 +325,8 @@ class MainFrame(wx.Frame):
         self._m(f, "&Search...\tCtrl+F", self.on_search)
         self._m(f, "Download &Links from the Clipboard\tCtrl+Shift+V", self.on_paste_links)
         self._m(f, "Download Links from a &Text File...\tCtrl+O", self.on_open_list)
+        # One way in: with no browser chosen yet, it starts with the setup steps.
         self._m(f, "Your &Accounts...\tCtrl+U", self.on_accounts)
-        self._m(f, "Set &Up Accounts...", lambda e: self.on_guide("accounts"))
         f.AppendSeparator()
         self._m(f, "&Change Download Folder...", self.on_folder)
         self._m(f, "Open Download &Folder\tCtrl+Shift+O", lambda e: self._open_folder())
@@ -350,7 +352,7 @@ class MainFrame(wx.Frame):
         self._m(d, "&Play or Pause\tCtrl+P", lambda e: self.on_play())
         self._m(d, "Play &All Finished\tCtrl+Shift+P", lambda e: self.on_play_all())
         self._m(d, "Play the Link &Without Downloading\tCtrl+Shift+Return", lambda e: self.on_play_link())
-        self._m(d, "Audio &Description...\tCtrl+Shift+A", lambda e: self.on_describe())
+        self._m(d, "Find or Make Audio &Description...\tCtrl+Shift+A", lambda e: self.on_describe())
         d.AppendSeparator()
         self._m(d, "&Open File\tCtrl+Down", self.on_open)
         self._m(d, "Show in %s\tCtrl+R" % FOLDER_APP, self.on_show)
@@ -439,7 +441,16 @@ class MainFrame(wx.Frame):
             self.tell_in_window(words.TOUR_LEFT)
 
     def on_accounts(self, _=None):
-        dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin)
+        """Your Accounts. Someone who hasn't chosen a browser yet gets the setup steps first, and
+        Your Accounts after them, so there's one place to go instead of two."""
+        if not accounts.signin(self.cfg):
+            guide = dialogs.Guide(self, self.cfg, self, "accounts", opens_accounts=True)
+            finished = guide.ShowModal() == wx.ID_OK
+            guide.Destroy()
+            if not (finished and accounts.signin(self.cfg)):
+                self.link.SetFocus()
+                return
+        dlg = dialogs.AccountsDialog(self, self.cfg, self.check_signin, main=self)
         dlg.ShowModal()
         result = dlg.result
         dlg.Destroy()
@@ -1533,7 +1544,7 @@ class MainFrame(wx.Frame):
         if urls:
             self.describe_dialog(urls[0], "", None)
         else:
-            self.tell("Select a download, or put a link in the Link field, then choose Audio Description.")
+            self.tell("Select a download, or put a link in the Link field, then choose Find or Make Audio Description.")
 
     def describe_dialog(self, url, title, path):
         def run_find(u):
@@ -1628,7 +1639,7 @@ class MainFrame(wx.Frame):
         job = self.selected()
         files = [f for f in (job.files if job else []) if os.path.exists(f)]
         if not files:
-            self.tell("Nothing to open yet." if job else "Select a download first.")
+            self.tell(words.no_file_yet(job) if job else "Select a download first.")
             return
         open_path(files[0])
 
@@ -1642,25 +1653,43 @@ class MainFrame(wx.Frame):
             reveal(files)
         elif os.path.isdir(job.folder()):
             open_path(job.folder())
+        else:
+            self.tell(words.no_file_yet(job))
 
     def on_stop(self, _):
         job = self.selected()
-        if job and (job.state in ACTIVE or job.state == "waiting"):
+        if not job:
+            self.tell("Select a download first.")
+        elif job.state in ACTIVE or job.state == "waiting":
             self.mgr.stop(job)
             self._sound("stopped")
             self.tell("Stopped: %s. Retry carries on from where it stopped." % words.job_name(job))
+        else:
+            self.tell("That one isn't downloading.")
 
     def on_stop_all(self, _):
         k = self.mgr.stop_all()
         if k:
             self._sound("stopped")
-        self.tell("Stopped %s." % words.n(k, "download") if k else "Nothing is downloading.")
+        self.tell("Stopped %s. Resume Unfinished in the Downloads menu carries them on." % words.n(k, "download")
+                  if k else "Nothing is downloading.")
 
     def on_retry(self, _):
         job = self.selected()
-        if job and job.state in ("failed", "stopped"):
+        if not job:
+            self.tell("Select a download first.")
+        elif job.state in ("failed", "stopped"):
+            self._to_current_folder(job)
             self.mgr.retry(job)
             self.tell("Trying again: %s." % words.job_name(job))
+        else:
+            self.tell("That one hasn't failed or stopped, so there's nothing to retry.")
+
+    def _to_current_folder(self, job):
+        """A retry of something that never saved a file goes to the folder the window shows now,
+        so "choose another folder, then Retry" (what a full or unplugged drive is told) works."""
+        if not job.files and job.task == "download" and self.cfg.get("to") and job.dest != self.cfg["to"]:
+            job.dest = self.cfg["to"]
 
     def on_retry_signin(self, _):
         """For members-only, age-checked or "not a bot" failures: borrow a browser's sign-in."""
@@ -1668,13 +1697,14 @@ class MainFrame(wx.Frame):
         if not job or job.state not in ("failed", "stopped"):
             self.tell("Select a failed download first.")
             return
-        names = [b for b in dialogs.browser_choices(self.cfg.get("app_signin_browser") or "") if b[0]]
+        # The one last used here, else the one Your Accounts uses, else the default browser (listed first).
+        last = self.cfg.get("app_signin_browser") or accounts.signin(self.cfg) or ""
+        names = [b for b in dialogs.browser_choices(last) if b[0]]
         keys = [b[0] for b in names]
         dlg = wx.SingleChoiceDialog(
             self, "Which browser are you signed in with? Wavelength borrows that sign-in for this "
             "download only. Nothing is sent anywhere else.", "Retry Using a Browser's Sign-in",
             [b[1] for b in names])
-        last = self.cfg.get("app_signin_browser") or ""
         if last in keys:
             dlg.SetSelection(keys.index(last))
         go = dlg.ShowModal() == wx.ID_OK
@@ -1687,6 +1717,7 @@ class MainFrame(wx.Frame):
         job.cookies = choice
         job.cookie_fallback = ""  # retry() would otherwise put the old sign-in back over this choice
         job.engine_retry = False
+        self._to_current_folder(job)
         self.mgr.retry(job)
         self.tell_in_window("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice),
                                                                       words.job_name(job)), "Okay")
@@ -1695,6 +1726,7 @@ class MainFrame(wx.Frame):
         with self.mgr.lock:
             failed = [j for j in self.mgr.jobs if j.state == "failed"]
         for j in failed:
+            self._to_current_folder(j)
             self.mgr.retry(j)
         self.tell("Trying %s again." % words.n(len(failed), "download") if failed else "Nothing has failed.")
 
@@ -1724,6 +1756,7 @@ class MainFrame(wx.Frame):
             return
         job = self.selected()
         if not job:
+            self.tell("Select a download first.")
             return
         if job.state in ACTIVE and not self._modal_open():
             # Removing a running download throws away what it has fetched so far, and a stray
@@ -1765,8 +1798,11 @@ class MainFrame(wx.Frame):
             return
         job = self.selected()
         if not job:
+            self.tell("Select a download first.")
             return
-        self.mgr.move(job, delta)
+        if not self.mgr.move(job, delta):
+            self.tell("Already at the %s." % ("top" if delta < 0 else "bottom"))
+            return
         self.structure_changed = True
         self.refresh()
         self.tell("Moved %s." % ("up" if delta < 0 else "down"))
@@ -1788,7 +1824,7 @@ class MainFrame(wx.Frame):
             menus.item("Play the Link Without Downloading", lambda: self.play_links([{
                 "url": job.url, "title": job.title, "uploader": job.uploader, "uploaded": job.upload_date,
                 "uploaded_ts": job.upload_ts, "approx": job.upload_approx}]), job.url.startswith("http")),
-            menus.item("Audio Description...", self.on_describe, keys="Ctrl+Shift+A"),
+            menus.item("Find or Make Audio Description...", self.on_describe, keys="Ctrl+Shift+A"),
             menus.SEP,
             menus.item("Stop", lambda: self.on_stop(None), active, "Ctrl+."),
             menus.item("Retry", lambda: self.on_retry(None), job.state in ("failed", "stopped"), "Ctrl+Shift+R"),
@@ -1837,6 +1873,8 @@ class MainFrame(wx.Frame):
         job = self.selected()
         if job:
             self.copy(job.url, "Link copied.")
+        else:
+            self.tell("Select a download first.")
 
     def on_whats_happening(self, _):
         c = self.mgr.counts()
@@ -1999,6 +2037,8 @@ class MainFrame(wx.Frame):
                 lines.extend(found)
                 lines.append("")
         lines.append("In the player: Space plays and pauses, Left and Right skip, Shift with them a minute, "
+                     "Up and Down the volume, Shift with them a little, M or K mutes, V says the speed and "
+                     "volume, Page Up and Page Down the item before or after, "
                      "T says the time, C captions, D audio description, [ and ] or < and > speed, N normal speed, "
                      "Escape closes. "
                      "%s goes back to the downloads window, and %s from there to the player."

@@ -321,8 +321,20 @@ class MoreOptions(wx.Dialog):
 
     def on_pick(self, _):
         if not self.link or not words.looks_like_link(self.link):
-            message(self, "Put a link in the Link field first, then press Choose Exact Stream again.", "No link yet")
-            return
+            copied = ""
+            if wx.TheClipboard.Open():
+                try:
+                    data = wx.TextDataObject()
+                    if wx.TheClipboard.GetData(data):
+                        copied = (words.links_in(data.GetText()) or [""])[0]
+                finally:
+                    wx.TheClipboard.Close()
+            if not copied:
+                message(self, "Choose Exact Stream needs a link. Copy one, or close this with Keep These Options, "
+                        "put it in the Link field, and come back.", "No link yet")
+                return
+            self.link = copied
+            say("Using the link on the clipboard.")
         if getattr(self, "_picking", False):
             return  # already looking; the button stays enabled so focus isn't thrown off it
         self._picking = True
@@ -486,8 +498,15 @@ class Settings(wx.Dialog):
                          "Sites change often and the engine (yt-dlp) keeps up. Checks once a day, and again "
                          "when a download fails. Wavelength itself updates separately.")
 
-        # ---- Downloads: how hard the app works
+        # ---- Downloads: where they go, and how hard the app works
         p, s = page()
+        # Where people look first in Settings; the main window shows it too. Saved as soon as chosen.
+        self.folder_words = wx.StaticText(p, label="")
+        s.Add(self.folder_words, 0, wx.ALL, 6)
+        self.folder_btn = wx.Button(p, label="Change Folder...")
+        self.folder_btn.Bind(wx.EVT_BUTTON, lambda e: self.on_folder())
+        s.Add(self.folder_btn, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        self._fill_folder()
         auto = engine.auto_parallel()
         self.parallel_vals = [0] + list(range(1, 13))
         self.parallel = choice(p, s, "Downloads at once:",
@@ -586,8 +605,12 @@ class Settings(wx.Dialog):
                              "Every download, search and stream borrows the sign-in this browser already has, so "
                              "members-only, private and age-checked things work, and File, Your Accounts opens "
                              "your likes, Watch Later and playlists. No password is asked for or kept; the "
-                             "sign-in goes only to the site it belongs to. File, Set Up Accounts walks you "
-                             "through it.")
+                             "sign-in goes only to the site it belongs to. Walk Me Through It helps you choose.")
+        walk = wx.Button(p, label="Walk Me Through It...")
+        walk.SetToolTip("Step by step: choose the browser you're signed in with, let Wavelength read it, and "
+                        "sign in to YouTube and SoundCloud. What you choose there shows here when you're back.")
+        walk.Bind(wx.EVT_BUTTON, lambda e: self.on_walk_through())
+        s.Add(walk, 0, wx.ALL, 6)
 
         for p in self.pages:
             fit_choices(p)
@@ -721,6 +744,37 @@ class Settings(wx.Dialog):
         speaking, so nothing plays by itself (Matthew, 2026-10-13)."""
         from .system import play
         play(kind, self._theme_now(), self._vol_now(), self.sound_map)
+
+    def _fill_folder(self):
+        where = words.pretty_folder(self.cfg.get("to", ""))
+        self.folder_words.SetLabel("Saving to: " + where)
+        # Tab skips plain text, so the button says where too, as in the main window and the tour.
+        self.folder_btn.SetToolTip("Saving to %s. Choose another folder. It's saved as soon as you choose." % where)
+        mac_accessibility_label(self.folder_btn, "Change Folder. Now saving to %s" % where)
+        windows_name(self.folder_btn, "Change Folder. Now saving to %s" % where)
+
+    def on_folder(self):
+        main = self.GetParent()
+        if hasattr(main, "on_folder"):
+            main.on_folder(None, parent=self)
+            self._fill_folder()
+            self.folder_btn.SetFocus()
+
+    def on_walk_through(self):
+        """The accounts steps from Settings; afterwards the choice here shows what they chose, so
+        Save can never put the old browser back."""
+        main = self.GetParent()
+        if not hasattr(main, "signin_readable"):
+            return
+        g = Guide(self, self.cfg, main, "accounts")
+        g.ShowModal()
+        g.Destroy()
+        sv = self.cfg.get("app_signin", "") or ""
+        blist = browser_choices(sv)
+        self.signin_vals = [b[0] for b in blist]
+        self.signin.Set([b[1] for b in blist])
+        self.signin.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
+        self.signin.SetFocus()
 
     def on_pick_sounds(self, _):
         dlg = SoundPicker(self, self.sound_map, self._theme_now, self._vol_now)
@@ -1136,16 +1190,19 @@ def accounts_words(spec):
     return accounts.spec_words(spec)
 
 
+MAC_K = 40  # the K key's code on a Mac keyboard (kVK_ANSI_K)
+
+
 class AccountsDialog(wx.Dialog):
     """Your accounts: the places that exist only when you're signed in (Liked videos, Watch
     Later, subscriptions, your SoundCloud likes...). Open one as a list to check and download, or
     play it. Acting closes this window first, so the player never opens over a modal one."""
 
-    def __init__(self, parent, cfg: dict, check):
+    def __init__(self, parent, cfg: dict, check, main=None):
         super().__init__(parent, title="Your Accounts", size=(700, 520),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         from . import accounts
-        self.cfg, self.check = cfg, check
+        self.cfg, self.check, self.main = cfg, check, main
         self.keys = [c[0] for c in accounts.COLLECTIONS]
         self.result = None  # ("list" | "play", address), read once the window has closed
         s = wx.BoxSizer(wx.VERTICAL)
@@ -1158,9 +1215,7 @@ class AccountsDialog(wx.Dialog):
         labelled(self, s, "Borrow the sign-in from:", self.browser, _label,
                  "The browser you're signed in with. Wavelength reads its sign-in when it needs it; no password "
                  "is asked for or kept. The same choice is in Settings.")
-        self.status = WrapText(self, label="Choose one, then Play All, Choose What to Play, or Download "
-                                               "Everything from its right-click menu. Nothing happens until you "
-                                               "pick. Check Sign-in tests YouTube first.")
+        self.status = WrapText(self, label=self._intro())
         s.Add(self.status, 0, wx.ALL, 8)
         lab = wx.StaticText(self, label="Your things:")
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 8)
@@ -1182,8 +1237,15 @@ class AccountsDialog(wx.Dialog):
         prof_b = wx.Button(self, label="Change Profile Name...")
         prof_b.SetToolTip("Change the SoundCloud profile name used for your likes, tracks and playlists: the part "
                           "after soundcloud.com/ in your page's address.")
-        for b in (play_b, open_b, check_b, prof_b):
-            row.Add(b, 0, wx.RIGHT, 6)
+        self.setup_b = None
+        if main is not None:
+            self.setup_b = wx.Button(self, label="Set Up Sign-in...")
+            self.setup_b.SetToolTip("Step by step: choose a browser, let Wavelength read it, and sign in to "
+                                    "YouTube and SoundCloud there. For when Check Sign-in says something's missing.")
+            self.setup_b.Bind(wx.EVT_BUTTON, lambda e: self.on_setup())
+        for b in (play_b, open_b, check_b, prof_b, self.setup_b):
+            if b is not None:
+                row.Add(b, 0, wx.RIGHT, 6)
         s.Add(row, 0, wx.ALL, 6)
         brow, _, close = buttons(self, "", "Close")
         close.SetToolTip("Closes Your Accounts (Escape). The browser choice is already saved.")
@@ -1201,7 +1263,70 @@ class AccountsDialog(wx.Dialog):
                                          menus.item("Download Everything...", lambda: self.act("list")),
                                          menus.item("Open the Web Page", self.open_page),
                                          menus.item("Copy Link", self.copy_link)])
+        # Command-K, as in the main window and Search: the row's menu, where Download Everything is.
+        # On the Mac through the app's key monitor, so the main window's own Command-K never answers
+        # from behind this one.
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_key)
+        from .system import add_key_monitor
+        self._monitor = add_key_monitor(self._on_mac_key)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
         self.list.SetSelection(0)
+        self.list.SetFocus()
+
+    def _intro(self):
+        from . import accounts
+        sv = accounts.signin(self.cfg)
+        who = ("Using %s's sign-in. " % accounts.spec_words(sv)) if sv else "Choose the browser you're signed in with. "
+        return (who + "Pick one of your things, then Play All or Choose What to Play. Download Everything, "
+                "Open the Web Page and Copy Link are in its right-click menu (%s-K)." % CMD)
+
+    def _on_key(self, event):
+        if event.GetKeyCode() == ord("K") and event.CmdDown() and not event.ShiftDown() and not event.AltDown():
+            self.show_menu()
+            return
+        event.Skip()
+
+    def _on_mac_key(self, code, flags) -> bool:
+        from .system import MAC_COMMAND, MAC_CONTROL, MAC_OPTION, MAC_SHIFT
+        if code != MAC_K or not flags & MAC_COMMAND or flags & (MAC_OPTION | MAC_SHIFT | MAC_CONTROL):
+            return False
+        if not self or not self.IsActive():
+            return False
+        wx.CallAfter(lambda: self and self.show_menu())
+        return True
+
+    def show_menu(self):
+        if self.list.GetSelection() == wx.NOT_FOUND:
+            self.list.SetSelection(0)
+        self.list.SetFocus()
+        self.list._context_menu()
+
+    def _on_destroy(self, event):
+        if event.GetEventObject() is self and getattr(self, "_monitor", None):
+            from .system import remove_key_monitor
+            remove_key_monitor(self._monitor)
+            self._monitor = None
+        event.Skip()
+
+    def Destroy(self):  # noqa: N802 - wx's name; a dialog's destroy event can come late
+        if getattr(self, "_monitor", None):
+            from .system import remove_key_monitor
+            remove_key_monitor(self._monitor)
+            self._monitor = None
+        return super().Destroy()
+
+    def on_setup(self):
+        """The setup steps over this window; the browser choice here follows what they chose."""
+        g = Guide(self, self.cfg, self.main, "accounts")
+        g.ShowModal()
+        g.Destroy()
+        sv = self.cfg.get("app_signin", "") or ""
+        blist = browser_choices(sv, "Choose a browser")
+        self.signin_vals = [b[0] for b in blist]
+        self.browser.Set([b[1] for b in blist])
+        self.browser.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
+        self.status.SetLabel(self._intro())
+        self.Layout()
         self.list.SetFocus()
 
     def _browser(self):
@@ -1211,6 +1336,7 @@ class AccountsDialog(wx.Dialog):
         from . import engine
         self.cfg["app_signin"] = self._browser()
         engine.save_settings(self.cfg)
+        self.status.SetLabel(self._intro())
 
     def ask_profile(self, service, force=False) -> bool:
         from . import accounts, engine
@@ -1325,11 +1451,12 @@ class Guide(wx.Dialog):
                 ("YouTube Music", "https://music.youtube.com/", "youtube"),
                 ("SoundCloud", "https://soundcloud.com/signin", "soundcloud")]
 
-    def __init__(self, parent, cfg: dict, main, start: str = "welcome"):
+    def __init__(self, parent, cfg: dict, main, start: str = "welcome", opens_accounts: bool = False):
         super().__init__(parent, title="Welcome to Wavelength" if start == "welcome" else "Set Up Accounts",
                          size=(720, 560), style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         from . import accounts
         self.cfg, self.main, self.acc = cfg, main, accounts
+        self.opens_accounts = opens_accounts  # File, Your Accounts with nothing set up: it opens after this
         self.order = (["welcome", "folder", "format", "sounds", "accounts"] if start == "welcome" else []) + \
             ["browser", "permission", "services", "done"]
         # The tour starts on "Not now" for accounts, so its step count starts without them.
@@ -1354,7 +1481,7 @@ class Guide(wx.Dialog):
         self.close = wx.Button(self, wx.ID_CANCEL, self.LEAVE[self.tour])
         self.close.SetToolTip(("Leaves the tour now (Escape), keeping what you've chosen so far. Help, Welcome "
                                "Tour brings it back any time.") if self.tour else
-                              "Leaves now (Escape), keeping what's already chosen. File, Set Up Accounts brings "
+                              "Leaves now (Escape), keeping what's already chosen. File, Your Accounts brings "
                               "this back any time.")
         row.Add(self.close, 0, wx.ALL, 6)
         row.AddStretchSpacer()
@@ -1485,12 +1612,12 @@ class Guide(wx.Dialog):
                    "your browser already has, for YouTube, SoundCloud and other sites. That way members-only and "
                    "private videos work, and I can open your Liked videos, Watch Later, subscriptions and likes. I "
                    "never ask for a password and never keep one.\n\nWe can set that up now, or any time later from "
-                   "File, Set Up Accounts.")
+                   "File, Your Accounts.")
         self.now = wx.RadioButton(p, label="Yes, let's set them up now", style=wx.RB_GROUP)
         self.later = wx.RadioButton(p, label="Not now")
         self.later.SetValue(True)
         self.now.SetToolTip("Adds steps to choose your browser and sign in to YouTube and SoundCloud.")
-        self.later.SetToolTip("Skips the account steps. File, Set Up Accounts brings them back any time.")
+        self.later.SetToolTip("Skips the account steps. File, Your Accounts brings them back any time.")
         for rb in (self.now, self.later):  # the step count follows the choice at once
             rb.Bind(wx.EVT_RADIOBUTTON, lambda e: setattr(self, "skip_accounts", not self.now.GetValue()))
         s.Add(self.now, 0, wx.ALL, 6)
@@ -1640,19 +1767,29 @@ class Guide(wx.Dialog):
             self.svc_status.SetLabel("")
         elif key == "done":
             b = self.acc.signin(self.cfg)
-            self.texts[key].SetValue(
-                ("That's it. We're on the same wavelength now.\n\n" if self.tour else "That's it.\n\n") +
-                ("I'll use %s's sign-in. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
-                 "subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD) if b else
-                 "No accounts for now. File, Set Up Accounts brings them back whenever you want.\n\n") +
-                "Paste a link and press " + ENTER + " and I'll download it. To find something by words, press "
-                "Search (" + CMD + "-F) and I'll look in its own window. Help, "
-                "Keyboard Shortcuts lists every key. Have fun!")
+            if self.tour:
+                done = ("That's it. We're on the same wavelength now.\n\n" +
+                        ("I'll use %s's sign-in. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
+                         "subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD) if b else
+                         "No accounts for now. File, Your Accounts (%s-U) sets them up whenever you want.\n\n"
+                         % CMD) +
+                        "Paste a link and press " + ENTER + " and I'll download it. To find something by words, "
+                        "press Search (" + CMD + "-F) and I'll look in its own window. Help, "
+                        "Keyboard Shortcuts lists every key. Have fun!")
+            elif b:
+                done = ("That's it. I'll use %s's sign-in for every download, search and stream.%s"
+                        % (self.acc.spec_words(b), "\n\nYour Accounts opens next, with your liked videos, Watch "
+                           "Later, subscriptions and likes." if self.opens_accounts else ""))
+            else:
+                done = ("No browser chosen, so I won't borrow a sign-in for now. File, Your Accounts (%s-U) "
+                        "brings these steps back whenever you want." % CMD)
+            self.texts[key].SetValue(done)
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
         self.book.SetSelection(k)
         self.back.Enable(k > 0)
-        self.next.SetLabel(self.NEXT.get(key, "Next"))
+        self.next.SetLabel("Open Your Accounts" if key == "done" and self.opens_accounts and self.acc.signin(self.cfg)
+                           else self.NEXT.get(key, "Next"))
         self.close.Show(key != "done")  # on the last step Next is the way out
         # Escape needs a shown button: on the last step it answers with Let's Do This.
         self.SetEscapeId(self.next.GetId() if key == "done" else wx.ID_CANCEL)
@@ -2003,6 +2140,8 @@ class Search(wx.Frame):
         add(f, "&More Results\tCtrl+Shift+M", self.more)
         add(f, "&Look Up Exact Date and Details\tCtrl+I", self._look_up_selected)  # the row menu's name
         add(f, "Actions for the Selected &Result...\tCtrl+K", lambda: self.list._context_menu())
+        add(f, "Check &All", lambda: _check_range(self, self.list, 0, self.list.GetCount(), True))
+        add(f, "Unchec&k All", lambda: _check_range(self, self.list, 0, self.list.GetCount(), False))
         if self.play:
             add(f, "&Play or Pause Selected\tCtrl+P", lambda: self.on_play(None))
         f.AppendSeparator()
@@ -2093,6 +2232,8 @@ class Search(wx.Frame):
     def on_search(self, _):
         q = self.query.GetValue().strip()
         if not q:
+            self.status.SetLabel("Type some words to search for first.")
+            say(self.status.GetLabel())
             self.query.SetFocus()
             return
         self.last_query = q

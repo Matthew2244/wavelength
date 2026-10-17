@@ -1071,3 +1071,37 @@ def test_the_launch_line_joins_the_hello_and_unfinished_and_rests_when_heard_rec
     f.ui.d.clear()
     f.unfinished_at_start = 0
     assert gui.MainFrame._launch_line(f) == ""  # opened with a link: its news comes first
+
+
+def test_stop_all_can_be_resumed_but_one_stop_by_hand_cannot(fake, monkeypatch):
+    m, _ = fake
+    a, b, mine = (Job(url="https://a.com/%s" % n, dest="/tmp") for n in ("a", "b", "mine"))
+    a.state, b.state = "waiting", "waiting"
+    mine.state, mine.reason = "stopped", "Stopped by you."
+    m.jobs.extend([a, b, mine])
+    monkeypatch.setattr(m, "pump", lambda: None)
+    assert m.stop_all() == 2 and a.reason == manager.STOPPED_ALL
+    resumed = []
+    monkeypatch.setattr(m, "retry", lambda j: resumed.append(j.url))
+    assert m.resume_unfinished() == 2 and resumed == ["https://a.com/a", "https://a.com/b"]
+
+
+def test_move_says_when_it_is_already_at_the_end(fake):
+    m, _ = fake
+    a, b = Job(url="https://a.com/a", dest="/tmp"), Job(url="https://a.com/b", dest="/tmp")
+    m.jobs.extend([a, b])
+    assert not m.move(a, -1) and not m.move(b, +1)
+    assert m.move(b, -1) and m.jobs == [b, a]
+
+
+def test_no_file_yet_says_why_by_state():
+    j = Job(url="https://a.com/a", dest="/tmp")
+    j.state = "failed"
+    assert "failed" in words.no_file_yet(j) and "Retry" in words.no_file_yet(j)
+    j.state, j.percent = "downloading", 42.7
+    assert words.no_file_yet(j) == "Still downloading, 42 percent."
+    j.state = "done"
+    assert "isn't there any more" in words.no_file_yet(j)
+    for s in ("stopped", "converting", "looking", "waiting", "waiting_choice"):
+        j.state = s
+        assert "yet" not in words.no_file_yet(j).split(".")[0] or s != "stopped"

@@ -1273,3 +1273,152 @@ def test_a_last_failure_keeps_its_reason_in_the_summary(frame, monkeypatch):
     for fn, a in later:
         fn(*a)
     assert said == ["All downloads finished: 2 done, 1 failed. Failed: Rehearsal. That one is for members only."]
+
+
+def test_your_accounts_is_the_one_way_in(frame, monkeypatch):
+    """No browser chosen: the setup steps first, Your Accounts after them only if they finished
+    with a browser. File has one accounts item, not two."""
+    labels = [i.GetItemLabelText() for i in frame.GetMenuBar().GetMenu(0).GetMenuItems()]
+    assert "Your Accounts..." in labels and not any("Set Up Accounts" in l for l in labels)
+    opened = []
+
+    class FakeGuide:
+        def __init__(self, parent, cfg, main, start, opens_accounts=False):
+            assert start == "accounts" and opens_accounts
+            self.cfg = cfg
+
+        def ShowModal(self):
+            opened.append("guide")
+            self.cfg["app_signin"] = choose[0]
+            return wx.ID_OK if choose[0] else wx.ID_CANCEL
+
+        def Destroy(self):
+            pass
+
+    class FakeAccounts:
+        result = None
+
+        def __init__(self, *a, **k):
+            opened.append("accounts")
+
+        def ShowModal(self):
+            return wx.ID_CANCEL
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "Guide", FakeGuide)
+    monkeypatch.setattr(gui.dialogs, "AccountsDialog", FakeAccounts)
+    try:
+        frame.cfg["app_signin"] = ""
+        choose = [""]
+        frame.on_accounts()
+        assert opened == ["guide"]  # left without a browser: nothing more
+        choose[0] = "safari"
+        opened.clear()
+        frame.on_accounts()
+        assert opened == ["guide", "accounts"]
+        opened.clear()
+        frame.on_accounts()  # set up already: straight to your things
+        assert opened == ["accounts"]
+    finally:
+        frame.cfg["app_signin"] = ""
+
+
+def test_accounts_setup_says_what_comes_next(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    for opens, expect in ((True, "Your Accounts opens next"), (False, None)):
+        g = gui.dialogs.Guide(frame, dict(frame.cfg, app_signin="safari"), frame, "accounts", opens_accounts=opens)
+        monkeypatch.setattr(g, "EndModal", lambda code: None)
+        g.show(g.order.index("done"))
+        text = g.texts["done"].GetValue()
+        assert "Safari's sign-in" in text and "Paste a link" not in text  # the tour's tail isn't for here
+        assert (expect in text) if expect else ("opens next" not in text)
+        g.Destroy()
+    g = gui.dialogs.Guide(frame, dict(frame.cfg, app_signin=""), frame, "accounts")
+    g.show(g.order.index("done"))
+    assert "Your Accounts" in g.texts["done"].GetValue() and "Set Up Accounts" not in g.texts["done"].GetValue()
+    g.Destroy()
+
+
+def test_accounts_window_names_the_browser_and_offers_setup(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    cfg = dict(frame.cfg, app_signin="safari")
+    dlg = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "checked", main=frame)
+    assert dlg.status.GetLabel().startswith("Using Safari's sign-in.") and dlg.setup_b is not None
+    assert gui.dialogs.CMD + "-K" in dlg.status.GetLabel()
+
+    class FakeGuide:
+        def __init__(self, parent, c, main, start):
+            self.c = c
+
+        def ShowModal(self):
+            self.c["app_signin"] = "firefox"
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "Guide", FakeGuide)
+    dlg.on_setup()
+    assert dlg._browser() == "firefox" and "Firefox" in dlg.status.GetLabel()
+    dlg.Destroy()
+    assert gui.dialogs.AccountsDialog(frame, cfg, lambda b: "x").setup_b is None  # no main: no setup button
+
+
+def test_settings_walk_through_keeps_its_choice(frame, monkeypatch):
+    cfg = dict(frame.cfg, app_signin="")
+    dlg = gui.dialogs.Settings(frame, cfg)
+
+    class FakeGuide:
+        def __init__(self, parent, c, main, start):
+            self.c = c
+
+        def ShowModal(self):
+            self.c["app_signin"] = "safari"
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "Guide", FakeGuide)
+    dlg.on_walk_through()
+    monkeypatch.setattr(dlg, "EndModal", lambda code: None)
+    dlg.on_ok(None)
+    assert cfg["app_signin"] == "safari"  # Save never puts the old choice back
+    dlg.Destroy()
+
+
+def test_refused_with_signin_points_at_retry_not_more_options():
+    said = gui.words.explain_failure("Sign in to confirm you're not a bot", True, "YouTube")
+    assert "Retry Using a Browser's Sign-in" in said and "More Options" not in said and "YouTube" in said
+
+
+def test_retry_goes_to_the_folder_the_window_shows(frame, monkeypatch, tmp_path):
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
+    retried = []
+    monkeypatch.setattr(frame.mgr, "retry", lambda j: retried.append(j.dest))
+    j = job("failed", "Gone", dest="/Volumes/Unplugged/Music")
+    saved = job("stopped", "Half", dest="/Volumes/Unplugged/Music", files=["/x.mp3"])
+    old = frame.cfg["to"]
+    frame.cfg["to"] = str(tmp_path)
+    try:
+        for x in (j, saved):
+            monkeypatch.setattr(frame, "selected", lambda x=x: x)
+            frame.on_retry(None)
+        assert retried == [str(tmp_path), "/Volumes/Unplugged/Music"]  # a row with a file stays with it
+    finally:
+        frame.cfg["to"] = old
+
+
+def test_commands_never_answer_with_silence(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(frame, "tell", lambda t, *a, **k: said.append(t))
+    monkeypatch.setattr(frame, "selected", lambda: None)
+    for cmd in (frame.on_stop, frame.on_retry, frame.on_copy_link, frame.on_remove, frame.on_show):
+        cmd(None)
+    frame.on_move(-1)
+    assert said == ["Select a download first."] * 6
+    said.clear()
+    done = job("done", "Song")
+    monkeypatch.setattr(frame, "selected", lambda: done)
+    frame.on_stop(None)
+    frame.on_retry(None)
+    assert said == ["That one isn't downloading.", "That one hasn't failed or stopped, so there's nothing to retry."]
+    labels = [i.GetItemLabelText() for i in frame.GetMenuBar().GetMenu(2).GetMenuItems()]
+    assert "Find or Make Audio Description..." in labels

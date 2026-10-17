@@ -153,6 +153,7 @@ def stop_loose() -> None:
 
 
 CLOSED_EARLY = "The app closed before this finished."
+STOPPED_ALL = "Stopped with Stop All."  # Resume Unfinished carries these on too: one key undoes another
 
 
 def run_task(task: dict, on_event=None, timeout: float = 300) -> list[dict]:
@@ -301,6 +302,7 @@ class Manager:
             targets = [j for j in self.jobs if j.state in ACTIVE or j.state == "waiting"]
         for j in targets:
             self.stop(j, quiet=True)
+            j.reason = STOPPED_ALL
             self.listener(j, "changed")
         return len(targets)
 
@@ -346,13 +348,17 @@ class Manager:
         self.listener(job, "finished")
         self.pump()
 
-    def move(self, job: Job, delta: int) -> None:
+    def move(self, job: Job, delta: int) -> bool:
+        """False when it was already at that end of the list."""
         with self.lock:
             i = self.jobs.index(job)
             k = max(0, min(len(self.jobs) - 1, i + delta))
+            if k == i:
+                return False
             self.jobs.insert(k, self.jobs.pop(i))
             self.dirty = True
         self.listener(job, "moved")
+        return True
 
     def expand(self, job: Job, entries: list[dict], folder: str, numbered: bool = True) -> list[Job]:
         """Replace a playlist's row with one row per chosen item."""
@@ -802,7 +808,8 @@ class Manager:
     def resume_unfinished(self) -> int:
         with self.lock:
             # Only what the quit cut off: a download someone stopped on purpose stays stopped.
-            todo = [j for j in self.jobs if j.state == "stopped" and j.reason == CLOSED_EARLY]
+            # Only what the quit or Stop All cut off: one download stopped on purpose stays stopped.
+            todo = [j for j in self.jobs if j.state == "stopped" and j.reason in (CLOSED_EARLY, STOPPED_ALL)]
         for j in todo:
             self.retry(j)
         return len(todo)
