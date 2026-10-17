@@ -915,6 +915,8 @@ def entry_menu(win, lst, entries, main, play=None):
 def _check_range(win, lst, a, b, on):
     for k in range(a, b):
         lst.Check(k, on)
+    if not on and a == 0 and b == lst.GetCount() and getattr(win, "kept", None):
+        win.kept = []  # Uncheck All means all, earlier searches' checks included
     win._count(speak=True)
 
 
@@ -1191,6 +1193,50 @@ def accounts_words(spec):
 
 
 MAC_K = 40  # the K key's code on a Mac keyboard (kVK_ANSI_K)
+MAC_LETTERS = {"K": 40, "I": 34}
+
+
+def command_keys(dlg, keys: dict) -> None:
+    """Command-letter keys (Control on Windows) for a dialog with no menu bar of its own:
+    {"K": fn}. On the Mac through the app's key monitor, so the main window's menu shortcut
+    for the same letter never answers from behind the dialog."""
+    def on_char(event):
+        k = event.GetKeyCode()
+        if event.CmdDown() and not event.ShiftDown() and not event.AltDown() and 0 < k < 256 \
+                and chr(k).upper() in keys:
+            keys[chr(k).upper()]()
+            return
+        event.Skip()
+    dlg.Bind(wx.EVT_CHAR_HOOK, on_char)
+    from .system import add_key_monitor, remove_key_monitor
+
+    def on_mac(code, flags):
+        from .system import MAC_COMMAND, MAC_CONTROL, MAC_OPTION, MAC_SHIFT
+        if not dlg or not flags & MAC_COMMAND or flags & (MAC_OPTION | MAC_SHIFT | MAC_CONTROL):
+            return False
+        if not dlg.IsActive():
+            return False
+        for letter, fn in keys.items():
+            if MAC_LETTERS.get(letter) == code:
+                wx.CallAfter(lambda: dlg and fn())
+                return True
+        return False
+    dlg._cmd_monitor = add_key_monitor(on_mac)
+    if dlg._cmd_monitor is not None:
+        def gone(event):
+            if event.GetEventObject() is dlg:
+                drop_command_keys(dlg)
+            event.Skip()
+        dlg.Bind(wx.EVT_WINDOW_DESTROY, gone)
+
+
+def drop_command_keys(dlg) -> None:
+    """Call from the dialog's Destroy: its destroy event can come late, or not before a test looks."""
+    mon = getattr(dlg, "_cmd_monitor", None)
+    if mon is not None:
+        from .system import remove_key_monitor
+        remove_key_monitor(mon)
+        dlg._cmd_monitor = None
 
 
 class AccountsDialog(wx.Dialog):
@@ -1886,7 +1932,7 @@ class CheckList(wx.Dialog):
         mac_accessibility_label(self.list, "Items")
         windows_name(self.list, "Items")  # else Windows names it with the whole paragraph above it
         self.list.SetToolTip("Space checks or unchecks the selected item; the count below says how many are "
-                             "checked. Its context menu has more for each item.")
+                             "checked. %s-K lists more for each item; %s-I looks up its exact date." % (CMD, CMD))
         if checked:
             for i in range(len(entries)):
                 self.list.Check(i)
@@ -1915,6 +1961,11 @@ class CheckList(wx.Dialog):
             dl.SetToolTip("Downloads the checked ones to your download folder instead of playing them.")
             dl.Bind(wx.EVT_BUTTON, lambda e: self._download_instead())
             brow.Insert(0, dl, 0, wx.ALL, 6)
+        else:  # play-first: listening to a few shouldn't mean cancelling and starting again
+            pl = wx.Button(self, label="Play Checked Instead")
+            pl.SetToolTip("Plays the checked ones in the player instead, without downloading anything.")
+            pl.Bind(wx.EVT_BUTTON, lambda e: self._play_instead())
+            brow.Insert(0, pl, 0, wx.ALL, 6)
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
         textsize.apply(self)  # View, Bigger Text reaches every window
@@ -1922,6 +1973,8 @@ class CheckList(wx.Dialog):
         b_none.Bind(wx.EVT_BUTTON, lambda e: self._set_all(False))
         self.list.Bind(wx.EVT_CHECKLISTBOX, lambda e: self._count(speak=True))
         menus.attach(self.list, lambda: entry_menu(self, self.list, self.entries, self.main))
+        # As in the main window and Search: K the item's menu, I its exact date and details.
+        command_keys(self, {"K": self._row_menu, "I": self._look_up})
         self._count()
         self.list.SetFocus()
         if entries:
@@ -1949,6 +2002,30 @@ class CheckList(wx.Dialog):
             self.ok.Enable(k > 0)
         self.Layout()
 
+    def Destroy(self):  # noqa: N802 - wx's name
+        drop_command_keys(self)
+        return super().Destroy()
+
+    def _row_menu(self):
+        if self.list.GetSelection() == wx.NOT_FOUND and self.list.GetCount():
+            self.list.SetSelection(0)
+        self.list.SetFocus()
+        self.list._context_menu()
+
+    def _look_up(self):
+        i = self.list.GetSelection()
+        if i != wx.NOT_FOUND and i < len(self.entries):
+            look_up_row(self, self.list, self.entries, i, self.main)
+
+    def _play_instead(self):
+        if not self.list.GetCheckedItems():
+            from .system import announce
+            self.count.SetLabel("Check the ones to play first, with Space.")
+            announce(self.count.GetLabel())
+            return
+        self.choice = "play"
+        self.EndModal(wx.ID_OK)
+
     def _download_instead(self):
         if not self.list.GetCheckedItems():
             from .system import announce
@@ -1972,7 +2049,7 @@ class CheckList(wx.Dialog):
 class PlaylistQuestion(wx.Dialog):
     """A link that turned out to be a set. Download all, choose, or just the one."""
 
-    ALL, CHOOSE, ONE = 101, 102, 103
+    ALL, CHOOSE, ONE, PLAY = 101, 102, 103, 104
 
     def __init__(self, parent, title: str, count: int, can_single: bool, site: str):
         super().__init__(parent, title="A Playlist")
@@ -1988,8 +2065,13 @@ class PlaylistQuestion(wx.Dialog):
         b_all.SetToolTip("Adds every item to the downloads list, each its own row, in a folder named after the set.")
         b_choose = wx.Button(self, self.CHOOSE, "Choose Items...")
         b_choose.SetToolTip("Lists every item, to check the ones you want.")
+        # Play-first: someone who only wanted to listen shouldn't have to cancel and start again.
+        b_play = wx.Button(self, self.PLAY, "Play Them Instead")
+        b_play.SetToolTip("Plays every item in the player, one after another, without downloading anything.")
+        b_play.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(self.PLAY))
         row.Add(b_all, 0, wx.ALL, 4)
         row.Add(b_choose, 0, wx.ALL, 4)
+        row.Add(b_play, 0, wx.ALL, 4)
         if can_single:
             b_one = wx.Button(self, self.ONE, "Just That One")
             b_one.SetToolTip("Downloads only the one item the link pointed at.")
@@ -2031,6 +2113,7 @@ class Search(wx.Frame):
         self.run_search = run_search
         self.on_done = on_done  # (window, chosen entries), when it closes
         self.results = []
+        self.kept = []  # checked in an earlier search: still chosen
         self.last_query = ""
         self.searched = ("", "")  # (words, site) the results in the list belong to
         self.next_start = 1
@@ -2050,8 +2133,10 @@ class Search(wx.Frame):
         keys = [k for k, _, _ in SEARCH_SITES]
         self.site.SetSelection(keys.index(site) if site in keys else 0)
         mac_accessibility_label(self.site, "Search on")
-        self.site.SetToolTip("Where to search: YouTube, SoundCloud or YouTube Music. Press Search again after "
-                             "changing it.")
+        self.site.SetToolTip("Where to search: YouTube, SoundCloud or YouTube Music. Changing it after a search "
+                             "searches the same words there.")
+        self._site_timer = None
+        self.site.Bind(wx.EVT_CHOICE, lambda e: self._site_changed())
         top.Add(on_lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         top.Add(self.site, 0, wx.RIGHT, 6)
         self.go = wx.Button(p, label="Search")
@@ -2240,14 +2325,33 @@ class Search(wx.Frame):
         site_key = self.site_key()
         site = SEARCH_SITES[self.site.GetSelection()][1]
         self.searched = (q, site_key)
+        # What was checked in an earlier search stays chosen: a second search mustn't drop it unsaid.
+        have = {e.get("url") for e in self.kept}
+        self.kept += [e for e in self.chosen() if e.get("url") not in have]
         self.results = []
         self.list.Set([])
         self.has_more = False
         self.repeats = 0
         self.next_start = 1  # the site's position the next page begins at (repeats dropped don't count)
         self._count()
-        self.status.SetLabel("Searching %s for %s..." % (site, q))
+        self.status.SetLabel("Searching %s for %s...%s" % (site, q, " %s from before %s kept." % (
+            words.n(len(self.kept), "checked result"), "is" if len(self.kept) == 1 else "are") if self.kept else ""))
         self._fetch(q, site_key, site, 1)
+
+    def _site_changed(self):
+        """Same words, the newly chosen site. Waits a moment: on Windows each arrow press in the
+        closed popup is a change, and only where it comes to rest should search."""
+        if self._site_timer is not None:
+            self._site_timer.Stop()
+
+        def go():
+            self._site_timer = None
+            if not self:
+                return
+            q = self.query.GetValue().strip()
+            if q and self.searched[0] and (q, self.site_key()) != self.searched:
+                self.on_search(None)
+        self._site_timer = wx.CallLater(700, go)
 
     def _room_for_controls(self):
         """Bigger Text: grow the window, up to the screen, so the top row stays on it; never shrink."""
@@ -2417,7 +2521,7 @@ class Search(wx.Frame):
             announce("%s, %s.%s" % (ORDERS[self.order.GetSelection()][1], words.n(len(self.results), "result"), note))
 
     def _count(self, speak=False):
-        k = len(self.list.GetCheckedItems())
+        k = len(self.chosen())
         self.ok.SetLabel("Download Checked (%d)" % k)
         if speak:
             from .system import announce
@@ -2432,7 +2536,9 @@ class Search(wx.Frame):
             self._count()
 
     def chosen(self):
-        return [self.results[i] for i in self.list.GetCheckedItems()]
+        now = [self.results[i] for i in self.list.GetCheckedItems()]
+        urls = {e.get("url") for e in now}
+        return [e for e in getattr(self, "kept", []) if e.get("url") not in urls] + now
 
     def _previewing(self):
         """The player, if it's on the selected result."""
@@ -2477,11 +2583,12 @@ class DescribeDialog(wx.Dialog):
     """Audio description for one video: its own described track, published described
     versions, or make one. Each option is a row; the buttons act on the selected row."""
 
-    def __init__(self, parent, url: str, title: str, run_find, actions: dict, run_more=None):
+    def __init__(self, parent, url: str, title: str, run_find, actions: dict, run_more=None, have=False):
         super().__init__(parent, title="Audio Description", size=(760, 460),
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.url, self.title, self.actions = url, title, actions
         self.run_more = run_more
+        self.have = have  # a made description already exists: say so first, before offering another
         self.options: list[dict] = []
         self.next_start = 1
         self.more_left = False
@@ -2537,6 +2644,8 @@ class DescribeDialog(wx.Dialog):
         about = res.get("about") or {}
         self.title = about.get("title") or self.title
         opts = []
+        if self.have:
+            opts.append({"kind": "have", "words": "Yours already, machine-made: Play reads it as it plays."})
         if about.get("track"):
             opts.append({"kind": "track", "format": about["track"],
                          "words": "This video has its own described track (%s): real description, by a person."
@@ -2589,7 +2698,9 @@ class DescribeDialog(wx.Dialog):
         if o["kind"] in ("track", "version"):
             items += [menus.item("Play", lambda: self._act("play")),
                       menus.item("Download", lambda: self._act("download"))]
-        if o["kind"] == "make":
+        if o["kind"] == "have":
+            items.append(menus.item("Play", lambda: self._act("play")))
+        if self._make_option():
             items.append(menus.item("Make Description", lambda: self._act("make")))
         if url and main:
             items += [menus.SEP, menus.item("Open the Web Page", lambda: main.open_page(url)),
@@ -2662,19 +2773,31 @@ class DescribeDialog(wx.Dialog):
         i = self.list.GetSelection()
         return self.options[i] if 0 <= i < len(self.options) else None
 
+    def _make_option(self):
+        return next((o for o in self.options if o["kind"] == "make"), None)
+
     def _buttons(self):
         o = self._selected()
         k = o and o["kind"]
-        self.play_btn.Enable(k in ("track", "version"))
+        self.play_btn.Enable(k in ("track", "version", "have"))
         self.dl_btn.Enable(k in ("track", "version"))
-        self.make_btn.Enable(k == "make")
+        # Whatever row is selected: making one shouldn't need a trip to the last row first.
+        self.make_btn.Enable(bool(self._make_option()))
         self.more_btn.Enable(self.more_left and not self.looking)
 
     def _act(self, what):
+        if what == "make":
+            if self._make_option():
+                self.actions["make"]()
+                self.EndModal(wx.ID_OK)
+            return
         o = self._selected()
         if not o:
             return
-        if o["kind"] == "make" and what != "download":
+        if o["kind"] == "have" and what == "play":
+            self.actions["have_play"]()
+            self.EndModal(wx.ID_OK)
+        elif o["kind"] == "make" and what != "download":
             self.actions["make"]()
             self.EndModal(wx.ID_OK)
         elif o["kind"] == "track":

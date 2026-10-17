@@ -304,19 +304,32 @@ HEIGHTS = [(0, "Best that plays everywhere"), (-1, "Highest available, any codec
            (1440, "1440"), (1080, "1080"), (720, "720"), (480, "480"), (360, "360")]
 
 
+CODECS = {"avc1": "H.264, plays everywhere", "avc3": "H.264, plays everywhere", "h264": "H.264, plays everywhere",
+          "av01": "AV1", "vp09": "VP9", "vp9": "VP9", "vp8": "VP8", "hvc1": "HEVC", "hev1": "HEVC",
+          "mp4a": "AAC", "aac": "AAC", "opus": "Opus", "vorbis": "Vorbis", "mp3": "MP3", "flac": "FLAC"}
+
+
+def codec_words(codec) -> str:
+    """'avc1.64001F' -> 'H.264, plays everywhere'; a code nobody would know by ear, said by name."""
+    key = (codec or "").split(".")[0].lower()
+    return CODECS.get(key, key or "unknown kind")
+
+
 def describe_format(fmt: dict) -> str:
     """One plain sentence for a stream, the way you would say it out loud."""
     acodec, vcodec = fmt.get("acodec"), fmt.get("vcodec")
     has_audio = acodec and acodec != "none"
     has_video = vcodec and vcodec != "none"
     sz = size(fmt.get("filesize") or fmt.get("filesize_approx"))
+    h = fmt.get("height")
+    video = "Video %sp" % h if h else "Video"
     if has_video and has_audio:
-        what = "Video %sp with sound, %s" % (fmt.get("height") or "?", (vcodec or "").split(".")[0])
+        what = "%s with sound, %s" % (video, codec_words(vcodec))
     elif has_video:
-        what = "Video %sp, %s, sound added separately" % (fmt.get("height") or "?", (vcodec or "").split(".")[0])
+        what = "%s, %s, sound added separately" % (video, codec_words(vcodec))
     else:
         abr = fmt.get("abr")
-        what = "Audio, %s%s" % ((acodec or "unknown").split(".")[0],
+        what = "Audio, %s%s" % (codec_words(acodec) if acodec else "unknown kind",
                                 ", %d kbps" % round(abr) if abr else "")
     return what + (", about %s" % sz if sz else "")
 
@@ -372,7 +385,7 @@ def worth_updating_for(text: str) -> bool:
     lowered = (text or "").lower()
     hopeless = ("private", "unavailable", "removed", "members-only", "join this channel",
                 "does not exist", "no space left", "not a valid url", "unsupported url",
-                "geo", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture",
+                "geo restrict", "geo-restrict", "not available in your country", "copyright", "stopped by you", "nodescribe", "claude didn't", "no picture",
                 "claudesignedout",
                 # the download folder, not the engine: an unplugged drive fails the same on every version
                 "permission denied", "no such file or directory", "read-only file system",
@@ -393,13 +406,32 @@ def cookie_store_unreadable(text: str) -> bool:
                                                         "failed to decrypt", "cannot extract", "keychain"))))
 
 
-def explain_failure(text: str, cookies_used: bool = False, site: str | None = None, browser: str = "") -> str:
+def explain_failure(text: str, cookies_used: bool = False, site: str | None = None, browser: str = "",
+                    for_download: bool = True) -> str:
+    """`for_download` False for a search, a stream lookup or the player: there's no failed row to
+    Retry there, so the advice must not send anyone to a command that answers "select a download"."""
+    said = None
     if browser:  # a borrowed sign-in that didn't work says which browser and what to do
         from .accounts import explain_signin
         said = explain_signin(text, browser, site or "")
-        if said:
-            return said
-    return _explain_failure(text, cookies_used, site)
+    if not said:
+        said = _explain_failure(text, cookies_used, site)
+    return said if for_download else not_a_download(said)
+
+
+def not_a_download(said: str) -> str:
+    """Download advice reworded for a search, a lookup or something playing."""
+    for old, new in (
+            ("Choose Retry Using a Browser's Sign-in in the Downloads menu.",
+             "Choose the browser you're signed in with in File, Your Accounts, then try again."),
+            ("or choose Retry Using a Browser's Sign-in in the Downloads menu to try another.",
+             "or choose another browser in File, Your Accounts."),
+            ("Retry in a minute usually works.", "Trying again in a minute usually works."),
+            ("Retry in a moment.", "Try again in a moment."),
+            (", then Retry", ", then try again"), (" then Retry", " then try again"),
+            (" and Retry", " and try again")):
+        said = said.replace(old, new)
+    return said
 
 
 def _explain_failure(text: str, cookies_used: bool = False, site: str | None = None) -> str:
@@ -419,8 +451,8 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
         return ("%s wants a signed-in browser for this one. Choose Retry Using a Browser's Sign-in in the "
                 "Downloads menu." % who)
     if "http error 429" in lowered or "too many requests" in lowered:
-        return ("%s says too many requests. Wait a few minutes, then Retry. Fewer downloads at once "
-                "in Settings helps too." % who)
+        return ("%s says too many requests. Wait a few minutes, then Retry. A lower From the same site at "
+                "once, in Settings, Downloads, helps too." % who)
     if "winerror 32" in lowered:  # the file is in use: antivirus or the search indexer, for a moment
         return ("Another program had the file open while it was being saved, often antivirus checking it. "
                 "Retry in a moment.")
@@ -445,8 +477,8 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
     if "claude didn't return" in lowered:
         return "Claude didn't send back any description. Try again in a while."
     if "badoptions:" in lowered or "no such option" in lowered:
-        return ("The extra yt-dlp options in More Options weren't understood. Check them, or clear them "
-                "and Retry.")
+        return ("The extra yt-dlp options in More Options weren't understood, so nothing downloaded. Fix them "
+                "in More Options and add the link again; Retry would use the same ones.")
     if ("logged-in" in lowered or "login required" in lowered or "provide account credentials" in lowered
             or "sign in to view" in lowered or "requires authentication" in lowered):
         return ("%s wants you signed in for this one. Choose Retry Using a Browser's Sign-in in the Downloads "
@@ -463,7 +495,11 @@ def _explain_failure(text: str, cookies_used: bool = False, site: str | None = N
         return "That one is for members only."
     if "geo" in lowered and "restrict" in lowered or "not available in your country" in lowered:
         return "That is blocked in this country."
-    if "unavailable" in lowered or "removed" in lowered or "does not exist" in lowered or "404" in lowered:
+    # Only the engine's own ERROR lines, and 404 as a whole number: a video id like "x404Ab" or a
+    # warning mentioning "removed" mustn't decide the message.
+    errors = "\n".join(ln for ln in lowered.splitlines() if ln.lstrip().startswith("error"))
+    if "unavailable" in errors or "removed" in errors or "does not exist" in lowered \
+            or re.search(r"http error 404|\b404\b", lowered):
         return "That isn't available. It may have been removed, made private, or blocked here."
     if "no space left" in lowered:
         return "The disk is full. Make some room, or choose File, Change Download Folder, then Retry."
@@ -578,6 +614,8 @@ def details_text(job) -> str:
     lines.append("Status: " + row_text(job).split(": ", 1)[0] + ".")
     if job.state == "failed" and job.reason:
         lines.append(job.reason)
+    if job.state == "stopped":  # why, and the way on: Retry, or Resume Unfinished for a batch
+        lines.append((job.reason + " " if job.reason else "") + "Retry carries on from where it stopped.")
     if job.state in ("waiting", "looking") and job.wait_reason:
         lines.append(job.wait_reason)
     if job.note:

@@ -52,10 +52,11 @@ WELCOME = (
     "Welcome to Wavelength{name}.\n\n"
     "Paste a link into the Link field and press " + ENTER + ". It works with about 1,750 sites: "
     "YouTube, SoundCloud, Bandcamp, Vimeo, the BBC, archive.org and many more. "
-    "To find something by words instead, press Search (" + ("Command" if sys.platform == "darwin" else "Control") + "-F): "
+    "To listen without downloading, press Play Link (" + ("Command" if sys.platform == "darwin" else "Control") +
+    "-Shift-" + ENTER + "). To find something by words instead, press Search (" + ("Command" if sys.platform == "darwin" else "Control") + "-F): "
     "searching has its own window.\n\n"
     "Downloads appear in the list below, newest at the bottom. Select one to read everything about it here. "
-    "Several download at once.\n\n"
+    "Several can download at once.\n\n"
     "Everything is in the menus too, with its keyboard shortcut."
 )
 
@@ -492,7 +493,8 @@ class MainFrame(wx.Frame):
         if not lst or not lst.get("entries"):
             log = "\n".join(got["log"])
             self.tell(accounts.explain_signin(log, browser, words.site_name(url)) or
-                      (words.explain_failure(log, True, words.site_name(url)) if log else "That list is empty."))
+                      (words.explain_failure(log, True, words.site_name(url), for_download=False) if log
+                       else "That list is empty."))
             return
         entries = lst["entries"]
         dlg = dialogs.CheckList(self, lst.get("title") or "Your list",
@@ -566,7 +568,7 @@ class MainFrame(wx.Frame):
             return "Signed in: YouTube answered with your Liked videos, %s." % words.n(found["n"], "video")
         log = "\n".join(found["log"])
         return (accounts.explain_signin(log, browser, "YouTube")
-                or words.explain_failure(log, True, "YouTube"))
+                or words.explain_failure(log, True, "YouTube", for_download=False))
 
     def player_do(self, action: str):
         """The Player menu, from any window. Says so when nothing is playing, rather than nothing."""
@@ -812,7 +814,7 @@ class MainFrame(wx.Frame):
             # A failed search must never read as "Nothing found": a network blip, a refused
             # sign-in or a timeout each says what happened, and the next page stays on offer.
             res.error = words.explain_failure("\n".join(log) or "The search timed out.", bool(cookies),
-                                              None, cookies)
+                                              None, cookies, for_download=False)
         return res
 
     def on_search(self, _, query=None):
@@ -993,7 +995,8 @@ class MainFrame(wx.Frame):
                 out["log"] = out.get("log", "") + ev.get("text", "") + "\n"
         run_task({"task": "probe", "spec": spec or self.job_spec(url)}, on, timeout=180)
         if "log" in out and "formats" not in out:
-            out["error"] = words.explain_failure(out["log"], False, words.site_name(url), accounts.signin(self.cfg))
+            out["error"] = words.explain_failure(out["log"], False, words.site_name(url), accounts.signin(self.cfg),
+                                                 for_download=False)
         return out
 
     def on_settings(self, _):
@@ -1027,6 +1030,8 @@ class MainFrame(wx.Frame):
         elif job is not None:
             self.dirty.add(job.id)
         if what == "finished":
+            if job.task == "describe" and job.state == "done" and self.player is not None:
+                self.player.description_ready(job)
             self._count(job)
             self.finished_buffer.append(job)
             wx.CallLater(1500, self._speak_finished)
@@ -1243,16 +1248,27 @@ class MainFrame(wx.Frame):
                 ("%s: %s, newest usually first. Nothing is checked yet: check the ones you want with Space."
                  if many else "%s: %s. Everything starts checked; uncheck what you don't want, or Uncheck All "
                  "and check the few you do.") % (title, words.n(len(entries), "item")), entries, checked=not many)
-            if tl.ShowModal() == wx.ID_OK and tl.chosen():
-                picked = tl.chosen()
+            ok = tl.ShowModal() == wx.ID_OK
+            picked, how = (tl.chosen(), tl.choice) if ok else ([], "")
+            tl.Destroy()
+            if picked and how == "play":
+                self.mgr.remove(job)
+                self.mgr.pump()  # closes the batch if this was the last thing in it
+                cookies = job.cookies
+                wx.CallAfter(self.play_links, [dict(e, cookies=cookies) if cookies else dict(e) for e in picked])
+            elif picked:
                 self.mgr.expand(job, picked, title)
-                tl.Destroy()
                 self.tell_in_window("Added %s from %s." % (words.n(len(picked), "item"), title), "Great")
             else:
-                tl.Destroy()
                 self.mgr.remove(job)
                 self.mgr.pump()  # closes the batch if this was the last thing in it
                 self.tell_in_window("Nothing added from %s." % title, "Okay")
+        elif ans == PQ.PLAY:
+            self.mgr.remove(job)
+            self.mgr.pump()  # closes the batch if this was the last thing in it
+            cookies = job.cookies
+            # After this window has gone: the player never opens over a modal one.
+            wx.CallAfter(self.play_links, [dict(e, cookies=cookies) if cookies else dict(e) for e in entries])
         elif ans == PQ.ONE:
             import urllib.parse as up
             q = up.parse_qs(up.urlparse(url).query)
@@ -1269,7 +1285,7 @@ class MainFrame(wx.Frame):
         else:
             self.mgr.remove(job)
             self.mgr.pump()  # closes the batch if this was the last thing in it
-            self.tell("Playlist not added.")
+            self.tell_in_window("Playlist not added.", "Okay")
         self.structure_changed = True
         self.refresh()
 
@@ -1535,9 +1551,12 @@ class MainFrame(wx.Frame):
 
     def on_describe(self):
         job = self.selected()
-        if job and job.task != "describe":
+        if job:
             from .player import playable_file
-            path = playable_file(job.files) if job.files else None
+            if job.task == "describe":  # its own row: the video it describes
+                path = job.source_path or None
+            else:
+                path = playable_file(job.files) if job.files else None
             self.describe_dialog(job.url, job.title, path)
             return
         urls = words.links_in(self.link.GetValue())
@@ -1565,7 +1584,7 @@ class MainFrame(wx.Frame):
                 res["error"] = "The lookup didn't finish. Check the connection, then try again."
             elif not res["about"].get("looked_up"):
                 res["error"] = words.explain_failure("\n".join(res["log"]), bool(cookies), words.site_name(u or ""),
-                                                     cookies)
+                                                     cookies, for_download=False)
             return res
 
         def run_more(t, start):
@@ -1584,7 +1603,8 @@ class MainFrame(wx.Frame):
             if not res.get("candidates") and ended != [True]:
                 # A failed look (network, timeout, a worker that died) must never read as the end
                 # of the search: say what happened, and Look Further stays on offer.
-                res["error"] = words.explain_failure("\n".join(log) or "The search timed out.", False, "YouTube")
+                res["error"] = words.explain_failure("\n".join(log) or "The search timed out.", False, "YouTube",
+                                                     for_download=False)
             return res
 
         def make():
@@ -1604,23 +1624,37 @@ class MainFrame(wx.Frame):
         # gone (CallAfter): a player raised over a modal window gets no keys, and the modal
         # holds the whole app's keyboard, Quit included.
         def track_play(fmt):
-            wx.CallAfter(self.open_player,
-                         [{"url": url, "title": title + " (described)", "want": "audio", "format": fmt}])
+            wx.CallAfter(self.open_player, [{"url": url, "title": (title + " (described)") if title else
+                                             "Described version", "want": "audio", "format": fmt}])
 
         def track_download(fmt):
-            job = self._job_from_ui(url)
-            job.format_id, job.format_audio_only = fmt, True
-            job.name = (title + " (audio described)") if title else ""
-            self.mgr.add(job)
-            self.tell("Downloading the described track.")
+            self.download_track(url, fmt, title)
 
-        actions = {"make": make, "track_play": track_play, "track_download": track_download,
+        def have_play():
+            # The made description is found again by the player from the file or the link.
+            if path:
+                wx.CallAfter(self.open_player, [{"path": path, "title": title or os.path.basename(path), "page": url}])
+            else:
+                wx.CallAfter(self.play_links, [{"url": url, "title": title}])
+
+        actions = {"make": make, "track_play": track_play, "track_download": track_download, "have_play": have_play,
                    "version_play": lambda e: wx.CallAfter(self.play_links, [e]),
                    "version_download": lambda e: self.add_links([e["url"]])}
         dlg = dialogs.DescribeDialog(self.player if self.player and self.player.IsActive() else self, url, title,
-                                     run_find, actions, run_more=run_more)
-        dlg.ShowModal()
+                                     run_find, actions, run_more=run_more,
+                                     have=bool(describe.for_item(path, url)))
+        code = dlg.ShowModal()
         dlg.Destroy()
+        return code
+
+    def download_track(self, url, fmt, title):
+        """One audio track by its format id: a video's described track, from here or the player."""
+        job = self._job_from_ui(url)
+        job.format_id, job.format_audio_only = fmt, True
+        job.name = (title + " (audio described)") if title else ""
+        self.mgr.add(job)
+        self.structure_changed = True
+        self.tell("Downloading the described track.")
 
     def _typing(self):
         """The text field with focus, if any. Four list commands borrow keys that mean editing
@@ -2012,6 +2046,7 @@ class MainFrame(wx.Frame):
     # -------------------------------------------------------- help, tools, updates
 
     def show_help(self):
+        self.tell("Opening the help page in your browser.")
         webbrowser.open(HELP_URL)
 
     def show_shortcuts(self):

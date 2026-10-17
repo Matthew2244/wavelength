@@ -236,7 +236,7 @@ class PlayerFrame(wx.Frame):
         self.download_btn.SetToolTip("Download what's playing, in the main window's format; it joins the downloads "
                                      "list (%s-%s). Only for links, since a downloaded file is already saved."
                                      % (("Command", "Return") if sys.platform == "darwin" else ("Control", "Enter")))
-        self.show_btn = wx.Button(p, label="Show File")
+        self.show_btn = wx.Button(p, label="Show the File")
         self.show_btn.SetToolTip("Show the playing file in %s (%s-R). Only for downloaded files, not links." % (
             "Finder" if sys.platform == "darwin" else "File Explorer", "Command" if sys.platform == "darwin" else "Control"))
         row.Add(lab, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
@@ -258,6 +258,7 @@ class PlayerFrame(wx.Frame):
         p.SetSizer(s)
         self.CreateStatusBar()
         self._menus()
+        self._sync_menu()
         self._show_video(False)
 
         self.Bind(wx.media.EVT_MEDIA_LOADED, self.on_loaded, self.media)
@@ -326,8 +327,17 @@ class PlayerFrame(wx.Frame):
         add("Say the Speed and Volume (V)", self.say_levels)
         m.AppendSeparator()
         add("Say the Time (T)", self.say_time)
-        add("Captions On or Off (C)", self.toggle_captions)
-        add("Audio Description: Pause, Read Over, or Off (D)", self.cycle_ad)
+        # Checked and chosen marks, so the current state is read in the menu, not learned by changing it.
+        self.captions_item = m.AppendCheckItem(wx.ID_ANY, "Captions (C)")
+        self.Bind(wx.EVT_MENU, lambda e: self.toggle_captions(), self.captions_item)
+        ad = wx.Menu()
+        self.ad_items = {}
+        for mode, words_ in AD_MODES:
+            label = {"pause": "Pause the Video to Read", "over": "Read Over the Video", "off": "Off"}[mode]
+            it = ad.AppendRadioItem(wx.ID_ANY, label)
+            self.ad_items[mode] = it
+            self.Bind(wx.EVT_MENU, lambda e, mm=mode: self.set_ad(mm), it)
+        m.AppendSubMenu(ad, "Audio Description (D cycles)")
         add("Find or Make Audio Description...\tCtrl+Shift+A", self.find_description)
         sleep = wx.Menu()
         for minutes, label in SLEEP_CHOICES:
@@ -469,9 +479,12 @@ class PlayerFrame(wx.Frame):
             return
         if not found.get("url"):
             reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]),
-                                           item.get("cookies") or self.main.cfg.get("app_signin", ""))
+                                           item.get("cookies") or self.main.cfg.get("app_signin", ""),
+                                           for_download=False)
             if any("NOPLAYABLE" in x for x in found.get("log", [])):
-                reason = "This one can't be played without downloading it first."
+                reason = ("This one can't be played without downloading it first. Download This (%s) saves it; "
+                          "then Play in the downloads list plays it."
+                          % ("Command-Return" if sys.platform == "darwin" else "Control-Enter"))
             self.fail(reason)
             return
         # No length from the site means a live stream (radio, a broadcast): the Mac's player
@@ -651,13 +664,30 @@ class PlayerFrame(wx.Frame):
             if resume and self.loaded:
                 self._play()  # the item stays wherever it was paused
 
+    def _sync_menu(self):
+        """The Playback menu's marks follow the state, however it was changed (key, menu, Settings)."""
+        if getattr(self, "captions_item", None) is not None:
+            self.captions_item.Check(bool(self.captions_on))
+        if getattr(self, "ad_items", None) and self.ad_mode in self.ad_items:
+            self.ad_items[self.ad_mode].Check(True)
+
+    def set_ad(self, mode: str):
+        order = [m for m, _ in AD_MODES]
+        self.ad_mode = order[(order.index(mode) - 1) % len(order)]
+        self.cycle_ad()  # one way of changing it, so it saves, reloads and speaks the same
+
     def cycle_ad(self):
         order = [m for m, _ in AD_MODES]
         self.ad_mode = order[(order.index(self.ad_mode) + 1) % len(order)]
         self.cfg["app_ad_mode"] = self.ad_mode
         engine.save_settings(self.cfg)
         self._end_ad(resume=True)
+        if not self.ad_cues and self.item:
+            self._load_description()  # one may have been made since this started playing
+            if self.ad_cues and self.loaded:
+                self._ad_reseek(self.media.Tell() / 1000.0)
         self._byline()
+        self._sync_menu()
         if not self.ad_cues:
             self.say("Audio description %s. This one has none yet: Find or Make Audio Description, "
                      "in the Playback menu." % dict(AD_MODES)[self.ad_mode])
@@ -668,9 +698,27 @@ class PlayerFrame(wx.Frame):
         if not self.item:
             return
         url = self.item.get("url") or self.item.get("page")
-        if self.playing():
+        was = bool(self.loaded and self.playing())
+        if was:
+            self.toggle(quiet=True)  # nothing said over the window's first line
+        code = self.main.describe_dialog(url, self.item.get("title") or "", self.item.get("path"))
+        # Closed without choosing anything: carry on as it was.
+        if was and code != wx.ID_OK and self and self.loaded and not self.playing():
             self.toggle()
-        self.main.describe_dialog(url, self.item.get("title") or "", self.item.get("path"))
+
+    def description_ready(self, job):
+        """A description just made for what's in the player: read it from here, without a restart."""
+        it = self.item
+        if not it:
+            return
+        mine = (job.url and job.url in (it.get("url"), it.get("page"))) or \
+            (job.source_path and job.source_path == it.get("path"))
+        if not mine:
+            return
+        self._load_description()
+        if self.ad_cues and self.loaded:
+            self._ad_reseek(self.media.Tell() / 1000.0)
+            self.say("Audio description is ready. It reads from here.")
 
     def _is_video(self) -> bool:
         if self.item.get("path"):
@@ -731,7 +779,7 @@ class PlayerFrame(wx.Frame):
     def playing(self) -> bool:
         return self.media.GetState() == wx.media.MEDIASTATE_PLAYING
 
-    def toggle(self):
+    def toggle(self, quiet: bool = False):
         if not self.loaded:
             if self._resolving or self.load_started:
                 # Starting it again would race the load already under way and leave it silent.
@@ -752,7 +800,8 @@ class PlayerFrame(wx.Frame):
                 if self.fading:
                     self.fading = False
                     self.media.SetVolume(self.out_volume())
-            self.say("Paused at %s." % words.clock_words(self.media.Tell() / 1000))
+            if not quiet:
+                self.say("Paused at %s." % words.clock_words(self.media.Tell() / 1000))
         else:
             self._play()
             if self.sleep_left:
@@ -761,7 +810,10 @@ class PlayerFrame(wx.Frame):
         self._update_buttons()
 
     def skip(self, seconds: float):
-        if not self.loaded or self.item.get("live"):
+        if self.loaded and self.item.get("live"):
+            self.say("This is live, so there's nothing to skip through.")
+            return
+        if not self.loaded:
             return
         now = self.media.Tell() / 1000.0
         target = max(0.0, min(self.length - 1 if self.length else now + seconds, now + seconds))
@@ -827,8 +879,15 @@ class PlayerFrame(wx.Frame):
         self.say("Muted." if self.muted else "Sound on, volume %d." % int(self.base_volume * 100))
 
     def say_levels(self):
-        self.say("Speed %s. Volume %d%s." % (speed_words(self.speed).lower(), int(self.base_volume * 100),
-                                             ", muted" if self.muted else ""))
+        sleep = ""
+        if self.sleep_end_of_item:
+            sleep = " Sleep timer: stops at the end of this item."
+        elif self.sleep_at:
+            sleep = " Sleep timer: %s left." % words.duration(max(0, self.sleep_at - time.time()))
+        elif self.sleep_left:
+            sleep = " Sleep timer: %s of listening left." % words.duration(self.sleep_left)
+        self.say("Speed %s. Volume %d%s.%s" % (speed_words(self.speed).lower(), int(self.base_volume * 100),
+                                               ", muted" if self.muted else "", sleep))
 
     def volume_step(self, sign: int, small: bool = False):
         step = 0.02 if small else 0.1
@@ -869,6 +928,8 @@ class PlayerFrame(wx.Frame):
             self._end_ad(resume=True)  # a description mid-read must not leave the video paused or quiet
             self.ad_mode = mode
         self.reader.voice = self.cfg.get("app_ad_voice", "system")
+        self._byline()
+        self._sync_menu()
 
     def toggle_captions(self):
         self.captions_on = not self.captions_on
@@ -876,6 +937,7 @@ class PlayerFrame(wx.Frame):
         engine.save_settings(self.cfg)
         if not self.captions_on:
             self.caption.SetLabel("")
+        self._sync_menu()
         self.say("Captions %s%s." % ("on" if self.captions_on else "off",
                                      "" if self.cues or not self.captions_on else ", but this one has none"))
 
@@ -992,7 +1054,7 @@ class PlayerFrame(wx.Frame):
         return [
             menus.item("Play or Pause" if here else "Play This One", self.toggle if here else
                        (lambda: self.play_index(k)), True, "Space" if here else ""),
-            menus.item("Download This One", lambda: self.main.add_links([url], "player"),
+            menus.item("Download This One", lambda: self._download(it),
                        url.startswith("http") and not it.get("path")),
             menus.item("Show the File", lambda: reveal([it["path"]]), bool(it.get("path"))),
             menus.SEP,
@@ -1020,7 +1082,16 @@ class PlayerFrame(wx.Frame):
         if not url or self.item.get("path"):
             self.say("This is already a downloaded file.")
             return
-        self.main.add_links([url], "player")
+        self._download(self.item)
+
+    def _download(self, it):
+        """A described track keeps its track: plain add_links would fetch the version without it."""
+        url = it.get("url") or it.get("page") or ""
+        if it.get("format"):
+            title = (it.get("title") or "").replace(" (described)", "")
+            self.main.download_track(url, it["format"], title)
+        else:
+            self.main.add_links([url], "player")
 
     def show_file(self):
         if self.item and self.item.get("path"):
@@ -1031,6 +1102,10 @@ class PlayerFrame(wx.Frame):
     def _update_buttons(self):
         self.play_btn.SetLabel("Pause" if self.loaded and self.playing() else "Play")
         self.prev_btn.Enable(self.index > 0)
+        # Dimmed only for live: between items they stay, so focus on them isn't thrown elsewhere.
+        can_skip = not (self.item and self.item.get("live"))
+        self.back_btn.Enable(can_skip)
+        self.fwd_btn.Enable(can_skip)
         self.next_btn.Enable(self.index + 1 < len(self.queue))
         file = bool(self.item and self.item.get("path"))
         self.show_btn.Enable(file)
@@ -1058,7 +1133,7 @@ class PlayerFrame(wx.Frame):
             return
         if isinstance(focus, wx.TextCtrl) or (focus is self.qlist and key in (
                 wx.WXK_UP, wx.WXK_DOWN, wx.WXK_PAGEUP, wx.WXK_PAGEDOWN, wx.WXK_HOME, wx.WXK_END,
-                wx.WXK_RETURN, wx.WXK_SPACE)):
+                wx.WXK_RETURN)):
             event.Skip()
             return
         mods = event.GetModifiers()

@@ -1360,7 +1360,9 @@ def test_accounts_window_names_the_browser_and_offers_setup(frame, monkeypatch):
     dlg.on_setup()
     assert dlg._browser() == "firefox" and "Firefox" in dlg.status.GetLabel()
     dlg.Destroy()
-    assert gui.dialogs.AccountsDialog(frame, cfg, lambda b: "x").setup_b is None  # no main: no setup button
+    plain = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "x")
+    assert plain.setup_b is None  # no main: no setup button
+    plain.Destroy()
 
 
 def test_settings_walk_through_keeps_its_choice(frame, monkeypatch):
@@ -1422,3 +1424,130 @@ def test_commands_never_answer_with_silence(frame, monkeypatch):
     assert said == ["That one isn't downloading.", "That one hasn't failed or stopped, so there's nothing to retry."]
     labels = [i.GetItemLabelText() for i in frame.GetMenuBar().GetMenu(2).GetMenuItems()]
     assert "Find or Make Audio Description..." in labels
+
+
+def test_a_playlist_can_be_played_instead(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
+
+    class FakePQ(gui.dialogs.PlaylistQuestion):
+        def __init__(self, *a, **k):
+            pass
+
+        def ShowModal(self):
+            return self.PLAY
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "PlaylistQuestion", FakePQ)
+    played, removed = [], []
+    monkeypatch.setattr(gui.wx, "CallAfter", lambda fn, *a: fn(*a))
+    monkeypatch.setattr(frame, "play_links", lambda entries: played.extend(entries))
+    monkeypatch.setattr(frame.mgr, "remove", lambda j: removed.append(j))
+    j = job("waiting_choice", "Album", cookies="safari")
+    frame._ask_playlist(j, {"title": "Album", "entries": [{"url": "https://x.com/1", "title": "One"},
+                                                          {"url": "https://x.com/2", "title": "Two"}]})
+    assert removed == [j] and [e["title"] for e in played] == ["One", "Two"]
+    assert all(e["cookies"] == "safari" for e in played)
+
+
+def test_advice_outside_a_download_never_points_at_retry():
+    logs = ["ERROR: Sign in to confirm you're not a bot", "ERROR: HTTP Error 429: Too Many Requests",
+            "ERROR: HTTP Error 503", "ERROR: Login required", "ERROR: [Errno 60] Operation timed out"]
+    for log in logs:
+        said = gui.words.explain_failure(log, False, "YouTube", for_download=False)
+        assert "Retry" not in said, said
+    assert "File, Your Accounts" in gui.words.explain_failure(logs[0], False, "YouTube", for_download=False)
+    assert "Retry Using" in gui.words.explain_failure(logs[0], False, "YouTube")  # a download keeps it
+
+
+def test_a_404_in_a_video_id_is_not_a_404():
+    said = gui.words.explain_failure("ERROR: [youtube] x404Abcdefg: Some other failure", False, "YouTube")
+    assert "isn't available" not in said
+    assert "isn't available" in gui.words.explain_failure("ERROR: HTTP Error 404: Not Found", False, "YouTube")
+    assert gui.words.worth_updating_for("ERROR: [youtube] geoffrey: Unable to extract player")
+
+
+def test_streams_are_named_not_coded():
+    w = gui.words.describe_format({"vcodec": "avc1.64001F", "acodec": "mp4a.40.2", "height": 720})
+    assert w.startswith("Video 720p with sound, H.264, plays everywhere")
+    assert "?p" not in gui.words.describe_format({"vcodec": "vp09.00", "acodec": "none"})
+    assert "Opus" in gui.words.describe_format({"vcodec": "none", "acodec": "opus", "abr": 130})
+
+
+def test_a_new_search_keeps_what_was_checked(frame, monkeypatch):
+    monkeypatch.setattr(gui, "announce", lambda t, *a: None)
+    dlg = gui.dialogs.Search(frame, "", "youtube", lambda *a: [])
+    monkeypatch.setattr(dlg, "_fetch", lambda *a: None)
+    dlg.searched = ("piano", "youtube")
+    dlg._show("piano", "youtube", "YouTube", 1, [{"url": "https://y.example/1", "title": "One"},
+                                                 {"url": "https://y.example/2", "title": "Two"}])
+    dlg.list.Check(1)
+    dlg.query.SetValue("organ")
+    dlg.on_search(None)
+    assert [e["title"] for e in dlg.chosen()] == ["Two"] and "1 checked result from before is kept" in \
+        dlg.status.GetLabel()
+    assert dlg.ok.GetLabel() == "Download Checked (1)"
+    gui.dialogs._check_range(dlg, dlg.list, 0, dlg.list.GetCount(), False)  # Uncheck All means all
+    assert dlg.chosen() == []
+    dlg._finish([])
+    _drain()
+
+
+def test_choose_items_can_play_instead(frame, monkeypatch):
+    entries = [{"url": "https://y.example/%d" % i, "title": "T%d" % i} for i in range(3)]
+    dlg = gui.dialogs.CheckList(frame, "Album", "intro", entries, checked=False)
+    monkeypatch.setattr(dlg, "EndModal", lambda code: None)
+    monkeypatch.setattr(gui.dialogs, "announce", lambda t, *a: None, raising=False)
+    dlg._play_instead()
+    assert dlg.choice == "download"  # nothing checked: it says so
+    dlg.list.Check(2)
+    dlg._play_instead()
+    assert dlg.choice == "play" and [e["title"] for e in dlg.chosen()] == ["T2"]
+    dlg.Destroy()
+    from media_download import system
+    assert not system._key_handlers
+
+
+def test_describe_window_offers_what_you_have_and_make_from_any_row(frame, monkeypatch):
+    done = []
+    acts = {"make": lambda: done.append("make"), "have_play": lambda: done.append("have")}
+    monkeypatch.setattr(gui.dialogs, "in_background", lambda work, ok, bad: None)
+    dlg = gui.dialogs.DescribeDialog(frame, "https://y.example/v", "Film", None, acts, have=True)
+    monkeypatch.setattr(dlg, "EndModal", lambda code: None)
+    dlg._found({"about": {"title": "Film", "has_video": True, "can_make": True},
+                "candidates": [{"url": "https://y.example/d", "title": "Film (described)"}]})
+    assert dlg.options[0]["kind"] == "have" and dlg.list.GetSelection() == 0
+    assert dlg.make_btn.IsEnabled() and dlg.play_btn.IsEnabled()
+    dlg._act("play")
+    dlg.list.SetSelection(1)  # a published version selected, Make still makes
+    dlg._act("make")
+    assert done == ["have", "make"]
+    dlg.Destroy()
+
+
+def test_player_live_skip_says_so_and_menu_shows_state(frame, monkeypatch):
+    from media_download import player
+    monkeypatch.setattr(player.engine, "save_settings", lambda c: None)
+    said = []
+    monkeypatch.setattr(player, "announce", lambda t, *a: said.append(t))
+    pl = player.PlayerFrame(frame)
+    try:
+        monkeypatch.setattr(pl, "say", lambda t: said.append(t))
+        pl.item, pl.loaded = {"url": "https://radio.example/live", "live": True}, True
+        pl.skip(10)
+        assert said[-1].startswith("This is live")
+        pl._update_buttons()
+        assert not pl.back_btn.IsEnabled() and not pl.fwd_btn.IsEnabled()
+        pl.captions_on = True
+        pl.toggle_captions()
+        assert not pl.captions_item.IsChecked()
+        pl.ad_cues, pl.loaded = [], False
+        pl.set_ad("off")
+        assert pl.ad_mode == "off" and pl.ad_items["off"].IsChecked()
+        pl.sleep_end_of_item = True
+        pl.say_levels()
+        assert "stops at the end of this item" in said[-1]
+    finally:
+        pl.sleep_end_of_item = False
+        pl.item, pl.loaded = None, False
+        pl.timer.Stop()
