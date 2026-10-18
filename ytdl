@@ -1701,6 +1701,8 @@ def main():
     args.explicit_kind = args.kind is not None
     if args.kind is None:
         args.kind = cfg.get("format", "best")
+        if args.kind == "video_only":  # Wavelength's setting; this command keeps the sound
+            args.kind = "video"
     if args.to is None:
         args.to = setting(cfg, "to", DEST)
     if args.notify is None:

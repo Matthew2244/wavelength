@@ -107,7 +107,7 @@ def downloads_dir() -> str:
 
 
 def default_folder() -> str:
-    """Downloads > Media Downloads, on the computer itself, on every system. Not a cloud folder:
+    """Downloads/Media Downloads, on the computer itself, on every system. Not a cloud folder:
     a new person's files should land where they'd look first, and a synced folder would push
     every download to their other devices. Change Folder lets anyone choose otherwise."""
     return os.path.join(downloads_dir(), "Media Downloads")

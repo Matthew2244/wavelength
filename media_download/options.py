@@ -14,6 +14,10 @@ import sys
 from . import engine, words
 
 AUDIO_KINDS = ("best", "mp3", "m4a", "opus", "wav", "flac")
+VIDEO_KINDS = ("video", "video_only")
+# "Best audio" keeps a file that already plays everywhere and makes AAC (.m4a) of anything else:
+# a bare .opus or .webm opens in almost nothing on a Mac (Rocco, 2026-10-16: "nothing can open it").
+PLAYS_EVERYWHERE = "m4a>m4a/mp3>mp3/aac>aac/flac>flac/wav>wav/m4a"
 COVER_OK = ("best", "mp3", "m4a", "opus", "flac")
 
 
@@ -34,8 +38,15 @@ def selector(spec: dict) -> list[str]:
             return ["-f", "bv*[vcodec^=avc1]%s+ba[ext=m4a]/bv*%s[ext=mp4]+ba[ext=m4a]/bv*%s+ba/b%s/b"
                     % (lim, lim, lim, lim)]
         return ["-f", "bv*[height<=%d]+ba/b[height<=%d]/b" % (cap, cap)]
-    if kind == "m4a":
-        return ["-f", "bestaudio[ext=m4a]/bestaudio/best"]
+    if kind == "video_only":
+        cap = int(spec.get("max_height") or 0)
+        if cap < 0:
+            return ["-f", "bv*/b"]
+        lim = "[height<=%d]" % cap if cap else ""
+        return ["-f", "bv*[vcodec^=avc1]%s/bv*%s[ext=mp4]/bv*%s/b%s/b" % (lim, lim, lim, lim)]
+    if kind in ("m4a", "best"):
+        # The site's own AAC first, so "best" seldom has to convert at all.
+        return ["-f", "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best"]
     if kind == "opus":
         return ["-f", "bestaudio[acodec=opus]/bestaudio/best"]
     return ["-f", "bestaudio/best"]
@@ -124,6 +135,8 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
             args += ["--merge-output-format", "mp4", "--embed-metadata"]
     elif kind == "video":
         args += ["--merge-output-format", "mp4", "--embed-metadata"]
+    elif kind == "video_only":
+        args += ["--remux-video", "mp4", "--embed-metadata"]
     elif kind == "mp3":
         args += ["-x", "--audio-format", "mp3", "--audio-quality", "320K", "--embed-metadata"]
     elif kind == "wav":
@@ -131,7 +144,7 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
     elif kind in ("flac", "m4a", "opus"):
         args += ["-x", "--audio-format", kind, "--embed-metadata"]
     else:
-        args += ["-x", "--audio-format", "best", "--embed-metadata"]
+        args += ["-x", "--audio-format", PLAYS_EVERYWHERE, "--audio-quality", "192K", "--embed-metadata"]
 
     if spec.get("cover_art", True) and not fid and kind in COVER_OK:
         args += ["--embed-thumbnail"]

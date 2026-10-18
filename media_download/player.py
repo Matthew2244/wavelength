@@ -271,6 +271,7 @@ class PlayerFrame(wx.Frame):
         self.speed_choice.Bind(wx.EVT_CHOICE, lambda e: self.set_speed(SPEEDS[self.speed_choice.GetSelection()]))
         self.volume.Bind(wx.EVT_SLIDER, lambda e: self.set_volume(self.volume.GetValue() / 100.0, say=False))
         self.slider.Bind(wx.EVT_SLIDER, self.on_slider_moved)
+        self.slider.Bind(wx.EVT_SET_FOCUS, self._on_slider_focus)
         self.slider.Bind(wx.EVT_SCROLL_THUMBTRACK, lambda e: setattr(self, "dragging", True))
         self.slider.Bind(wx.EVT_SCROLL_THUMBRELEASE, self.on_slider_release)
         self.slider.Bind(wx.EVT_SCROLL_LINEUP, lambda e: self.skip(-self.skip_len()))
@@ -993,7 +994,10 @@ class PlayerFrame(wx.Frame):
         if not self.loaded or not self.IsShown():
             return
         now = self.media.Tell() / 1000.0
-        if not self.dragging and not self.item.get("live"):
+        # The slider moves only while it has the focus. Every change to it is a value change the
+        # screen reader hears, wherever its cursor is (Rocco, 2026-10-16: "it should only read when
+        # over top of it"). The time beside it keeps counting; the slider catches up on focus.
+        if not self.dragging and not self.item.get("live") and self._slider_focused():
             self.slider.SetValue(int(now))
         self._show_time(now)
         self._ad_tick(now)
@@ -1016,18 +1020,31 @@ class PlayerFrame(wx.Frame):
         if time.time() - self.last_saved > 10:
             self.save_position()
 
+    def _slider_focused(self) -> bool:
+        return wx.Window.FindFocus() is self.slider
+
+    def _on_slider_focus(self, event):
+        event.Skip()
+        if self.loaded and self.item and not self.item.get("live") and not self.dragging:
+            now = self.media.Tell() / 1000.0
+            self.slider.SetValue(int(now))
+            self._show_time(now, force=True)
+
     def _show_time(self, now: float, force=False):
         sec = int(now)
         if sec == self.last_second and not force:
             return
         self.last_second = sec
+        focused = force or self._slider_focused()
         if self.item.get("live") or not self.length:
             self.time.SetLabel("Live %s" % words.clock_words(now))
-            mac_value_description(self.slider, "Live")
+            if focused:
+                mac_value_description(self.slider, "Live")
         else:
             self.time.SetLabel("%s of %s" % (words.clock_words(now), words.clock_words(self.length)))
-            mac_value_description(self.slider, "%s of %s" % (words.duration(now) or "0 seconds",
-                                                             words.duration(self.length)))
+            if focused:
+                mac_value_description(self.slider, "%s of %s" % (words.duration(now) or "0 seconds",
+                                                                 words.duration(self.length)))
         self.panel.Layout()
 
     # ------------------------------------------------------------------ the rest

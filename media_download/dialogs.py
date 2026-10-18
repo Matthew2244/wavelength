@@ -545,7 +545,7 @@ class Settings(wx.Dialog):
         self.theme_vals = [k for k, _ in THEMES]
         self.theme = choice(p, s, "Sound set:", [w for _, w in THEMES],
                             pick(self.theme_vals, cfg.get("app_sound_theme", "rhodes")),
-                            "Each set has a sound for everything the app does. Play a Sample lets you hear it.")
+                            "Each set has a sound for everything the app does. Play Sample lets you hear it.")
         _vlabel = wx.StaticText(p, label="Sound volume:")
         self.volume = wx.Slider(p, value=int(round(sound_volume(cfg) * 100)), minValue=0, maxValue=100,
                                 size=(220, -1))
@@ -553,10 +553,10 @@ class Settings(wx.Dialog):
         self.volume.SetPageSize(20)
         labelled(p, s, "Sound volume:", self.volume, _vlabel, stacked=True, tip=
                  "How loud the app's sounds are, under the computer's own volume. Arrow keys move it in steps "
-                 "of 5 percent; Play a Sample plays one at that level. All the way down is silent.")
+                 "of 5 percent; Play Sample plays one at that level. All the way down is silent.")
         self._say_volume()
         self.volume.Bind(wx.EVT_SLIDER, lambda e: self._say_volume())
-        sample = wx.Button(p, label="Play a Sample")
+        sample = wx.Button(p, label="Play Sample")
         sample.SetToolTip("Plays the Finished sound from the chosen set at the chosen volume. Nothing plays "
                           "by itself while you choose, so it never talks over your screen reader.")
         sample.Bind(wx.EVT_BUTTON, lambda e: self._preview("done"))
@@ -1609,9 +1609,11 @@ class Guide(wx.Dialog):
     def _page_format(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "format", s, "Next: what should I save things as?\n\nIf you're not sure, go with \"Best "
-                   "audio, as the site sends it.\" I keep the sound exactly as it arrives, so nothing is lost. MP3, "
-                   "M4A, WAV and FLAC mean I convert it. Video gets you an MP4 that plays everywhere. You can pick "
-                   "something different for any download in the main window.")
+                   "audio, plays everywhere.\" When the site's sound already opens everywhere I keep it as it is; "
+                   "when it doesn't, I make an M4A that does. Best video with audio gets you an MP4 that plays "
+                   "everywhere, and Video only leaves the sound out, for editing. MP3, M4A, WAV and FLAC are there "
+                   "when you need that exact kind of file. You can pick something different for any download in "
+                   "the main window.")
         keys = [k for k, _ in words.FORMAT_LABELS]
         lab = wx.StaticText(p, label="Save as:")
         self.format = wx.Choice(p, choices=[w for _, w in words.FORMAT_LABELS])
@@ -1627,7 +1629,7 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "sounds", s, "Now the fun part: how should I sound?\n\nI play a short sound when downloads "
                    "finish or fail, when something's added, when search results come in, and more, each with its own "
-                   "sound. Pick a set and press Play a Sample to hear one. Later on, Settings, Choose Sounds lets you "
+                   "sound. Pick a set and press Play Sample to hear one. Later on, Settings, Choose Sounds lets you "
                    "pick each sound yourself, or use your own.")
         self.sounds_on = wx.CheckBox(p, label="Play sounds")
         self.sounds_on.SetValue(bool(self.cfg.get("app_sounds", True)))
@@ -1640,8 +1642,8 @@ class Guide(wx.Dialog):
         t = self.cfg.get("app_sound_theme", "rhodes")
         self.theme.SetSelection(self.theme_keys.index(t) if t in self.theme_keys else 0)
         labelled(p, s, "Sound set:", self.theme, lab,
-                 "Which family of sounds the app plays. Play a Sample lets you hear the one chosen here.")
-        b = wx.Button(p, label="Play a Sample")
+                 "Which family of sounds the app plays. Play Sample lets you hear the one chosen here.")
+        b = wx.Button(p, label="Play Sample")
         b.SetToolTip("Plays the chosen set's Finished sound, so you can hear it.")
         b.Bind(wx.EVT_BUTTON, lambda e: self._sample())
         s.Add(b, 0, wx.ALL, 6)
@@ -1832,6 +1834,7 @@ class Guide(wx.Dialog):
             self.texts[key].SetValue(done)
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
+        self._watch_access(key == "permission")
         self.book.SetSelection(k)
         self.back.Enable(k > 0)
         self.next.SetLabel("Open Your Accounts" if key == "done" and self.opens_accounts and self.acc.signin(self.cfg)
@@ -1857,6 +1860,37 @@ class Guide(wx.Dialog):
         if url and sys.platform == "darwin":
             import subprocess
             subprocess.Popen(["open", url])
+
+    def _watch_access(self, on):
+        """On Safari's permission step, look every second and a half whether Full Disk Access has
+        been switched on, and carry on by itself when it has (Rocco, 2026-10-16: too many steps).
+        Check Again stays for anyone who wants to ask."""
+        timer = getattr(self, "_access_timer", None)
+        if timer is not None:
+            timer.Stop()
+            self._access_timer = None
+        if not (on and sys.platform == "darwin" and self._browser().split(":", 1)[0] == "safari"):
+            return
+        if self.acc.safari_readable():
+            return  # already allowed; Check Again says so if asked
+
+        def look():
+            if not self:
+                return
+            if not self.IsShown() or self.order[self.at] != "permission":
+                self._watch_access(False)
+                return
+            if self.acc.safari_readable():
+                self._access_timer.Stop()
+                self._access_timer = None
+                from .system import cue
+                cue("signed_in")
+                self.Raise()
+                self._say(self.perm_status, "Full Disk Access is on, so I can read Safari's sign-in. Press Next.")
+                self.next.SetFocus()
+        self._access_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, lambda e: look(), self._access_timer)
+        self._access_timer.Start(1500)
 
     def _say(self, label, text):
         from .system import announce
@@ -2336,6 +2370,9 @@ class Search(wx.Frame):
         self._count()
         self.status.SetLabel("Searching %s for %s...%s" % (site, q, " %s from before %s kept." % (
             words.n(len(self.kept), "checked result"), "is" if len(self.kept) == 1 else "are") if self.kept else ""))
+        # Said, not only shown: a search that starts in silence reads as a search that never
+        # started (Matthew, 2026-10-17: "when you search, speech doesn't tell you anything").
+        say("Searching %s for %s." % (site, q), polite=True)
         self._fetch(q, site_key, site, 1)
 
     def _site_changed(self):
@@ -2452,9 +2489,12 @@ class Search(wx.Frame):
         else:
             self.status.SetLabel("That's every result %s has for %s: %s." % (site, q,
                                                                              words.n(len(self.results), "result")))
-        # The first page says nothing: the results sound and the first row are enough, and the
-        # status line stays on screen. Matthew's call, 2026-10-14.
-        if not (start == 1 and self.results):
+        if start == 1 and self.results:
+            # The count comes after the first row is read, never over it (the 2026-10-14 call was
+            # that nothing should talk over the first row; on 2026-10-17 he found Search silent).
+            n = words.n(len(self.results), "result")
+            wx.CallLater(900, lambda: self and say("%s on %s." % (n, site), polite=True))
+        else:
             announce(self.status.GetLabel())
         self._count()
         if self.has_more and self.PREFETCH:

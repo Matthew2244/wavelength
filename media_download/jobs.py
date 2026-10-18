@@ -97,7 +97,7 @@ class Job:
         bits = [words.FORMAT_SHORT.get(self.kind, self.kind)]
         if self.format_id:
             bits = ["the exact stream %s" % self.format_id]
-        if self.kind == "video" and self.max_height:
+        if self.kind in ("video", "video_only") and self.max_height:
             bits.append("highest available" if self.max_height < 0 else "up to %dp" % self.max_height)
         if self.start or self.end:
             bits.append("from %s to %s" % (self.start or "the start", self.end or "the end"))

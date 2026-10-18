@@ -289,16 +289,19 @@ def looks_like_link(text: str) -> bool:
 
 
 FORMAT_LABELS = [
-    ("best", "Best audio, as the site sends it"),
+    ("best", "Best audio, plays everywhere"),
+    ("video", "Best video with audio (MP4)"),
+    ("video_only", "Video only, no sound (MP4)"),
     ("mp3", "MP3 audio"),
     ("m4a", "M4A audio (AAC)"),
-    ("opus", "Opus audio"),
     ("wav", "WAV audio, uncompressed"),
     ("flac", "FLAC audio, lossless"),
-    ("video", "Video (MP4)"),
 ]
+# Only in the main window's Format popup: opens the exact stream list for the link.
+EXACT = "exact"
+EXACT_LABEL = "Choose an Exact Stream..."
 FORMAT_SHORT = {"best": "best audio", "mp3": "MP3", "m4a": "M4A", "opus": "Opus",
-                "wav": "WAV", "flac": "FLAC", "video": "video"}
+                "wav": "WAV", "flac": "FLAC", "video": "video", "video_only": "video only, no sound"}
 
 HEIGHTS = [(0, "Best that plays everywhere"), (-1, "Highest available, any codec"), (2160, "4K (2160)"),
            (1440, "1440"), (1080, "1080"), (720, "720"), (480, "480"), (360, "360")]
@@ -594,17 +597,18 @@ def row_text(job) -> str:
 
 
 def pretty_folder(path: str) -> str:
-    """'iCloud Drive > Media Downloads' rather than a Library path nobody recognises."""
+    """'iCloud Drive/Media Downloads' rather than a Library path nobody recognises. The system's own
+    separator, the way a path is written everywhere else (Rocco: "> should be replaced with /")."""
     import os
     home = os.path.expanduser("~")
     icloud = os.path.join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")
     if path.startswith(icloud):
-        return "iCloud Drive" + path[len(icloud):].replace(os.sep, " > ")
+        return "iCloud Drive" + path[len(icloud):]
     downloads = os.path.join(home, "Downloads")
     if path == downloads or path.startswith(downloads + os.sep):
-        return "Downloads" + path[len(downloads):].replace(os.sep, " > ")
+        return "Downloads" + path[len(downloads):]
     if path.startswith(home + os.sep):
-        return "your home folder" + path[len(home):].replace(os.sep, " > ")
+        return "your home folder" + path[len(home):]
     return path
 
 

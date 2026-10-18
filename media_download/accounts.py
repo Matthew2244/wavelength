@@ -329,8 +329,8 @@ def permission_steps(spec: str) -> list[str]:
                 "Press Open System Settings below. It opens Privacy & Security, Full Disk Access.",
                 "Find Wavelength in the list and turn it on. If it isn't listed, press the Add button, "
                 "choose Applications, then Wavelength.",
-                "macOS may ask for your password, and may ask to quit Wavelength. If it does, choose Later, "
-                "then come back here and press Check Again."]
+                "macOS may ask for your password, and may ask to quit Wavelength. If it does, choose Later. "
+                "I notice by myself the moment it's on, so there's nothing to press after that."]
     if sys.platform == "darwin" and key != "firefox":
         return ["%s locks its sign-in with a key in your keychain." % name,
                 "When you press Check Again, macOS asks whether \"security\" may use \"%s Safe Storage\". "
@@ -344,6 +344,26 @@ def permission_steps(spec: str) -> list[str]:
     if sys.platform.startswith("linux") and key != "firefox":
         return ["%s may keep its sign-in locked with your desktop's keyring. If the keyring asks, allow it." % name]
     return []
+
+
+SAFARI_COOKIES = os.path.expanduser("~/Library/Containers/com.apple.Safari/Data/Library/Cookies/"
+                                    "Cookies.binarycookies")
+
+
+def safari_readable() -> bool:
+    """Can this app read Safari's sign-in right now? Cheap enough to ask every second or two:
+    macOS answers a file open at once, Full Disk Access or not."""
+    old = os.path.expanduser("~/Library/Cookies/Cookies.binarycookies")  # before Safari's container
+    for path in (SAFARI_COOKIES, old):
+        if not os.path.exists(path) and path != SAFARI_COOKIES:
+            continue
+        try:
+            with open(path, "rb") as f:
+                f.read(4)
+            return True
+        except OSError:
+            continue
+    return False
 
 
 def settings_page_url(spec: str) -> str:

@@ -156,11 +156,14 @@ class MainFrame(wx.Frame):
         row = wx.BoxSizer(wx.HORIZONTAL)
         lab = wx.StaticText(p, label=M("Form&at:"))
         self._texts.append(lab)
-        self.kind = wx.Choice(p, choices=[label for _, label in words.FORMAT_LABELS])
+        self.kind = wx.Choice(p, choices=[label for _, label in words.FORMAT_LABELS] + [words.EXACT_LABEL])
         keys = [k for k, _ in words.FORMAT_LABELS]
         self.kind.SetSelection(keys.index(self.cfg.get("format")) if self.cfg.get("format") in keys else 0)
-        self.kind.SetToolTip("What every new download is saved as. \"Best audio\" keeps the sound exactly as "
-                             "the site sends it, with no conversion. Remembered.")
+        self._kind_at = self.kind.GetSelection()
+        self.kind.SetToolTip("What every new download is saved as. \"Best audio, plays everywhere\" keeps the "
+                             "site's sound when it already opens everywhere and makes an M4A when it doesn't. The "
+                             "last choice, Choose an Exact Stream, lists the link's own streams to pick one. "
+                             "Remembered.")
         mac_accessibility_label(self.kind, "Format")
         self.height_lab = wx.StaticText(p, label=M("Video &quality:"))
         self._texts.append(self.height_lab)
@@ -435,6 +438,7 @@ class MainFrame(wx.Frame):
         keys = [k for k, _ in words.FORMAT_LABELS]
         if self.cfg.get("format") in keys:
             self.kind.SetSelection(keys.index(self.cfg["format"]))
+            self._kind_at = self.kind.GetSelection()
             self._update_height_enabled()
         self._update_folder_text()
         self.link.SetFocus()
@@ -626,7 +630,9 @@ class MainFrame(wx.Frame):
 
     def _picks(self) -> tuple:
         """The Format and Video Quality choices, read from the window: main thread only."""
-        return ([k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()],
+        keys = [k for k, _ in words.FORMAT_LABELS]
+        at = self.kind.GetSelection()
+        return (keys[at] if at < len(keys) else keys[self._kind_at],
                 [h for h, _ in words.HEIGHTS][self.height.GetSelection()])
 
     def _job_from_ui(self, url: str, per_link: bool = True, picks: tuple | None = None) -> Job:
@@ -917,6 +923,13 @@ class MainFrame(wx.Frame):
     # -------------------------------------------------------- choices
 
     def on_kind(self, _):
+        if self.kind.GetSelection() >= len(words.FORMAT_LABELS):
+            # Choose an Exact Stream: the format stays what it was; the stream goes in this
+            # download's More Options, the same place its button lives.
+            self.kind.SetSelection(self._kind_at)
+            wx.CallAfter(self.on_more, None, pick=True)
+            return
+        self._kind_at = self.kind.GetSelection()
         self.cfg["format"] = [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()]
         engine.save_settings(self.cfg)
         self._update_height_enabled()
@@ -926,7 +939,7 @@ class MainFrame(wx.Frame):
         engine.save_settings(self.cfg)
 
     def _update_height_enabled(self):
-        video = [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()] == "video"
+        video = self._picks()[0] in ("video", "video_only")
         self.height.Enable(video)
         self.height_lab.Enable(video)
 
@@ -961,11 +974,13 @@ class MainFrame(wx.Frame):
         os.makedirs(self.cfg["to"], exist_ok=True)
         open_path(self.cfg["to"])
 
-    def on_more(self, _):
+    def on_more(self, _, pick=False):
         link = (words.links_in(self.link.GetValue()) or [""])[0]
         picks = self._picks()  # the stream lookup runs on a thread; it can't read the controls
         dlg = dialogs.MoreOptions(self, self.next_opts, link,
                                   lambda u: self.probe_now(u, self.job_spec(u, picks)))
+        if pick:
+            wx.CallAfter(dlg.on_pick, None)
         if dlg.ShowModal() == wx.ID_OK:
             self.next_opts = {k: v for k, v in dlg.opts.items() if v}
             self._show_opts()
@@ -1470,7 +1485,7 @@ class MainFrame(wx.Frame):
             self.player.play_btn.SetFocus()
 
     def _want(self) -> str:
-        return "video" if [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()] == "video" else "audio"
+        return "video" if self._picks()[0] in ("video", "video_only") else "audio"
 
     def play_links(self, entries, focus=True):
         """Play links without downloading: [{"url", "title"?, ...}]."""

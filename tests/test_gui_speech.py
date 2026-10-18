@@ -146,7 +146,7 @@ def test_default_folder_is_on_this_computer():
     from media_download import engine, words
     d = engine.default_folder()
     assert "CloudDocs" not in d and d.endswith(os.path.join("Downloads", "Media Downloads"))
-    assert words.pretty_folder(d) == "Downloads > Media Downloads"
+    assert words.pretty_folder(d) == "Downloads" + os.sep + "Media Downloads"
 
 
 def test_hundredth_download_is_mentioned_in_the_done_sentence(frame, monkeypatch):
