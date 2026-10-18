@@ -1982,7 +1982,10 @@ class Guide(wx.Dialog):
                 parts.append(("For %s:\n" % self.acc.spec_words(b) if len(need) > 1 else "") +
                              "\n".join("%d. %s" % (i + 1, l) for i, l in enumerate(lines)))
             body = ("First I need permission to read %s.\n\n" % self.acc.signin_words(self.acc.join(need)) +
-                    "\n\n".join(parts) + "\n\nThen press Check Again and I'll try." +
+                    "\n\n".join(parts) +
+                    # Safari alone needs nothing pressed: the step notices Full Disk Access itself.
+                    ("" if sys.platform == "darwin" and all(b.split(":", 1)[0] == "safari" for b in need)
+                     else "\n\nThen press Check Again and I'll try.") +
                     ("\n\nOr skip all this: go back a step and use Sign In Here in Wavelength instead, which "
                      "needs no permission at all." if self.choices.here is not None else ""))
             self.texts[key].SetValue(body)
@@ -2097,6 +2100,7 @@ class Guide(wx.Dialog):
         announce(text)
 
     def _check_readable(self):
+        self._watch_access(False)  # asked by hand: one answer, not that one and the watcher's too
         b = self.acc.join(self._needing())
         self._say(self.perm_status, "Checking %s..." % self.acc.spec_words(b))
         # None means readable, so a failure must come back as words, never None.
@@ -2688,7 +2692,9 @@ class Search(wx.Frame):
             # The count comes after the first row is read, never over it (the 2026-10-14 call was
             # that nothing should talk over the first row; on 2026-10-17 he found Search silent).
             n = words.n(len(self.results), "result")
-            wx.CallLater(900, lambda: self and say("%s on %s." % (n, site), polite=True))
+            asked = (q, site_key)
+            wx.CallLater(900, lambda: self and self.searched == asked and not self.loading
+                         and say("%s on %s." % (n, site), polite=True))
         else:
             announce(self.status.GetLabel())
         self._count()

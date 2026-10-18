@@ -416,6 +416,37 @@ def _windows_value(ctrl, text: str) -> None:
         pass
 
 
+_vo_seen = [0.0, False]
+
+
+def voiceover_on() -> bool:
+    """Is VoiceOver running on this Mac? Asked at most every 5 seconds. False everywhere else."""
+    if sys.platform != "darwin":
+        return False
+    import time
+    now = time.time()
+    if now - _vo_seen[0] < 5:
+        return _vo_seen[1]
+    on = False
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        f = objc.objc_msgSend
+        f.restype = ctypes.c_void_p
+        f.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        ws = f(objc.objc_getClass(b"NSWorkspace"), objc.sel_registerName(b"sharedWorkspace"))
+        f.restype = ctypes.c_bool
+        on = bool(f(ws, objc.sel_registerName(b"isVoiceOverEnabled")))
+    except Exception:  # noqa: BLE001
+        on = False
+    _vo_seen[:] = [now, on]
+    return on
+
+
 def mac_value_description(ctrl, text: str) -> None:
     """What VoiceOver says for a slider's value: "1 minute 3 seconds of 4 minutes", not "63".
     On Windows the same words go to NVDA, JAWS and Narrator through the slider's accessible value."""

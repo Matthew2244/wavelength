@@ -932,11 +932,20 @@ class MainFrame(wx.Frame):
     # -------------------------------------------------------- choices
 
     def on_kind(self, _):
+        if getattr(self, "_exact_timer", None) is not None:
+            self._exact_timer.Stop()
+            self._exact_timer = None
         if self.kind.GetSelection() >= len(words.FORMAT_LABELS):
             # Choose an Exact Stream: the format stays what it was; the stream goes in this
-            # download's More Options, the same place its button lives.
-            self.kind.SetSelection(self._kind_at)
-            wx.CallAfter(self.on_more, None, pick=True)
+            # download's More Options, the same place its button lives. Only once the choice
+            # comes to rest: on Windows every arrow press in the closed popup is a choice, and
+            # Down from FLAC would open the window at once and snap back, a trap.
+            def go():
+                self._exact_timer = None
+                if self and self.kind.GetSelection() >= len(words.FORMAT_LABELS):
+                    self.kind.SetSelection(self._kind_at)
+                    self.on_more(None, pick=True)
+            self._exact_timer = wx.CallLater(900 if sys.platform == "win32" else 1, go)
             return
         self._kind_at = self.kind.GetSelection()
         self.cfg["format"] = [k for k, _ in words.FORMAT_LABELS][self.kind.GetSelection()]

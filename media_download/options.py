@@ -15,9 +15,11 @@ from . import engine, words
 
 AUDIO_KINDS = ("best", "mp3", "m4a", "opus", "wav", "flac")
 VIDEO_KINDS = ("video", "video_only")
-# "Best audio" keeps a file that already plays everywhere and makes AAC (.m4a) of anything else:
-# a bare .opus or .webm opens in almost nothing on a Mac (Rocco, 2026-10-16: "nothing can open it").
-PLAYS_EVERYWHERE = "m4a>m4a/mp3>mp3/aac>aac/flac>flac/wav>wav/m4a"
+# "Best audio" converts only what doesn't open everywhere: a bare .opus or .webm opens in almost
+# nothing on a Mac (Rocco, 2026-10-16: "nothing can open it"). Everything else falls to "best",
+# which yt-dlp leaves alone, so a 24-bit WAV, ALAC or AIFF is never made worse. A bare .aac goes
+# into a real M4A by copy, and WMA needs its own rule because yt-dlp counts it as common.
+PLAYS_EVERYWHERE = "webm>m4a/opus>m4a/ogg>m4a/oga>m4a/mka>m4a/mp4>m4a/aac>m4a/wma>m4a/best"
 COVER_OK = ("best", "mp3", "m4a", "opus", "flac")
 
 
@@ -43,7 +45,9 @@ def selector(spec: dict) -> list[str]:
         if cap < 0:
             return ["-f", "bv*/b"]
         lim = "[height<=%d]" % cap if cap else ""
-        return ["-f", "bv*[vcodec^=avc1]%s/bv*%s[ext=mp4]/bv*%s/b%s/b" % (lim, lim, lim, lim)]
+        # Video-only streams first ("bv*" also matches ones with sound, and they win ties); a site
+        # with only combined files still works, and the sound is taken out afterwards anyway.
+        return ["-f", "bv[vcodec^=avc1]%s/bv%s[ext=mp4]/bv%s/bv*%s/b%s/b" % (lim, lim, lim, lim, lim)]
     if kind in ("m4a", "best"):
         # The site's own AAC first, so "best" seldom has to convert at all.
         return ["-f", "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best"]
@@ -136,7 +140,10 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
     elif kind == "video":
         args += ["--merge-output-format", "mp4", "--embed-metadata"]
     elif kind == "video_only":
-        args += ["--remux-video", "mp4", "--embed-metadata"]
+        # Remux to MP4, then copy the streams once more with the sound left out: the only step
+        # that runs every time, whichever stream arrived.
+        args += ["--remux-video", "mp4", "--embed-metadata",
+                 "--use-postprocessor", "FFmpegCopyStream:when=post_process", "--ppa", "CopyStream:-an"]
     elif kind == "mp3":
         args += ["-x", "--audio-format", "mp3", "--audio-quality", "320K", "--embed-metadata"]
     elif kind == "wav":

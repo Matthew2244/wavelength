@@ -84,9 +84,9 @@ def test_best_never_leaves_a_file_that_wont_open():
     from yt_dlp.postprocessor.ffmpeg import resolve_mapping
     a = options.download_args(spec())
     mapping = a[a.index("--audio-format") + 1]
-    for kept in ("m4a", "mp3", "flac", "wav"):
-        assert resolve_mapping(kept, mapping)[0] == kept
-    for other in ("opus", "webm", "ogg"):
+    for kept in ("m4a", "mp3", "flac", "wav", "aiff"):
+        assert resolve_mapping(kept, mapping)[0] == "best"  # yt-dlp leaves these exactly as they are
+    for other in ("opus", "webm", "ogg", "aac", "wma"):
         assert resolve_mapping(other, mapping)[0] == "m4a"
     assert options.selector(spec())[1].startswith("bestaudio[ext=m4a]")
 
@@ -94,8 +94,9 @@ def test_best_never_leaves_a_file_that_wont_open():
 def test_video_only_has_no_sound_and_plays_everywhere():
     a = options.download_args(spec(kind="video_only", max_height=720))
     sel = a[a.index("-f") + 1]
-    assert "+ba" not in sel and sel.startswith("bv*[vcodec^=avc1][height<=720]")
+    assert "+ba" not in sel and sel.startswith("bv[vcodec^=avc1][height<=720]")
     assert a[a.index("--remux-video") + 1] == "mp4"
+    assert a[a.index("--ppa") + 1] == "CopyStream:-an"
 
 
 def test_named_stream_is_never_converted():

@@ -1021,7 +1021,10 @@ class PlayerFrame(wx.Frame):
             self.save_position()
 
     def _slider_focused(self) -> bool:
-        return wx.Window.FindFocus() is self.slider
+        """True when the slider may move: always, except on a Mac with VoiceOver running, where
+        each move is read aloud wherever VoiceOver's cursor is; there it moves only while focused."""
+        from .system import voiceover_on
+        return wx.Window.FindFocus() is self.slider or not voiceover_on()
 
     def _on_slider_focus(self, event):
         event.Skip()
