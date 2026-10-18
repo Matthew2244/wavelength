@@ -71,6 +71,21 @@ class WrapText(wx.StaticText):
         wx.CallAfter(lambda: self and (self._rewrap(), self.GetParent().Layout()))
 
 
+def sample_on_choose(ctrl, play) -> None:
+    """A sound set is heard as it's chosen (Rocco, 2026-10-16; Matthew: "fix everything he said").
+    It waits until the choice comes to rest, so the screen reader says the set's name first and
+    arrowing through on Windows plays only where it stops."""
+    timer = []
+
+    def changed(event):
+        event.Skip()
+        if timer:
+            timer[0].Stop()
+            timer.clear()
+        timer.append(wx.CallLater(700, lambda: ctrl and play()))
+    ctrl.Bind(wx.EVT_CHOICE, changed)
+
+
 def say(text: str, polite: bool = False) -> None:
     """Show nothing new, just say it: for a status line that changes while focus stays elsewhere.
     `polite` waits for the screen reader to finish (a window's intro after its focused row)."""
@@ -545,7 +560,7 @@ class Settings(wx.Dialog):
         self.theme_vals = [k for k, _ in THEMES]
         self.theme = choice(p, s, "Sound set:", [w for _, w in THEMES],
                             pick(self.theme_vals, cfg.get("app_sound_theme", "rhodes")),
-                            "Each set has a sound for everything the app does. Play Sample lets you hear it.")
+                            "Each set has a sound for everything the app does. Each set plays a sample when you choose it.")
         _vlabel = wx.StaticText(p, label="Sound volume:")
         self.volume = wx.Slider(p, value=int(round(sound_volume(cfg) * 100)), minValue=0, maxValue=100,
                                 size=(220, -1))
@@ -557,9 +572,10 @@ class Settings(wx.Dialog):
         self._say_volume()
         self.volume.Bind(wx.EVT_SLIDER, lambda e: self._say_volume())
         sample = wx.Button(p, label="Play Sample")
-        sample.SetToolTip("Plays the Finished sound from the chosen set at the chosen volume. Nothing plays "
-                          "by itself while you choose, so it never talks over your screen reader.")
+        sample.SetToolTip("Plays the Finished sound from the chosen set at the chosen volume. Choosing a set "
+                          "plays it too, a moment after its name is read.")
         sample.Bind(wx.EVT_BUTTON, lambda e: self._preview("done"))
+        sample_on_choose(self.theme, lambda: self._preview("done"))
         s.Add(sample, 0, wx.ALL, 6)
         self.sound_map = sound_map(cfg)
         pick_btn = wx.Button(p, label="Choose Sounds...")
@@ -740,8 +756,8 @@ class Settings(wx.Dialog):
         mac_value_description(self.volume, "%d percent" % v if v else "Silent")
 
     def _preview(self, kind):
-        """Only ever from a button: the app can't know when the screen reader has finished
-        speaking, so nothing plays by itself (Matthew, 2026-10-13)."""
+        """From a button, or a moment after a sound set is chosen (sample_on_choose). Matthew's
+        2026-10-13 rule kept everything else from playing by itself; Rocco asked for the set."""
         from .system import play
         play(kind, self._theme_now(), self._vol_now(), self.sound_map)
 
@@ -1573,7 +1589,7 @@ class Guide(wx.Dialog):
     def _page_welcome(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
         name = words.first_name()
-        self._text(p, "welcome", s, "Hi%s! I'm Wavelength. Glad you're here.\n\nI save audio and video from about "
+        self._text(p, "welcome", s, "Hi%s! I'm Wavelength, and I'm glad you're here.\n\nI save audio and video from about "
                    "1,750 sites, play them for you, and tell you what I'm up to along the way. I'm built on "
                    "yt-dlp, a free, open-source downloader. I don't break copy protection, so anything locked, "
                    "like Netflix or Spotify, stays locked. What you save is up to you, so respect the people who "
@@ -1629,7 +1645,7 @@ class Guide(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "sounds", s, "Now the fun part: how should I sound?\n\nI play a short sound when downloads "
                    "finish or fail, when something's added, when search results come in, and more, each with its own "
-                   "sound. Pick a set and press Play Sample to hear one. Later on, Settings, Choose Sounds lets you "
+                   "sound. Pick a set and you'll hear it. Later on, Settings, Choose Sounds lets you "
                    "pick each sound yourself, or use your own.")
         self.sounds_on = wx.CheckBox(p, label="Play sounds")
         self.sounds_on.SetValue(bool(self.cfg.get("app_sounds", True)))
@@ -1642,10 +1658,11 @@ class Guide(wx.Dialog):
         t = self.cfg.get("app_sound_theme", "rhodes")
         self.theme.SetSelection(self.theme_keys.index(t) if t in self.theme_keys else 0)
         labelled(p, s, "Sound set:", self.theme, lab,
-                 "Which family of sounds the app plays. Play Sample lets you hear the one chosen here.")
+                 "Which family of sounds the app plays. Each set plays a sample when you choose it.")
         b = wx.Button(p, label="Play Sample")
         b.SetToolTip("Plays the chosen set's Finished sound, so you can hear it.")
         b.Bind(wx.EVT_BUTTON, lambda e: self._sample())
+        sample_on_choose(self.theme, self._sample)
         s.Add(b, 0, wx.ALL, 6)
         fit_choices(p)
         p.SetSizer(s)
@@ -1791,7 +1808,9 @@ class Guide(wx.Dialog):
         self.at = k
         key = self.order[k]
         steps = [x for x in self.order if self._visible(x)]
-        where = "Step %d of %d. " % (steps.index(key) + 1, len(steps)) if key in steps else ""
+        # A colon, not a full stop: VoiceOver pauses at every sentence end, and "Step 1 of 6." on
+        # its own read as a gap long enough that Rocco took the window for an unreadable one.
+        where = "Step %d of %d: " % (steps.index(key) + 1, len(steps)) if key in steps else ""
         if key == "permission":
             lines = self.acc.permission_steps(self._browser())
             body = ("First I need permission to read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
@@ -1832,7 +1851,7 @@ class Guide(wx.Dialog):
                 done = ("No browser chosen, so I won't borrow a sign-in for now. File, Your Accounts (%s-U) "
                         "brings these steps back whenever you want." % CMD)
             self.texts[key].SetValue(done)
-        self.texts[key].SetValue(where + self.texts[key].GetValue().split(". ", 1)[-1]
+        self.texts[key].SetValue(where + self.texts[key].GetValue().split(": ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
         self._watch_access(key == "permission")
         self.book.SetSelection(k)
