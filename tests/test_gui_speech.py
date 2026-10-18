@@ -649,16 +649,26 @@ def test_speeds_quarter_to_three():
 
 def test_accounts_window(frame, monkeypatch):
     monkeypatch.setattr(gui, "announce", lambda t, *a: None)
+    monkeypatch.setattr(gui.accounts, "installed", lambda: [("safari", "Safari"), ("chrome", "Google Chrome"),
+                                                            ("firefox", "Firefox")])
     cfg = dict(frame.cfg, app_signin="")
+    cfg.pop("app_signins", None)
     dlg = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "checked")
     monkeypatch.setattr(dlg, "EndModal", lambda code: None)
     monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(gui.accounts, "has_own_signin", lambda: False)
     dlg.list.SetSelection(0)
     dlg.act("list")
     assert dlg.result is None  # no browser chosen yet: it says so instead
-    dlg.browser.SetSelection(dlg.signin_vals.index("safari"))
+    assert dlg.status.GetLabel() == gui.dialogs.NOT_SIGNED_IN
+    found = [k for k, _ in dlg.choices.found]
+    dlg.choices.list.Check(found.index("safari"))
+    dlg.choices.list.Check(found.index("chrome"))
+    dlg.choices.save()
     dlg.act("play")
     assert dlg.result == ("play", "https://www.youtube.com/playlist?list=LL") and cfg["app_signin"] == "safari"
+    assert cfg["app_signins"] == ["safari", "chrome"]  # Safari first, the list's own order
+    assert gui.accounts.signin(cfg) == "safari|chrome"
     dlg.Destroy()
     frame.cfg["app_signin"] = "firefox"
     try:
@@ -1342,7 +1352,9 @@ def test_accounts_setup_says_what_comes_next(frame, monkeypatch):
 
 def test_accounts_window_names_the_browser_and_offers_setup(frame, monkeypatch):
     monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(gui.accounts, "has_own_signin", lambda: False)
     cfg = dict(frame.cfg, app_signin="safari")
+    cfg.pop("app_signins", None)
     dlg = gui.dialogs.AccountsDialog(frame, cfg, lambda b: "checked", main=frame)
     assert dlg.status.GetLabel().startswith("Using Safari's sign-in.") and dlg.setup_b is not None
     assert gui.dialogs.CMD + "-K" in dlg.status.GetLabel()
@@ -1352,7 +1364,7 @@ def test_accounts_window_names_the_browser_and_offers_setup(frame, monkeypatch):
             self.c = c
 
         def ShowModal(self):
-            self.c["app_signin"] = "firefox"
+            gui.accounts.set_browsers(self.c, ["firefox"])
 
         def Destroy(self):
             pass
@@ -1374,7 +1386,7 @@ def test_settings_walk_through_keeps_its_choice(frame, monkeypatch):
             self.c = c
 
         def ShowModal(self):
-            self.c["app_signin"] = "safari"
+            gui.accounts.set_browsers(self.c, ["safari"])
 
         def Destroy(self):
             pass
@@ -1551,3 +1563,104 @@ def test_player_live_skip_says_so_and_menu_shows_state(frame, monkeypatch):
         pl.sleep_end_of_item = False
         pl.item, pl.loaded = None, False
         pl.timer.Stop()
+
+
+# ---------------------------------------------------------------- sign-ins (3.11)
+
+def test_guide_with_several_browsers_asks_for_each_and_offers_sign_in_here(frame, monkeypatch):
+    monkeypatch.setattr(gui.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(gui.accounts, "installed", lambda: [("safari", "Safari"), ("chrome", "Google Chrome"),
+                                                            ("firefox", "Firefox")])
+    cfg = dict(frame.cfg, app_signins=["safari", "chrome", "firefox"])
+    g = gui.dialogs.Guide(frame, cfg, frame, "accounts")
+    monkeypatch.setattr(g, "EndModal", lambda code: None)
+    assert g.order[g.at] == "browser"
+    text = g.texts["browser"].GetValue()
+    if gui.dialogs.SignInChoices.__module__ and g.choices.here is not None:
+        assert "Sign In Here in Wavelength" in text and "nothing to allow" in text
+    assert g.choices.browsers() == ["safari", "chrome", "firefox"]  # Safari first, as listed
+    g.go(+1)
+    if sys.platform == "darwin":  # Safari's Full Disk Access and Chrome's keychain, both in one step
+        assert g.order[g.at] == "permission"
+        body = g.texts["permission"].GetValue()
+        assert "For Safari:" in body and "For Google Chrome:" in body and "Firefox:" not in body
+        g.go(+1)
+    assert g.order[g.at] == "services"
+    assert g.svc_browser.IsShown() and g.svc_browser.GetCount() == 3
+    g.svc_browser.SetSelection(2)
+    assert g._browser() == "firefox"
+    g.Destroy()
+
+
+def test_sign_in_choices_say_checked(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui.dialogs, "announce", lambda t, *a, **k: said.append(t), raising=False)
+    import media_download.system as system
+    monkeypatch.setattr(system, "announce", lambda t, *a, **k: said.append(t))
+    monkeypatch.setattr(gui.accounts, "installed", lambda: [("safari", "Safari"), ("chrome", "Google Chrome")])
+    cfg = dict(frame.cfg, app_signins=[])
+    d = wx.Dialog(frame)
+    s = wx.BoxSizer(wx.VERTICAL)
+    c = gui.dialogs.SignInChoices(d, s, cfg)
+    c.list.Check(1)
+    ev = wx.CommandEvent(wx.wxEVT_CHECKLISTBOX, c.list.GetId())
+    ev.SetInt(1)
+    c._checked(ev)
+    assert said[-1] == "Google Chrome checked." and cfg["app_signins"] == ["chrome"]
+    assert not any("tick" in t.lower() for t in said)
+    d.Destroy()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="the Mac's WKWebView; Windows is covered on CI")
+def test_sign_in_window_keeps_httponly_cookies(frame, monkeypatch):
+    """The window's cookies come from WKHTTPCookieStore, so a sign-in's HttpOnly cookie is kept."""
+    import http.server
+    import threading
+    import time
+    import uuid
+    from media_download import signin
+    secret = uuid.uuid4().hex  # this run's own: the web view's store outlives a test run
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Set-Cookie", "session=%s; HttpOnly; Path=/; Max-Age=60" % secret)
+            self.end_headers()
+            self.wfile.write(b"<title>Test sign-in</title><p>signed in</p>")
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    gui.accounts.forget_own()
+    kept = []
+    w = signin.SignInWindow(frame, url="http://127.0.0.1:%d/" % srv.server_port, keep=kept.append)
+    monkeypatch.setattr(w, "EndModal", lambda code: None)
+    w.Show()
+
+    def run_until(done, seconds):
+        # WebKit loads only in a real event loop: a wx.Yield loop never fetches the page.
+        loop = wx.GUIEventLoop()
+        end = time.time() + seconds
+        timer = wx.Timer()
+        timer.Bind(wx.EVT_TIMER, lambda e: (done() or time.time() > end) and loop.Exit())
+        timer.Start(50)
+        loop.Run()
+        timer.Stop()
+    def has_secret():
+        return any(c["value"] == secret for c in gui.accounts.read_netscape(gui.accounts.own_file()))
+    run_until(lambda: has_secret() and "Test" in w.GetTitle(), 20)  # kept after each page
+    title = w.GetTitle()
+    w.finish()
+    run_until(lambda: kept, 10)
+    try:
+        assert kept == [[]]  # no YouTube or SoundCloud here, but the cookie is kept all the same
+        got = {c["name"]: c for c in gui.accounts.read_netscape(gui.accounts.own_file())}
+        assert got["session"]["value"] == secret and got["session"]["domain"] == "127.0.0.1"
+        assert gui.accounts.signin(frame.cfg).startswith("wavelength")
+        assert title == "Sign In: Test sign-in"  # the window says which page it's on
+    finally:
+        if w:
+            w.Destroy()
+        srv.shutdown()
+        gui.accounts.forget_own()

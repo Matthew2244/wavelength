@@ -22,6 +22,8 @@ import os
 import sys
 import time
 
+from .options import cookie_args
+
 _out = sys.stdout
 
 
@@ -360,7 +362,7 @@ def do_search(yt_dlp, task):
         query = prefix % urllib.parse.quote_plus(task["query"])
     else:
         query = "%s%d:%s" % (prefix, end, task["query"])
-    signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
+    signin = cookie_args(task.get("cookies"))
     try:
         ydl = _make_ydl(yt_dlp, ["--flat-playlist", "--playlist-items", "%d-%d" % (start, end)] + signin
                         + tool_flags(), logger)
@@ -416,8 +418,7 @@ def do_stream(yt_dlp, task):
     if task.get("format"):
         fmt = task["format"]  # an exact stream, such as a video's own described track
     args = ["--no-playlist", "-f", fmt] + tool_flags()
-    if task.get("cookies"):
-        args += ["--cookies-from-browser", task["cookies"]]
+    args += cookie_args(task.get("cookies"))
     try:
         ydl = _make_ydl(yt_dlp, args, logger)
         with ydl:
@@ -484,7 +485,7 @@ def do_find_description(yt_dlp, task):
     info = None
     if task.get("url"):  # a downloaded file with no link has nothing to look up, but can still be made
         try:
-            signin = ["--cookies-from-browser", task["cookies"]] if task.get("cookies") else []
+            signin = cookie_args(task.get("cookies"))
             ydl = _make_ydl(yt_dlp, ["--no-playlist"] + signin + tool_flags(), logger)
             with ydl:
                 info = ydl.extract_info(task["url"], download=False)
@@ -541,6 +542,15 @@ def do_signin_check(yt_dlp, task):
         def info(self, m, *a, **k): notes.append(str(m))
         def warning(self, m, *a, **k): notes.append(str(m))
         def error(self, m, *a, **k): notes.append(str(m))
+    if task["browser"] == "wavelength":
+        from . import accounts
+        services = accounts.own_services()
+        if services:
+            emit("signin", ok=True, count=len(accounts.read_netscape(accounts.own_file())), failed=0, notes="")
+        else:
+            emit("signin", ok=False, error="No sign-in made in Wavelength yet.")
+        emit("end", ok=True)
+        return
     try:
         from yt_dlp.cookies import extract_cookies_from_browser
         name, _, profile = task["browser"].partition(":")
@@ -551,6 +561,30 @@ def do_signin_check(yt_dlp, task):
     except Exception as exc:  # noqa: BLE001
         emit("signin", ok=False, error=(str(exc) + " " + " ".join(notes))[:600])
     emit("end", ok=True)
+
+
+def do_signin_save(yt_dlp, task):
+    """Windows: keep the sign-in made in Wavelength's sign-in window. WebView2 keeps it the way
+    Edge does, in its own folder (Wavelength's, not Edge's), which the engine reads like any
+    Chromium browser once that window's process has gone. Retries while the folder is still
+    locked by the closing window."""
+    from yt_dlp.cookies import extract_cookies_from_browser
+    from . import accounts
+    profile = task["profile"]
+    last = ""
+    for _ in range(int(task.get("tries", 20))):
+        try:
+            jar = extract_cookies_from_browser("edge", profile)
+            got = [{"domain": c.domain, "path": c.path, "secure": bool(c.secure), "expires": c.expires or 0,
+                    "name": c.name, "value": c.value or ""} for c in jar]
+            emit("saved", services=accounts.save_own(got), count=len(got))
+            emit("end", ok=True)
+            return
+        except Exception as exc:  # noqa: BLE001 - locked while the window's process finishes
+            last = str(exc)
+            time.sleep(0.5)
+    emit("log", text="ERROR: " + last)
+    emit("end", ok=False)
 
 
 def do_find_versions(yt_dlp, task):
@@ -582,7 +616,7 @@ def do_describe(yt_dlp, task):
             emit("stage", text="Getting a small copy of the picture")
             logger = Logger()
             args = ["-f", "bv*[height<=480][height>=200]/b[height<=480]/bv*/b", "-P", work, "-o", "video.%(ext)s",
-                    "--no-playlist"] + (["--cookies-from-browser", spec["cookies"]] if spec.get("cookies") else []) \
+                    "--no-playlist"] + cookie_args(spec.get("cookies")) \
                 + tool_flags()
             got = {}
             ydl = _make_ydl(yt_dlp, args, logger, {"post_hooks": [lambda p: got.__setitem__("path", p)]})
@@ -663,7 +697,7 @@ def do_recognise(yt_dlp, task):
 
 
 TASKS = {"download": do_download, "probe": do_probe, "search": do_search, "recognise": do_recognise,
-         "find_versions": do_find_versions, "signin_check": do_signin_check, "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
+         "find_versions": do_find_versions, "signin_check": do_signin_check, "signin_save": do_signin_save, "impersonate": do_impersonate_check, "stream": do_stream, "find_description": do_find_description,
          "describe": do_describe}
 
 

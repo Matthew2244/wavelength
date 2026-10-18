@@ -25,7 +25,7 @@ import time
 import wx
 import wx.media
 
-from . import describe, engine, words
+from . import accounts, describe, engine, words
 from .speech import Reader
 from . import geometry
 from .manager import run_task
@@ -461,7 +461,7 @@ class PlayerFrame(wx.Frame):
                 found.setdefault("log", []).append(ev.get("text", ""))
         want = item.get("want") or "audio"
         run_task({"task": "stream", "url": item["url"], "want": want,
-                  "cookies": item.get("cookies") or self.main.cfg.get("app_signin", ""),
+                  "cookies": item.get("cookies") or accounts.signin(self.main.cfg),
                   "format": item.get("format", "")}, on,
                  timeout=120)
         wx.CallAfter(self._resolved, item, found, gen)
@@ -480,7 +480,7 @@ class PlayerFrame(wx.Frame):
             return
         if not found.get("url"):
             reason = words.explain_failure("\n".join(found.get("log", [])), False, words.site_name(item["url"]),
-                                           item.get("cookies") or self.main.cfg.get("app_signin", ""),
+                                           item.get("cookies") or accounts.signin(self.main.cfg),
                                            for_download=False)
             if any("NOPLAYABLE" in x for x in found.get("log", [])):
                 reason = ("This one can't be played without downloading it first. Download This (%s) saves it; "
@@ -515,7 +515,7 @@ class PlayerFrame(wx.Frame):
             if ev.get("ev") == "playlist":
                 got.update(ev)
         run_task({"task": "probe", "spec": {"url": item["url"], "dest": engine.TEMP, "kind": "best",
-                                            "cookies": item.get("cookies") or self.main.cfg.get("app_signin", "")}}, on,
+                                            "cookies": item.get("cookies") or accounts.signin(self.main.cfg)}}, on,
                  timeout=180)
         wx.CallAfter(self._listed, item, got, gen)
 

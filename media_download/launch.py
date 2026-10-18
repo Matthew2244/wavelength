@@ -41,6 +41,9 @@ def main(argv=None) -> int:
         with open(argv[2], "w") as fh:
             fh.write(said)
         return 0
+    if argv[:1] == ["--signin"]:
+        from .signin import run_window
+        return run_window(argv[1:])
     if argv[:1] == ["--self-test"]:
         from .selftest import run
         return run()

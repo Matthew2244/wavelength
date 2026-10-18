@@ -1120,3 +1120,98 @@ def test_no_file_yet_says_why_by_state():
     for s in ("stopped", "converting", "looking", "waiting", "waiting_choice"):
         j.state = s
         assert "yet" not in words.no_file_yet(j).split(".")[0] or s != "stopped"
+
+
+# ---------------------------------------------------------------- several sign-ins at once (3.11)
+
+def _jar(*cookies):
+    import http.cookiejar
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    jar = YoutubeDLCookieJar()
+    for domain, name, value in cookies:
+        jar.set_cookie(http.cookiejar.Cookie(0, name, value, None, False, domain, True, domain.startswith("."),
+                                             "/", True, True, int(time.time()) + 3600, False, None, None, {}))
+    return jar
+
+
+def test_signin_sources_old_settings_and_words(monkeypatch):
+    from media_download import accounts
+    monkeypatch.setattr(accounts, "has_own_signin", lambda: False)
+    assert accounts.signin({"app_signin": "safari"}) == "safari"  # settings from before 3.11
+    cfg = {"app_signin": "safari"}
+    accounts.set_browsers(cfg, ["safari", "chrome:Profile 1", "safari"])
+    assert accounts.signin(cfg) == "safari|chrome:Profile 1" and cfg["app_signin"] == "safari"
+    accounts.set_browsers(cfg, [])
+    assert accounts.signin(cfg) == "" and cfg["app_signin"] == ""  # unchecking all is kept, not undone
+    monkeypatch.setattr(accounts, "has_own_signin", lambda: True)
+    assert accounts.signin(cfg) == "wavelength"
+    accounts.set_browsers(cfg, ["firefox"])
+    assert accounts.signin(cfg) == "wavelength|firefox"
+    assert accounts.signin_words("safari") == "Safari's sign-in"
+    assert accounts.signin_words("safari|chrome") == "the sign-ins from Safari and Google Chrome"
+    assert accounts.signin_words("wavelength") == "your Wavelength sign-in"
+    assert accounts.signin_words("wavelength|safari") == "your Wavelength sign-in and Safari's"
+    assert not accounts.needs_file("safari") and accounts.needs_file("safari|chrome") and accounts.needs_file("wavelength")
+
+
+def test_browser_list_keeps_safari_first_whatever_the_default(monkeypatch):
+    from media_download import accounts
+    monkeypatch.setattr(accounts, "default_browser", lambda: "chrome")
+    monkeypatch.setattr(accounts, "profiles", lambda k: [("", k)] if k in ("safari", "chrome", "firefox") else [])
+    assert [k for k, _ in accounts.installed()] == ["safari", "chrome", "firefox"]
+
+
+def test_own_signin_is_kept_privately_and_knows_its_services():
+    from media_download import accounts
+    accounts.forget_own()
+    assert not accounts.has_own_signin() and accounts.own_services() == []
+    later = int(time.time()) + 3600
+    got = accounts.save_own([{"domain": ".youtube.com", "name": "SAPISID", "value": "a/b", "path": "/", "secure": True,
+                              "expires": later},
+                             {"domain": ".soundcloud.com", "name": "oauth_token", "value": "2-x", "expires": 0},
+                             {"domain": "example.com", "name": "bad\tname", "value": "x"}])
+    assert got == ["YouTube", "SoundCloud"] and accounts.own_services() == ["YouTube", "SoundCloud"]
+    back = accounts.read_netscape(accounts.own_file())
+    assert [c["name"] for c in back] == ["SAPISID", "oauth_token"] and back[0]["expires"] == later
+    if sys.platform != "win32":
+        assert os.stat(accounts.own_file()).st_mode & 0o077 == 0
+    accounts.forget_own()
+    assert not accounts.has_own_signin()
+
+
+def test_several_sign_ins_merge_into_one_private_file(monkeypatch):
+    from media_download import accounts, engine
+    import yt_dlp.cookies as yc
+    accounts.clear_cookie_files()
+    accounts.save_own([{"domain": ".soundcloud.com", "name": "oauth_token", "value": "own", "expires": 0}])
+    asked = []
+
+    def fake(name, profile=None, logger=None, keyring=None, container=None):
+        asked.append(name)
+        if name == "safari":
+            raise PermissionError("[Errno 1] Operation not permitted: 'Cookies.binarycookies'")
+        return _jar((".youtube.com", "SAPISID", "from-" + name))
+    monkeypatch.setattr(yc, "extract_cookies_from_browser", fake)
+    warned = []
+    path = accounts.cookie_file("wavelength|safari|chrome", warned.append)
+    text = open(path).read()
+    assert "from-chrome" in text and "oauth_token\town" in text and asked == ["safari", "chrome"]
+    assert warned and "Safari" in warned[0]  # one unreadable browser never costs the others
+    assert not words.cookie_store_unreadable("WARNING: " + warned[0])  # nor makes the run drop them all
+    if sys.platform != "win32":
+        assert os.stat(path).st_mode & 0o077 == 0
+    assert os.path.dirname(path) == engine.TEMP and str(os.getpid()) in os.path.basename(path)
+    accounts.cookie_file("wavelength|safari|chrome", warned.append)
+    assert asked == ["safari", "chrome"]  # the short cache: no second read of the browsers
+    with pytest.raises(PermissionError):
+        accounts.cookie_file("safari|safari:Other", warned.append)  # nothing readable: the usual words
+    # The engine's flags: one browser as always, more as one file, and a fallback that fails
+    # the way it always has when nothing can be read.
+    assert options.cookie_args("safari") == ["--cookies-from-browser", "safari"]
+    a = options.cookie_args("wavelength|chrome", warn=lambda t: None)
+    assert a[0] == "--cookies" and os.path.exists(a[1])
+    assert options.cookie_args("safari|safari:Other", warn=lambda t: None) == ["--cookies-from-browser", "safari"]
+    assert options.download_args({"url": "x", "dest": "/tmp", "kind": "best", "cookies": "wavelength|chrome"})
+    accounts.clear_cookie_files()
+    assert not [n for n in os.listdir(engine.TEMP) if n.startswith("signin-")]
+    accounts.forget_own()

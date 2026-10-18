@@ -14,19 +14,171 @@ from . import menus
 from .system import mac_accessibility_label, mac_check_list_reads_once, mac_text_without_wrapper, windows_name
 
 def browser_choices(current: str = "", none_words: str = "Don't use a browser's sign-in") -> list:
-    """The browsers (and profiles) on this computer, default first, after a "none" choice. A
-    saved choice no longer found stays listed, so opening Settings never quietly changes it. If
-    nothing is found, every browser the engine knows is offered rather than none."""
+    """The browsers (and profiles) on this computer, Safari first, after a "none" choice and
+    the sign-in made in Wavelength (when there is one). A saved choice no longer found stays
+    listed, so opening a window never quietly changes it. If nothing is found, every browser the
+    engine knows is offered rather than none."""
     from . import accounts
     found = accounts.installed() or [(k, n) for k, n, *_ in accounts.BROWSERS
                                      if k != "safari" or sys.platform == "darwin"]
-    out = [("", none_words)] + found
+    own = [(accounts.WAVELENGTH, "Your sign-in made in Wavelength")] if accounts.has_own_signin() else []
+    out = [("", none_words)] + own + found
     if current and current not in [k for k, _ in out]:
         out.append((current, accounts.spec_words(current)))
     return out
 
 CMD = "Command" if sys.platform == "darwin" else "Control"
 ENTER = "Return" if sys.platform == "darwin" else "Enter"  # what the key is called on each system
+
+
+class SignInChoices:
+    """Where Wavelength's sign-ins come from, the same in the tour, Settings and Your Accounts:
+    first Sign In Here (a sign-in window inside Wavelength: nothing to allow, any browser or
+    none), then every browser on this computer as a checkbox, Safari first and always in the same
+    order. Check as many as you're signed in with; they're all used together, so YouTube through
+    Chrome and SoundCloud through Safari both work."""
+
+    def __init__(self, parent, sizer, cfg: dict, on_change=None, live: bool = True):
+        from . import accounts, signin
+        self.parent, self.cfg, self.on_change, self.live = parent, cfg, on_change, live
+        self.acc = accounts
+        self.here = None
+        if signin.available():
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            self.here = wx.Button(parent, label="Sign In Here in Wavelength...")
+            self.here.SetToolTip("The easy way: opens YouTube's or SoundCloud's own sign-in page in a window inside "
+                                 "Wavelength. Sign in once and Wavelength keeps it, the way a browser does. Nothing "
+                                 "to allow in System Settings, no keychain questions, any browser or none. Your "
+                                 "password goes only to the site.")
+            self.here.Bind(wx.EVT_BUTTON, lambda e: self.sign_in())
+            row.Add(self.here, 0, wx.RIGHT, 6)
+            self.forget_b = wx.Button(parent, label="Sign Out of Wavelength...")
+            self.forget_b.SetToolTip("Forgets every sign-in made with Sign In Here, so Wavelength stops using it. "
+                                     "Browsers' own sign-ins aren't touched.")
+            self.forget_b.Bind(wx.EVT_BUTTON, lambda e: self.forget())
+            row.Add(self.forget_b, 0)
+            sizer.Add(row, 0, wx.ALL, 6)
+        self.own = WrapText(parent, label="")
+        sizer.Add(self.own, 0, wx.LEFT | wx.RIGHT, 6)
+        lab = wx.StaticText(parent, label="Also use the sign-in from these browsers:")
+        sizer.Add(lab, 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        chosen = accounts.chosen_browsers(cfg)
+        self.found = list(accounts.installed()) or [(k, n) for k, n, *_ in accounts.BROWSERS
+                                                    if k != "safari" or sys.platform == "darwin"]
+        for c in chosen:  # a saved choice no longer found stays listed, so nothing changes by itself
+            if c not in [k for k, _ in self.found]:
+                self.found.append((c, accounts.spec_words(c)))
+        self.list = wx.CheckListBox(parent, choices=[w for _, w in self.found], size=(-1, 150))
+        mac_check_list_reads_once(self.list)
+        mac_accessibility_label(self.list, "Also use the sign-in from these browsers")
+        windows_name(self.list, "Also use the sign-in from these browsers")
+        self.list.SetToolTip("Check every browser you're signed in with, with Space; uncheck one to stop using it. "
+                             "Wavelength uses all the checked ones together, plus anything signed in to here. "
+                             "None checked is fine.")
+        for i, (k, _) in enumerate(self.found):
+            self.list.Check(i, k in chosen)
+        if self.found:
+            self.list.SetSelection(0)
+        sizer.Add(self.list, 1, wx.EXPAND | wx.ALL, 6)
+        self.list.Bind(wx.EVT_CHECKLISTBOX, self._checked)
+        self.refresh()
+
+    def browsers(self) -> list[str]:
+        return [self.found[i][0] for i in self.list.GetCheckedItems()]
+
+    def set_browsers(self, chosen) -> None:
+        for c in chosen:
+            if c not in [k for k, _ in self.found]:
+                self.found.append((c, self.acc.spec_words(c)))
+                self.list.Append(self.acc.spec_words(c))
+        for i, (k, _) in enumerate(self.found):
+            self.list.Check(i, k in chosen)
+
+    def save(self) -> None:
+        self.acc.set_browsers(self.cfg, self.browsers())
+
+    def _checked(self, event):
+        i = event.GetSelection() if event.GetSelection() >= 0 else self.list.GetSelection()
+        if 0 <= i < len(self.found):
+            from .system import announce
+            # VoiceOver reads the row before the check lands: say the result (checked, never "ticked").
+            announce("%s %s." % (self.found[i][1], "checked" if self.list.IsChecked(i) else "unchecked"))
+        if self.live:  # Settings keeps its choices until Save
+            self.save()
+        if self.on_change:
+            self.on_change()
+
+    def refresh(self):
+        """The line about Sign In Here: what it's signed in to now."""
+        from . import signin
+        services = self.acc.own_services()
+        if services:
+            text = "Signed in here in Wavelength: %s." % self.acc.and_list(services)
+        elif self.acc.has_own_signin():
+            text = "Signed in here in Wavelength."
+        elif signin.available():
+            text = "Not signed in here yet. Sign In Here is the easy way; browsers are optional."
+        else:
+            text = ""
+        self.own.SetLabel(text)
+        if self.here is not None:
+            self.forget_b.Show(self.acc.has_own_signin())
+            name = "Sign In Here in Wavelength. " + text if text else "Sign In Here in Wavelength"
+            mac_accessibility_label(self.here, name)
+            windows_name(self.here, name)
+        self.own.Wrap(max(300, self.parent.GetClientSize().width - 30))
+        self.parent.Layout()
+
+    def sign_in(self):
+        from . import signin
+        if getattr(self, "_busy", False):
+            return
+        self._busy = True
+        if sys.platform == "win32":
+            say("Opening the sign-in window.", polite=True)
+        signin.sign_in(self.parent.GetTopLevelParent(), 0, self._signed_in)
+
+    def _signed_in(self, services, error):
+        self._busy = False
+        if not self.parent:
+            return
+        from .system import announce, cue
+        self.refresh()
+        if services:
+            cue("signed_in")
+            announce("Signed in here in Wavelength: %s. Wavelength uses it from now on." % self.acc.and_list(services))
+        elif error:
+            announce("The sign-in couldn't be kept: %s" % error)
+        else:
+            announce("Not signed in to YouTube or SoundCloud in that window. Sign In Here opens it again "
+                     "whenever you like.")
+        if self.on_change:
+            self.on_change()
+        if self.here is not None:
+            self.here.SetFocus()
+
+    def forget(self):
+        from . import signin
+        dlg = wx.MessageDialog(self.parent, "Sign out of everything you signed in to inside Wavelength? Your browsers' "
+                               "own sign-ins aren't touched.", "Sign Out of Wavelength",
+                               wx.OK | wx.CANCEL | wx.CANCEL_DEFAULT)
+        dlg.SetOKCancelLabels("Sign Out", "Cancel")
+        go = dlg.ShowModal() == wx.ID_OK
+        dlg.Destroy()
+        if not go:
+            return
+
+        def gone():
+            if not self.parent:
+                return
+            from .system import announce
+            self.refresh()
+            announce("Signed out of Wavelength.")
+            if self.on_change:
+                self.on_change()
+            if self.here is not None:
+                self.here.SetFocus()
+        signin.forget(self.parent.GetTopLevelParent(), gone)
 
 
 class WrapText(wx.StaticText):
@@ -434,7 +586,7 @@ def options_summary(opts: dict) -> str:
         bits.append("a text transcript")
     if opts.get("cookies"):
         from . import accounts
-        bits.append("%s's sign-in" % accounts.spec_words(opts["cookies"]))
+        bits.append(accounts.signin_words(opts["cookies"]))
     if opts.get("name"):
         bits.append('named "%s"' % opts["name"])
     if opts.get("extra"):
@@ -614,14 +766,12 @@ class Settings(wx.Dialog):
 
         # ---- Signing in
         p, s = page()
-        sv = cfg.get("app_signin", "") or ""
-        blist = browser_choices(sv)
-        self.signin_vals = [b[0] for b in blist]
-        self.signin = choice(p, s, "Use a browser's sign-in:", [b[1] for b in blist], pick(self.signin_vals, sv),
-                             "Every download, search and stream borrows the sign-in this browser already has, so "
-                             "members-only, private and age-checked things work, and File, Your Accounts opens "
-                             "your likes, Watch Later and playlists. No password is asked for or kept; the "
-                             "sign-in goes only to the site it belongs to. Walk Me Through It helps you choose.")
+        about = wx.StaticText(p, label="Every download, search and stream uses your sign-ins, so members-only, private "
+                         "and age-checked things work, and File, Your Accounts opens your likes, Watch Later and "
+                         "playlists. Wavelength never asks for or keeps a password.")
+        about.Wrap(520)  # wrapped before the window measures itself, or it sets the width
+        s.Add(about, 0, wx.ALL, 6)
+        self.signin = SignInChoices(p, s, cfg, live=False)
         walk = wx.Button(p, label="Walk Me Through It...")
         walk.SetToolTip("Step by step: choose the browser you're signed in with, let Wavelength read it, and "
                         "sign in to YouTube and SoundCloud. What you choose there shows here when you're back.")
@@ -785,12 +935,10 @@ class Settings(wx.Dialog):
         g = Guide(self, self.cfg, main, "accounts")
         g.ShowModal()
         g.Destroy()
-        sv = self.cfg.get("app_signin", "") or ""
-        blist = browser_choices(sv)
-        self.signin_vals = [b[0] for b in blist]
-        self.signin.Set([b[1] for b in blist])
-        self.signin.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
-        self.signin.SetFocus()
+        from . import accounts
+        self.signin.set_browsers(accounts.chosen_browsers(self.cfg))
+        self.signin.refresh()
+        self.signin.list.SetFocus()
 
     def on_pick_sounds(self, _):
         dlg = SoundPicker(self, self.sound_map, self._theme_now, self._vol_now)
@@ -799,8 +947,8 @@ class Settings(wx.Dialog):
         dlg.Destroy()
 
     def on_ok(self, _):
+        self.signin.save()
         self.cfg.update({
-            "app_signin": self.signin_vals[self.signin.GetSelection()],
             "app_sound_theme": self._theme_now(), "app_sound_volume": self._vol_now(),
             "app_sound_map": {k: v for k, v in self.sound_map.items() if v}, "app_sounds_off": [],
             "app_parallel": self.parallel_vals[self.parallel.GetSelection()],
@@ -1203,6 +1351,9 @@ class SoundPicker(wx.Dialog):
 
 
 
+NOT_SIGNED_IN = "Sign in first: Sign In Here in Wavelength is the easy way, or check a browser you're signed in with."
+
+
 def accounts_words(spec):
     from . import accounts
     return accounts.spec_words(spec)
@@ -1268,15 +1419,6 @@ class AccountsDialog(wx.Dialog):
         self.keys = [c[0] for c in accounts.COLLECTIONS]
         self.result = None  # ("list" | "play", address), read once the window has closed
         s = wx.BoxSizer(wx.VERTICAL)
-        sv = accounts.signin(cfg)
-        blist = browser_choices(sv, "Choose a browser")
-        self.signin_vals = [b[0] for b in blist]
-        _label = wx.StaticText(self, label="Borrow the sign-in from:")
-        self.browser = wx.Choice(self, choices=[b[1] for b in blist])
-        self.browser.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
-        labelled(self, s, "Borrow the sign-in from:", self.browser, _label,
-                 "The browser you're signed in with. Wavelength reads its sign-in when it needs it; no password "
-                 "is asked for or kept. The same choice is in Settings.")
         self.status = WrapText(self, label=self._intro())
         s.Add(self.status, 0, wx.ALL, 8)
         lab = wx.StaticText(self, label="Your things:")
@@ -1295,22 +1437,24 @@ class AccountsDialog(wx.Dialog):
         open_b.SetToolTip("Lists everything in the selected one, with dates, to check the ones to play. You can "
                           "download from there too.")
         check_b = wx.Button(self, label="Check Sign-in")
-        check_b.SetToolTip("Asks YouTube for your Liked videos with this browser's sign-in, and says what happened.")
+        check_b.SetToolTip("Asks YouTube for your Liked videos with your sign-ins, and says what happened.")
         prof_b = wx.Button(self, label="Change Profile Name...")
         prof_b.SetToolTip("Change the SoundCloud profile name used for your likes, tracks and playlists: the part "
                           "after soundcloud.com/ in your page's address.")
         self.setup_b = None
         if main is not None:
             self.setup_b = wx.Button(self, label="Set Up Sign-in...")
-            self.setup_b.SetToolTip("Step by step: choose a browser, let Wavelength read it, and sign in to "
-                                    "YouTube and SoundCloud there. For when Check Sign-in says something's missing.")
+            self.setup_b.SetToolTip("Step by step: sign in here in Wavelength or check your browsers, let Wavelength "
+                                    "read them, and sign in to YouTube and SoundCloud. For when Check Sign-in says "
+                                    "something's missing.")
             self.setup_b.Bind(wx.EVT_BUTTON, lambda e: self.on_setup())
         for b in (play_b, open_b, check_b, prof_b, self.setup_b):
             if b is not None:
                 row.Add(b, 0, wx.RIGHT, 6)
         s.Add(row, 0, wx.ALL, 6)
+        self.choices = SignInChoices(self, s, cfg, on_change=self._changed)
         brow, _, close = buttons(self, "", "Close")
-        close.SetToolTip("Closes Your Accounts (Escape). The browser choice is already saved.")
+        close.SetToolTip("Closes Your Accounts (Escape). Your sign-ins are already saved.")
         s.Add(brow, 0, wx.EXPAND | wx.ALL, 6)
         self.SetSizer(s)
         textsize.apply(self)
@@ -1319,7 +1463,6 @@ class AccountsDialog(wx.Dialog):
         play_b.Bind(wx.EVT_BUTTON, lambda e: self.act("play"))
         check_b.Bind(wx.EVT_BUTTON, lambda e: self.on_check())
         prof_b.Bind(wx.EVT_BUTTON, lambda e: self.ask_profile("soundcloud", force=True))
-        self.browser.Bind(wx.EVT_CHOICE, lambda e: self._save_browser())
         menus.attach(self.list, lambda: [menus.item("Play All", lambda: self.act("play")),
                                          menus.item("Choose What to Play...", lambda: self.act("browse")),
                                          menus.item("Download Everything...", lambda: self.act("list")),
@@ -1338,7 +1481,8 @@ class AccountsDialog(wx.Dialog):
     def _intro(self):
         from . import accounts
         sv = accounts.signin(self.cfg)
-        who = ("Using %s's sign-in. " % accounts.spec_words(sv)) if sv else "Choose the browser you're signed in with. "
+        who = ("Using %s. " % accounts.signin_words(sv)) if sv else \
+            "Not signed in yet: Sign In Here in Wavelength, below, is the easy way. "
         return (who + "Pick one of your things, then Play All or Choose What to Play. Download Everything, "
                 "Open the Web Page and Copy Link are in its right-click menu (%s-K)." % CMD)
 
@@ -1382,23 +1526,26 @@ class AccountsDialog(wx.Dialog):
         g = Guide(self, self.cfg, self.main, "accounts")
         g.ShowModal()
         g.Destroy()
-        sv = self.cfg.get("app_signin", "") or ""
-        blist = browser_choices(sv, "Choose a browser")
-        self.signin_vals = [b[0] for b in blist]
-        self.browser.Set([b[1] for b in blist])
-        self.browser.SetSelection(self.signin_vals.index(sv) if sv in self.signin_vals else 0)
-        self.status.SetLabel(self._intro())
-        self.Layout()
+        from . import accounts
+        self.choices.set_browsers(accounts.chosen_browsers(self.cfg))
+        self.choices.refresh()
+        self._changed()
         self.list.SetFocus()
 
     def _browser(self):
-        return self.signin_vals[self.browser.GetSelection()]
+        """Every sign-in in use, as one spec ("" for none)."""
+        from . import accounts
+        return accounts.signin(self.cfg)
 
-    def _save_browser(self):
+    def _changed(self):
         from . import engine
-        self.cfg["app_signin"] = self._browser()
         engine.save_settings(self.cfg)
         self.status.SetLabel(self._intro())
+        self.status.Wrap(max(300, self.GetClientSize().width - 30))
+        self.Layout()
+
+    def _save_browser(self):
+        self._changed()
 
     def ask_profile(self, service, force=False) -> bool:
         from . import accounts, engine
@@ -1431,10 +1578,10 @@ class AccountsDialog(wx.Dialog):
 
     def act(self, how):
         if not self._browser():
-            self.status.SetLabel("Choose the browser you're signed in with first.")
+            self.status.SetLabel(NOT_SIGNED_IN)
             from .system import announce
             announce(self.status.GetLabel())
-            self.browser.SetFocus()
+            (self.choices.here or self.choices.list).SetFocus()
             return
         url = self._address()
         if url:
@@ -1461,14 +1608,16 @@ class AccountsDialog(wx.Dialog):
     def on_check(self):
         from .system import announce
         if not self._browser():
-            self.status.SetLabel("Choose the browser you're signed in with first.")
+            self.status.SetLabel(NOT_SIGNED_IN)
             announce(self.status.GetLabel())
+            (self.choices.here or self.choices.list).SetFocus()
             return
         if getattr(self, "_checking", False):
             return  # one check at a time: repeats ran side by side and chimed twice
         self._checking = True
         self._save_browser()
-        self.status.SetLabel("Checking your YouTube sign-in in %s..." % accounts_words(self._browser()))
+        from . import accounts
+        self.status.SetLabel("Checking your YouTube sign-in with %s..." % accounts.signin_words(self._browser()))
         announce(self.status.GetLabel())
         browser = self._browser()
         in_background(lambda: self.check(browser), self._checked, failure_words)
@@ -1508,7 +1657,7 @@ class Guide(wx.Dialog):
     LEAVE = {True: "I'll Take It from Here", False: "Maybe Later"}  # the leave-now button, tour or not
     # The tour is a conversation (Matthew, 2026-10-14): Next answers each step the way you'd answer.
     NEXT = {"welcome": "Let's Go", "folder": "Looks Good", "format": "Got It", "sounds": "Sounds Good",
-            "accounts": "Okay", "browser": "That's the One", "done": "Let's Do This"}
+            "accounts": "Okay", "browser": "All Set", "done": "Let's Do This"}
     SERVICES = [("YouTube", "https://www.youtube.com/", "youtube"),
                 ("YouTube Music", "https://music.youtube.com/", "youtube"),
                 ("SoundCloud", "https://soundcloud.com/signin", "soundcloud")]
@@ -1673,15 +1822,16 @@ class Guide(wx.Dialog):
 
     def _page_accounts(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "accounts", s, "Want me to use your accounts? Totally optional.\n\nI can borrow the sign-in "
-                   "your browser already has, for YouTube, SoundCloud and other sites. That way members-only and "
-                   "private videos work, and I can open your Liked videos, Watch Later, subscriptions and likes. I "
-                   "never ask for a password and never keep one.\n\nWe can set that up now, or any time later from "
-                   "File, Your Accounts.")
+        self._text(p, "accounts", s, "Want me to use your accounts? Totally optional.\n\nSigned in, members-only "
+                   "and private videos work, and I can open your Liked videos, Watch Later, subscriptions and "
+                   "SoundCloud likes. The easy way is to sign in to YouTube or SoundCloud in a window right here in "
+                   "Wavelength: nothing to allow, any browser or none. I never see or keep your password.\n\nWe "
+                   "can set that up now, or any time later from File, Your Accounts.")
         self.now = wx.RadioButton(p, label="Yes, let's set them up now", style=wx.RB_GROUP)
         self.later = wx.RadioButton(p, label="Not now")
         self.later.SetValue(True)
-        self.now.SetToolTip("Adds steps to choose your browser and sign in to YouTube and SoundCloud.")
+        self.now.SetToolTip("Adds a step to sign in to YouTube and SoundCloud, here in Wavelength or with your "
+                            "browsers.")
         self.later.SetToolTip("Skips the account steps. File, Your Accounts brings them back any time.")
         for rb in (self.now, self.later):  # the step count follows the choice at once
             rb.Bind(wx.EVT_RADIOBUTTON, lambda e: setattr(self, "skip_accounts", not self.now.GetValue()))
@@ -1690,25 +1840,23 @@ class Guide(wx.Dialog):
         p.SetSizer(s)
 
     def _page_browser(self, p):
+        from . import signin
         s = wx.BoxSizer(wx.VERTICAL)
-        self._text(p, "browser", s, "Which browser are you signed in with?\n\nHere are the browsers on this "
-                   "computer, your default first. If one has more than one profile, each gets its own line: pick the "
-                   "one you use for your services. A browser shows up here once it's been opened at least once. "
-                   "You'll sign in with it in a moment.")
-        lab = wx.StaticText(p, label="Browsers on this computer:")
-        s.Add(lab, 0, wx.LEFT | wx.RIGHT, 6)
-        self.found = self.acc.installed()
-        self.browsers = wx.ListBox(p, style=wx.LB_SINGLE, choices=[w for _, w in self.found] or
-                                   ["No browsers found. Install one, then come back."])
-        mac_accessibility_label(self.browsers, "Browsers on this computer")
-        windows_name(self.browsers, "Browsers on this computer")
-        self.browsers.SetToolTip("Choose the browser, and profile, you're signed in with. Wavelength reads its "
-                                 "sign-in when it needs it and never asks for a password.")
-        cur = self.acc.signin(self.cfg)
-        specs = [sp for sp, _ in self.found]
-        self.browsers.SetSelection(specs.index(cur) if cur in specs else 0)
-        s.Add(self.browsers, 1, wx.EXPAND | wx.ALL, 6)
+        easy = ("The easy way: press Sign In Here in Wavelength, just below, and sign in to YouTube or SoundCloud "
+                "on the site's own page, in a window inside me. I keep that sign-in the way a browser does. There's "
+                "nothing to allow and no keychain questions.\n\n") if signin.available() else ""
+        self._text(p, "browser", s, "How would you like to sign in?\n\n" + easy +
+                   "If you're already signed in in a browser, check it in the list too, with Space. Check as many "
+                   "as you use: I use them all together, so YouTube through one and SoundCloud through another "
+                   "both work. A browser shows up once it's been opened at least once; one with several profiles "
+                   "gets a line for each.")
+        self.choices = SignInChoices(p, s, self.cfg, on_change=self._choices_changed)
+        self.browsers = self.choices.list  # what the tests and older code look for
         p.SetSizer(s)
+
+    def _choices_changed(self):
+        from . import engine
+        engine.save_settings(self.cfg)
 
     def _page_permission(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
@@ -1717,7 +1865,7 @@ class Guide(wx.Dialog):
         self.open_settings = wx.Button(p, label="Open System Settings")
         self.open_settings.SetToolTip("Opens the page of System Settings this step talks about.")
         self.check_again = wx.Button(p, label="Check Again")
-        self.check_again.SetToolTip("Tries reading the browser's sign-in now, and says what happened.")
+        self.check_again.SetToolTip("Tries reading the checked browsers' sign-ins now, and says what happened.")
         row.Add(self.open_settings, 0, wx.RIGHT, 6)
         row.Add(self.check_again, 0)
         s.Add(row, 0, wx.ALL, 6)
@@ -1730,6 +1878,11 @@ class Guide(wx.Dialog):
     def _page_services(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "services", s, "")
+        blab = wx.StaticText(p, label="Open in:")
+        self.svc_browser = wx.Choice(p, choices=[])
+        labelled(p, s, "Open in:", self.svc_browser, blab,
+                 "Which of your checked browsers Open It in the Browser uses.", expand=False)
+        self.svc_browser_row = blab
         lab = wx.StaticText(p, label="Services:")
         s.Add(lab, 0, wx.LEFT | wx.RIGHT, 6)
         self.svc = wx.ListBox(p, style=wx.LB_SINGLE, choices=[n for n, _, _ in self.SERVICES])
@@ -1762,16 +1915,26 @@ class Guide(wx.Dialog):
         p.SetSizer(s)
 
     # ---- moving
+    def _browsers(self):
+        """The browsers checked on the browser step."""
+        return self.choices.browsers()
+
+    def _needing(self):
+        """The checked browsers that need something allowed first."""
+        return [b for b in self._browsers() if self.acc.permission_steps(b)]
+
     def _browser(self):
-        i = self.browsers.GetSelection()
-        return self.found[i][0] if self.found and i != wx.NOT_FOUND else ""
+        """The browser the services step opens pages in: the one chosen there, else the first checked."""
+        bs = self._browsers()
+        i = self.svc_browser.GetSelection() if self.svc_browser.GetCount() == len(bs) else 0
+        return bs[i] if bs and 0 <= i < len(bs) else (bs[0] if bs else "")
 
     def _visible(self, key):
         if key in ("browser", "permission", "services") and self.skip_accounts:
             return False
-        if key == "services" and not self._browser():
-            return False  # it would read "sign in to your services in No browser"
-        if key == "permission" and (not self._browser() or not self.acc.permission_steps(self._browser())):
+        if key == "services" and not self._browsers():
+            return False  # signed in here only: no browser to sign in with
+        if key == "permission" and not self._needing():
             return False  # nothing to allow: straight on
         return True
 
@@ -1796,8 +1959,8 @@ class Guide(wx.Dialog):
             self.cfg["app_sound_theme"] = self.theme_keys[self.theme.GetSelection()]
         elif key == "accounts":
             self.skip_accounts = not self.now.GetValue()
-        elif key == "browser" and self._browser():
-            self.cfg["app_signin"] = self._browser()
+        elif key == "browser":
+            self.choices.save()
         elif key == "services":
             name = self.acc.profile_name(self.sc_name.GetValue(), "soundcloud")
             if name:
@@ -1812,17 +1975,29 @@ class Guide(wx.Dialog):
         # its own read as a gap long enough that Rocco took the window for an unreadable one.
         where = "Step %d of %d: " % (steps.index(key) + 1, len(steps)) if key in steps else ""
         if key == "permission":
-            lines = self.acc.permission_steps(self._browser())
-            body = ("First I need permission to read %s's sign-in.\n\n" % self.acc.spec_words(self._browser()) +
-                    ("\n".join("%d. %s" % (i + 1, l) for i, l in enumerate(lines)) if lines else
-                     "%s needs no permission on this computer." % self.acc.spec_words(self._browser())) +
-                    "\n\nThen press Check Again and I'll try.")
+            need = self._needing()
+            parts = []
+            for b in need:
+                lines = self.acc.permission_steps(b)
+                parts.append(("For %s:\n" % self.acc.spec_words(b) if len(need) > 1 else "") +
+                             "\n".join("%d. %s" % (i + 1, l) for i, l in enumerate(lines)))
+            body = ("First I need permission to read %s.\n\n" % self.acc.signin_words(self.acc.join(need)) +
+                    "\n\n".join(parts) + "\n\nThen press Check Again and I'll try." +
+                    ("\n\nOr skip all this: go back a step and use Sign In Here in Wavelength instead, which "
+                     "needs no permission at all." if self.choices.here is not None else ""))
             self.texts[key].SetValue(body)
-            self.open_settings.Show(bool(self.acc.settings_page_url(self._browser())))
+            self.open_settings.Show(any(self.acc.settings_page_url(b) for b in need))
             self.perm_status.SetLabel("")
             self.pages[key].Layout()
         elif key == "services":
-            name = self.acc.spec_words(self._browser())
+            bs = self._browsers()
+            keep = self._browser()
+            self.svc_browser.Set([self.acc.spec_words(b) for b in bs])
+            self.svc_browser.SetSelection(bs.index(keep) if keep in bs else 0)
+            self.svc_browser.Show(len(bs) > 1)
+            self.svc_browser_row.Show(len(bs) > 1)
+            name = self.acc.spec_words(self._browser()) if len(bs) == 1 else \
+                "the browser you choose under Open In (%s)" % self.acc.and_list([self.acc.spec_words(b) for b in bs])
             self.texts[key].SetValue(
                 "Now sign in to your services in %s.\n\nPick a service and press Open It in the Browser, and I'll "
                 "open its page in %s. Sign in there like you normally would, then come back here. Check YouTube asks "
@@ -1830,26 +2005,27 @@ class Guide(wx.Dialog):
                 "itself, sign in at youtube.com too.\n\nAny other site works the same way: whatever you're signed "
                 "in to in %s, I can use." % (name, name, name, name) + (
                     "\n\nOn Windows, close %s completely before pressing Check YouTube. I can't read it while it's "
-                    "open." % name if sys.platform == "win32" and not self._browser().startswith("firefox") else ""))
+                    "open." % name if sys.platform == "win32" and any(not b.startswith("firefox") for b in bs)
+                    else ""))
             self.svc_status.SetLabel("")
         elif key == "done":
             b = self.acc.signin(self.cfg)
             if self.tour:
                 done = ("That's it. We're on the same wavelength now.\n\n" +
-                        ("I'll use %s's sign-in. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
-                         "subscriptions and likes.\n\n" % (self.acc.spec_words(b), CMD) if b else
+                        ("I'll use %s. File, Your Accounts (%s-U) opens your liked videos, Watch Later, "
+                         "subscriptions and likes.\n\n" % (self.acc.signin_words(b), CMD) if b else
                          "No accounts for now. File, Your Accounts (%s-U) sets them up whenever you want.\n\n"
                          % CMD) +
                         "Paste a link and press " + ENTER + " and I'll download it. To find something by words, "
                         "press Search (" + CMD + "-F) and I'll look in its own window. Help, "
                         "Keyboard Shortcuts lists every key. Have fun!")
             elif b:
-                done = ("That's it. I'll use %s's sign-in for every download, search and stream.%s"
-                        % (self.acc.spec_words(b), "\n\nYour Accounts opens next, with your liked videos, Watch "
+                done = ("That's it. I'll use %s for every download, search and stream.%s"
+                        % (self.acc.signin_words(b), "\n\nYour Accounts opens next, with your liked videos, Watch "
                            "Later, subscriptions and likes." if self.opens_accounts else ""))
             else:
-                done = ("No browser chosen, so I won't borrow a sign-in for now. File, Your Accounts (%s-U) "
-                        "brings these steps back whenever you want." % CMD)
+                done = ("No sign-in for now. File, Your Accounts (%s-U) brings these steps back whenever you "
+                        "want." % CMD)
             self.texts[key].SetValue(done)
         self.texts[key].SetValue(where + self.texts[key].GetValue().split(": ", 1)[-1]
                                  if self.texts[key].GetValue().startswith("Step ") else where + self.texts[key].GetValue())
@@ -1875,7 +2051,7 @@ class Guide(wx.Dialog):
 
     # ---- the checks
     def _open_settings(self):
-        url = self.acc.settings_page_url(self._browser())
+        url = next((self.acc.settings_page_url(b) for b in self._needing() if self.acc.settings_page_url(b)), "")
         if url and sys.platform == "darwin":
             import subprocess
             subprocess.Popen(["open", url])
@@ -1888,7 +2064,7 @@ class Guide(wx.Dialog):
         if timer is not None:
             timer.Stop()
             self._access_timer = None
-        if not (on and sys.platform == "darwin" and self._browser().split(":", 1)[0] == "safari"):
+        if not (on and sys.platform == "darwin" and any(b.split(":", 1)[0] == "safari" for b in self._needing())):
             return
         if self.acc.safari_readable():
             return  # already allowed; Check Again says so if asked
@@ -1921,7 +2097,7 @@ class Guide(wx.Dialog):
         announce(text)
 
     def _check_readable(self):
-        b = self._browser()
+        b = self.acc.join(self._needing())
         self._say(self.perm_status, "Checking %s..." % self.acc.spec_words(b))
         # None means readable, so a failure must come back as words, never None.
         in_background(lambda: self.main.signin_readable(b), lambda said: self._readable_said(b, said),
@@ -1929,7 +2105,7 @@ class Guide(wx.Dialog):
 
     def _readable_said(self, b, said):
         if self:
-            self._say(self.perm_status, said or "%s's sign-in can be read. Press Next." % self.acc.spec_words(b))
+            self._say(self.perm_status, said or "I can read %s. Press Next." % self.acc.signin_words(b))
 
     def _open_service(self):
         i = self.svc.GetSelection()
@@ -1939,7 +2115,7 @@ class Guide(wx.Dialog):
                 self.SERVICES[i][0], self.acc.spec_words(self._browser())))
 
     def _check_youtube(self):
-        b = self._browser()
+        b = self.acc.signin(self.cfg)
         self._say(self.svc_status, "Checking YouTube...")
         in_background(lambda: self.main.check_signin(b), self._youtube_said, failure_words)
 

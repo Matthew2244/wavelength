@@ -35,9 +35,265 @@ COLLECTIONS = [
 PROFILE_WORDS = {"soundcloud": "your SoundCloud profile name (the part after soundcloud.com/ in your page's address)"}
 
 
+# ---------------------------------------------------------------- where sign-ins come from
+#
+# A "sign-in" is a list of sources joined with SEP: browser specs ("safari", "chrome:Profile 1",
+# "firefox:<path>") and WAVELENGTH, the sign-in made in Wavelength's own sign-in window. One
+# browser on its own is handed to the engine as --cookies-from-browser, exactly as before;
+# anything more is merged into one cookies file for that run (cookie_file below). So YouTube
+# signed in through Chrome and SoundCloud through Safari both work at once.
+
+WAVELENGTH = "wavelength"
+SEP = "|"
+
+
+def sources(spec: str) -> list[str]:
+    return [p for p in (spec or "").split(SEP) if p]
+
+
+def join(parts) -> str:
+    out = []
+    for p in parts:
+        if p and p not in out:
+            out.append(p)
+    return SEP.join(out)
+
+
+def chosen_browsers(cfg: dict) -> list[str]:
+    """The browsers checked in Settings, Your Accounts or the tour. Settings from before 3.11
+    kept one browser in app_signin; that still counts until something is checked again."""
+    many = cfg.get("app_signins")
+    if isinstance(many, list):
+        return [b for b in many if b and b != WAVELENGTH]
+    one = cfg.get("app_signin", "") or ""
+    return [b for b in one.split(SEP) if b and b != WAVELENGTH]
+
+
+def set_browsers(cfg: dict, browsers) -> None:
+    """Keep the checked browsers. app_signin keeps the first, for anything that reads only one."""
+    keep = [b for b in browsers if b and b != WAVELENGTH]
+    cfg["app_signins"] = keep
+    cfg["app_signin"] = keep[0] if keep else ""
+
+
 def signin(cfg: dict) -> str:
-    """The browser whose sign-in to borrow, or "" for none."""
-    return cfg.get("app_signin", "") or ""
+    """Every sign-in Wavelength uses, as one spec: your own sign-in made in Wavelength (when
+    there is one) and each checked browser. "" for none."""
+    return join(([WAVELENGTH] if has_own_signin() else []) + chosen_browsers(cfg))
+
+
+def signin_words(spec: str) -> str:
+    """'safari' -> "Safari's sign-in"; two browsers -> "the sign-ins from Safari and Google Chrome";
+    with Wavelength's own -> "your Wavelength sign-in and Safari's"."""
+    parts = sources(spec)
+    if not parts:
+        return "no sign-in"
+    own = WAVELENGTH in parts
+    names = [spec_words(p) for p in parts if p != WAVELENGTH]
+    if not names:
+        return "your Wavelength sign-in"
+    if own:
+        return "your Wavelength sign-in and %s" % (names[0] + "'s" if len(names) == 1 else
+                                                    "the ones from " + and_list(names))
+    return names[0] + "'s sign-in" if len(names) == 1 else "the sign-ins from " + and_list(names)
+
+
+def and_list(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+# ---------------------------------------------------------------- Wavelength's own sign-in
+#
+# The sign-in window (signin.py) keeps the sign-in it makes here, as a cookies file only this
+# account can read. It's the site's own sign-in, the same thing a browser keeps; no password.
+
+SERVICE_COOKIES = {  # a cookie that exists only once you're signed in
+    "YouTube": (".youtube.com", ("SAPISID", "__Secure-3PAPISID", "LOGIN_INFO")),
+    "SoundCloud": (".soundcloud.com", ("oauth_token",)),
+}
+
+
+def own_folder() -> str:
+    from . import engine
+    return os.path.join(engine.SUPPORT, "signin")
+
+
+def own_file() -> str:
+    return os.path.join(own_folder(), "cookies.txt")
+
+
+def has_own_signin() -> bool:
+    try:
+        return os.path.getsize(own_file()) > 40
+    except OSError:
+        return False
+
+
+def _private_write(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        os.chmod(os.path.dirname(path), 0o700)
+    except OSError:
+        pass
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def netscape_text(cookies) -> str:
+    """Cookies as dicts (name, value, domain, path, secure, expires: seconds, 0 = session) in the
+    Netscape cookies.txt layout the engine reads."""
+    lines = ["# Netscape HTTP Cookie File", "# Made by Wavelength. Your sign-in; keep it private.", ""]
+    for c in cookies:
+        domain = c.get("domain") or ""
+        name = c.get("name") or ""
+        if not domain or not name or any(ch in (str(c.get("value", "")) + name) for ch in "\t\n\r"):
+            continue
+        lines.append("\t".join([domain, "TRUE" if domain.startswith(".") else "FALSE", c.get("path") or "/",
+                                 "TRUE" if c.get("secure") else "FALSE", str(int(c.get("expires") or 0)),
+                                 name, str(c.get("value", ""))]))
+    return "\n".join(lines) + "\n"
+
+
+def read_netscape(path: str) -> list[dict]:
+    out = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if line.startswith("#HttpOnly_"):
+                    line = line[len("#HttpOnly_"):]
+                elif not line or line.startswith("#"):
+                    continue
+                f = line.split("\t")
+                if len(f) == 7:
+                    out.append({"domain": f[0], "path": f[2], "secure": f[3] == "TRUE",
+                                "expires": int(f[4] or 0) if f[4].isdigit() else 0, "name": f[5], "value": f[6]})
+    except OSError:
+        pass
+    return out
+
+
+def save_own(cookies) -> list[str]:
+    """Keep the sign-in window's cookies (replacing what was kept). Returns the services it's
+    signed in to."""
+    cookies = list(cookies)
+    if cookies:
+        _private_write(own_file(), netscape_text(cookies))
+    else:
+        forget_own()
+    return services_in(cookies)
+
+
+def forget_own() -> None:
+    try:
+        os.remove(own_file())
+    except OSError:
+        pass
+
+
+def services_in(cookies) -> list[str]:
+    import time
+    now = time.time()
+    out = []
+    for service, (domain, names) in SERVICE_COOKIES.items():
+        for c in cookies:
+            d = c.get("domain") or ""
+            if c.get("name") in names and (d == domain or d.endswith(domain) or "." + d == domain) \
+                    and (not c.get("expires") or c["expires"] > now):
+                out.append(service)
+                break
+    return out
+
+
+def own_services() -> list[str]:
+    return services_in(read_netscape(own_file())) if has_own_signin() else []
+
+
+# ---------------------------------------------------------------- one cookies file for a run
+
+COOKIE_CACHE_SECONDS = 600
+
+
+def needs_file(spec: str) -> bool:
+    """One browser goes to the engine as it always did; anything more needs a merged file."""
+    parts = sources(spec)
+    return len(parts) > 1 or parts == [WAVELENGTH]
+
+
+def cookie_file(spec: str, warn=lambda text: None) -> str:
+    """One cookies file holding every source in `spec`, for one engine run. Built in the app's
+    temporary folder with private permissions, reused for COOKIE_CACHE_SECONDS (reading several
+    browsers takes a moment and asks the keychain), and copied per process, because the engine
+    writes its cookies back at the end of a run. Every copy goes when Wavelength quits.
+
+    A source that can't be read is skipped with a warning; if none can, the first problem is
+    raised, so the failure reads as it always did (Full Disk Access, a locked keychain...)."""
+    import hashlib
+    import shutil
+    import time
+    from . import engine
+    os.makedirs(engine.TEMP, exist_ok=True)
+    key = hashlib.sha1(spec.encode("utf-8")).hexdigest()[:12]
+    shared = os.path.join(engine.TEMP, "signin-%s.txt" % key)
+    try:
+        age = time.time() - os.path.getmtime(shared)
+        fresh = age < COOKIE_CACHE_SECONDS and (not has_own_signin()
+                                                or os.path.getmtime(own_file()) <= os.path.getmtime(shared))
+    except OSError:
+        fresh = False
+    if not fresh:
+        from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
+        jar = YoutubeDLCookieJar()
+        problems, read = [], 0
+        for part in sources(spec):
+            try:
+                if part == WAVELENGTH:
+                    if not has_own_signin():
+                        continue
+                    got = YoutubeDLCookieJar(own_file())
+                    got.load()
+                else:
+                    name, _, profile = part.partition(":")
+                    got = extract_cookies_from_browser(name, profile or None)
+                for c in got:
+                    jar.set_cookie(c)
+                read += 1
+            except Exception as exc:  # noqa: BLE001 - one unreadable browser mustn't cost the others
+                problems.append(exc)
+                # Plain words, never the error itself: a failed run with an unreadable-cookie error
+                # in its log is retried with no sign-in at all, which would drop the ones that worked.
+                warn("Left out %s this time: it couldn't be read." % signin_words(part))
+        if not read and problems:
+            raise problems[0]
+        tmp = "%s.%d.tmp" % (shared, os.getpid())
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(fd)
+        jar.save(tmp)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, shared)
+    mine = os.path.join(engine.TEMP, "signin-%s-%d.txt" % (key, os.getpid()))
+    shutil.copyfile(shared, mine)
+    os.chmod(mine, 0o600)
+    import atexit
+    atexit.register(lambda: os.path.exists(mine) and os.remove(mine))
+    return mine
+
+
+def clear_cookie_files() -> None:
+    """Every merged cookies file, gone: called when Wavelength quits and when it starts."""
+    from . import engine
+    try:
+        for name in os.listdir(engine.TEMP):
+            if name.startswith("signin-"):
+                try:
+                    os.remove(os.path.join(engine.TEMP, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 def profile_name(text: str, service: str) -> str:
@@ -194,8 +450,9 @@ def profiles(key: str) -> list[tuple[str, str]]:
 
 
 def installed() -> list[tuple[str, str]]:
-    """Every browser-and-profile on this computer, as (setting, words), the default browser
-    first. The setting is what --cookies-from-browser takes: "chrome:Profile 1", "firefox:<path>"."""
+    """Every browser-and-profile on this computer, as (setting, words), always in the same order,
+    Safari first (Rocco, 2026-10-16: "do not change the order"). The setting is what
+    --cookies-from-browser takes: "chrome:Profile 1", "firefox:<path>"."""
     out = []
     for key, name, *_ in BROWSERS:
         found = profiles(key)
@@ -203,8 +460,6 @@ def installed() -> list[tuple[str, str]]:
             spec = key + (":" + prof if prof and len(found) > 1 else "")
             words = name if len(found) <= 1 else "%s, %s" % (name, pname)
             out.append((spec, words))
-    first = default_browser()
-    out.sort(key=lambda sw: 0 if sw[0].split(":", 1)[0] == first else 1)
     return out
 
 
@@ -212,6 +467,10 @@ def spec_words(spec: str) -> str:
     """'chrome:Profile 1' -> 'Google Chrome, Work' (the profile's own name where known)."""
     if not spec:
         return "No browser"
+    if SEP in spec:
+        return and_list([spec_words(p) for p in sources(spec)])
+    if spec == WAVELENGTH:
+        return "Wavelength"
     key, _, prof = spec.partition(":")
     name = NAMES.get(key, key.capitalize())
     if not prof:

@@ -23,6 +23,14 @@ def run() -> int:
             import wx
             from . import gui
             app = wx.App(False)
+            if sys.platform in ("darwin", "win32"):
+                # Sign In Here: a real sign-in window, a page on this computer, an HttpOnly cookie kept.
+                from . import signin
+                said = signin.round_trip()
+                if said:
+                    problems.append("sign-in window: %s" % said)
+                else:
+                    print("Sign-in window: kept an HttpOnly cookie from a page on this computer.")
             frame = gui.MainFrame()
             frame.timer.Stop()
             frame.Destroy()

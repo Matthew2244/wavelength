@@ -317,6 +317,7 @@ class MainFrame(wx.Frame):
         self.link.SetFocus()
         self.unfinished_at_start = unfinished  # said with the hello, once the window has been read
         engine.clean_temp()
+        accounts.clear_cookie_files()  # left by a run that didn't get to quit
         self.started = False
         wx.CallLater(800, self.startup_checks)
 
@@ -523,7 +524,15 @@ class MainFrame(wx.Frame):
             self.tell_in_window(text, "Great" if fresh else "Okay")
 
     def signin_readable(self, browser: str) -> str | None:
-        """None if the browser's sign-in can be read; else a sentence saying why not."""
+        """None if every sign-in in `browser` (a spec, see accounts.signin) can be read; else a
+        sentence for each one that can't."""
+        parts = accounts.sources(browser)
+        if len(parts) > 1:
+            said = [self.signin_readable(p) for p in parts]
+            return " ".join(x for x in said if x) or None
+        if browser == accounts.WAVELENGTH:
+            return None if accounts.has_own_signin() else \
+                "There's no sign-in made in Wavelength yet: File, Your Accounts, Sign In Here makes one."
         got = {}
         run_task({"task": "signin_check", "browser": browser}, lambda ev: got.update(ev) if ev.get("ev") == "signin"
                  else None, timeout=120)
@@ -539,7 +548,7 @@ class MainFrame(wx.Frame):
         instead of failing every download."""
         if not said:
             self._sound("signed_in")
-            self.tell("Using %s's sign-in." % accounts.spec_words(browser))
+            self.tell("Using %s." % accounts.signin_words(browser))
             return
         mac_fda = "Full Disk Access" in said and sys.platform == "darwin"
         if not mac_fda:  # its own window: Escape closes it, which an OK-only box doesn't on the Mac
@@ -1015,12 +1024,12 @@ class MainFrame(wx.Frame):
         return out
 
     def on_settings(self, _):
-        before = accounts.signin(self.cfg)
+        before = accounts.chosen_browsers(self.cfg)
         dlg = dialogs.Settings(self, self.cfg)
         if dlg.ShowModal() == wx.ID_OK:
             engine.save_settings(self.cfg)
-            now = accounts.signin(self.cfg)
-            if now and now != before:  # test the new browser's sign-in once, off the main thread
+            now = accounts.join(b for b in accounts.chosen_browsers(self.cfg) if b not in before)
+            if now:  # test each newly checked browser's sign-in once, off the main thread
                 threading.Thread(target=lambda: wx.CallAfter(self._signin_result, now, self.signin_readable(now)),
                                  daemon=True).start()
             if self.player is not None:
@@ -1768,7 +1777,7 @@ class MainFrame(wx.Frame):
         job.engine_retry = False
         self._to_current_folder(job)
         self.mgr.retry(job)
-        self.tell_in_window("Trying again with %s's sign-in: %s." % (accounts.spec_words(choice),
+        self.tell_in_window("Trying again with %s: %s." % (accounts.signin_words(choice),
                                                                       words.job_name(job)), "Okay")
 
     def on_retry_failed(self, _):
@@ -2394,6 +2403,7 @@ class MainFrame(wx.Frame):
         self.timer.Stop()
         keep_awake(False)
         self.mgr.shutdown()
+        accounts.clear_cookie_files()  # the merged sign-ins only ever live while the app runs
         if self.player is not None:
             self.player.shutdown()
             self.player.Destroy()

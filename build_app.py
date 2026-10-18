@@ -28,6 +28,7 @@ args = [
     "--add-data", os.path.join("assets", "sounds") + os.pathsep + os.path.join("assets", "sounds"),
     "--hidden-import", "media_download.gui", "--hidden-import", "media_download.worker",
     "--hidden-import", "media_download.selftest",
+    "--hidden-import", "media_download.signin", "--hidden-import", "wx.html2",
 ]
 if sys.platform == "win32":
     from build_app_support import winsparkle_dll

@@ -694,7 +694,7 @@ SOUNDS = [
     ("queue_end", "The player reached the end", "Submarine"),
     ("tour_done", "Finished the welcome tour", "Sosumi"),
     ("milestone", "A milestone: your 100th download and on", "Frog"),
-    ("signed_in", "A browser's sign-in works", "Hero"),
+    ("signed_in", "A sign-in works", "Hero"),
     ("settings_saved", "Settings saved", "Tink"),
     ("closing", "Wavelength closes", "Blow"),
 ]

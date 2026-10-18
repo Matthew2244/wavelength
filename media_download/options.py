@@ -162,8 +162,7 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
         # "en.*" matches every auto-translated track and earns an HTTP 429.
         args += ["--write-auto-subs", "--write-subs", "--sub-langs", "en,en-orig,en-US,en-GB",
                  "--convert-subs", "srt"]
-    if spec.get("cookies"):
-        args += ["--cookies-from-browser", spec["cookies"]]
+    args += cookie_args(spec.get("cookies"))
     if spec.get("rate_limit"):
         args += ["--limit-rate", spec["rate_limit"]]
     if spec.get("extra"):
@@ -184,9 +183,29 @@ def split_extra(text: str) -> list[str]:
 def probe_args(spec: dict) -> list[str]:
     args = ["--yes-playlist", "--flat-playlist"]
     args += selector(spec)
-    if spec.get("cookies"):
-        args += ["--cookies-from-browser", spec["cookies"]]
+    args += cookie_args(spec.get("cookies"))
     return args
+
+
+def cookie_args(spec, warn=None) -> list[str]:
+    """The engine's flags for a sign-in (accounts.signin): one browser as --cookies-from-browser,
+    as always; several, or Wavelength's own, as one merged --cookies file for this run."""
+    from . import accounts
+    if not spec:
+        return []
+    if not accounts.needs_file(spec):
+        return ["--cookies-from-browser", accounts.sources(spec)[0]]
+    if warn is None:
+        def warn(text):
+            from .worker import emit
+            emit("log", text="WARNING: " + text)
+    try:
+        return ["--cookies", accounts.cookie_file(spec, warn)]
+    except Exception:  # noqa: BLE001
+        # Nothing could be read: hand the engine the first browser, so it fails the way it always
+        # has, with the words the rest of the app knows (Full Disk Access, a locked keychain...).
+        browsers = [p for p in accounts.sources(spec) if p != accounts.WAVELENGTH]
+        return ["--cookies-from-browser", browsers[0]] if browsers else []
 
 
 SEARCH_SITES = [("youtube", "YouTube", "ytsearch"),
