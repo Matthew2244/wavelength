@@ -34,6 +34,7 @@ def notes_html(md: str) -> str:
         else:
             out.append("<p>%s</p>" % html.escape(" ".join(lines)))
     text = "\n".join(out)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
     return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 
 
