@@ -26,6 +26,8 @@ def notes_html(md: str) -> str:
     out, items = [], []
     for block in re.split(r"\n\s*\n", md.strip()):
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        if not lines:
+            continue
         if all(ln.startswith("- ") for ln in lines):
             items = "".join("<li>%s</li>" % html.escape(ln[2:]) for ln in lines)
             out.append("<ul>%s</ul>" % items)

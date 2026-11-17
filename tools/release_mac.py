@@ -104,6 +104,10 @@ def main():
     url = f"https://github.com/Matthew2244/wavelength/releases/download/{a.tag}/{ZIP}"
     notes = subprocess.run(["gh", "release", "view", a.tag, "--json", "body", "--jq", ".body"],
                            capture_output=True, text=True).stdout
+    if not notes.strip():
+        # An empty body ships an update window with a blank "what's new" (3.9.0 to 3.11.2 did).
+        sys.exit(f"{a.tag} has no release notes on GitHub. Write them (gh release edit {a.tag} "
+                 "--notes-file NOTES.md), then run this again.")
     notes_file = os.path.join("dist", "release-notes.md")
     with open(notes_file, "w") as f:
         f.write(notes)
