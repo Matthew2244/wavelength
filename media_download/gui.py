@@ -308,6 +308,7 @@ class MainFrame(wx.Frame):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_tick, self.timer)
         self.timer.Start(1000)
+        dialogs.speak_messages = bool(self.cfg.get("app_speak_messages", False))
         # Each control's tip, said once the focus settles on it (hints.py; Settings, General).
         self.hints = hints.FocusHints(lambda: bool(self.cfg.get("app_focus_hints", True)), self.say_hint,
                                       owner=self)
@@ -388,6 +389,7 @@ class MainFrame(wx.Frame):
         self._m(v, "Go to the D&ownloads Window\tCtrl+1", self.on_to_main)
         self._m(v, "Go to the &Player\tCtrl+2", self.on_to_player)
         self._m(v, "&What's Happening?\tCtrl+J", self.on_whats_happening)
+        self._m(v, "Recent &Messages...\tCtrl+Shift+J", lambda e: dialogs.show_recent_messages(self))
         v.AppendSeparator()
         self._m(v, "&Bigger Text\tCtrl+=", lambda e: self._text_size(+2))
         self._m(v, "&Smaller Text\tCtrl+-", lambda e: self._text_size(-2))
@@ -1053,6 +1055,7 @@ class MainFrame(wx.Frame):
         dlg = dialogs.Settings(self, self.cfg)
         if dlg.ShowModal() == wx.ID_OK:
             engine.save_settings(self.cfg)
+            dialogs.speak_messages = bool(self.cfg.get("app_speak_messages", False))
             now = accounts.join(b for b in accounts.chosen_browsers(self.cfg) if b not in before)
             if now:  # test each newly checked browser's sign-in once, off the main thread
                 threading.Thread(target=lambda: wx.CallAfter(self._signin_result, now, self.signin_readable(now)),

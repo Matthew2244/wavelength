@@ -3,7 +3,9 @@ names its buttons in plain words, and closes with Escape."""
 from __future__ import annotations
 
 import os
+import re
 import sys
+import time
 import threading
 
 import wx
@@ -286,6 +288,17 @@ def say_after_change(ctrl, text: str, polite: bool = True, speak=None) -> None:
         (speak or say)(text, polite)
 
 
+def show_recent_messages(parent) -> None:
+    """View, Recent Messages: every message from this session, newest first, in one window, so
+    nothing said instead of shown is lost."""
+    if not recent_messages:
+        text = "No messages yet."
+    else:
+        text = "\n\n".join("%s  %s" % (time.strftime("%H:%M", time.localtime(t)), m)
+                            for t, m in reversed(recent_messages))
+    message(parent, text, "Recent Messages", "Done", force=True)
+
+
 def failure_words(exc) -> str:
     """What to say when a background lookup couldn't run at all (its worker didn't start)."""
     said = getattr(exc, "said", None)
@@ -312,12 +325,59 @@ def failed_result(exc) -> dict:
 
 message_log = None  # tests set a list: messages are recorded there and never shown
 
+# Settings, General, "Speak short messages instead of showing them" (Matthew, 2026-11-20): a
+# message with only one button to answer it is said, not shown, and the focus stays where it was.
+# The main window sets this from the settings. Anything with a real choice is always shown.
+speak_messages = False
+recent_messages: list = []  # (time, text), newest last: View, Recent Messages
+RECENT_KEPT = 50
+_FAILURE = re.compile(r"\b(didn't work|couldn't|can't|failed|isn't available|wasn't|not installed|"
+                      r"unavailable|went wrong|refused|error)\b", re.I)
 
-def message(parent, text: str, title: str = "Wavelength", button: str = "Got It") -> None:
+
+def sounds_like_failure(text: str) -> bool:
+    """A message that reports something going wrong: said urgently, not politely."""
+    return bool(_FAILURE.search(text or ""))
+
+
+def remember_message(text: str) -> None:
+    recent_messages.append((time.time(), text))
+    del recent_messages[:-RECENT_KEPT]
+
+
+def speak_message(parent, text: str, urgent: bool | None = None) -> None:
+    """Say a one-button message instead of showing it. The status bar shows it; the focus stays
+    on the control that had it (or goes back there as a dialog closes), and the line waits until
+    the screen reader has read that control, so nothing cuts it off. Failures cut in."""
+    from . import hints
+    urgent = sounds_like_failure(text) if urgent is None else urgent
+    top = wx.GetApp().GetTopWindow() if wx.GetApp() else None
+    if top is not None and hasattr(top, "SetStatusText"):
+        try:
+            top.SetStatusText(text)
+        except Exception:  # noqa: BLE001 - a window without a status bar
+            pass
+    focus = wx.Window.FindFocus()
+    hints.quiet(focus)
+    # Always after the wait: a message often comes as a dialog closes, and the focus going back to
+    # the window behind is read then, whether or not it's the same control as before.
+    _later(FOCUS_FIRST_MS, lambda: say(text, not urgent))
+
+
+def message(parent, text: str, title: str = "Wavelength", button: str = "Got It", force: bool = False,
+            urgent: bool | None = None) -> None:
     """A message as its own small window (Matthew, 2026-10-14): the words sit in a read-only box
     that takes the focus, so a screen reader reads them on arrival, the same way as the tour's
     steps, and the window behind is read only once it's closed. No guessing how long speech
-    takes. Its button answers the message (Matthew: not always "OK"); it, Return or Escape closes it."""
+    takes. Its button answers the message (Matthew: not always "OK"); it, Return or Escape closes it.
+    With speak_messages on it's said instead (speak_message), unless `force` (Recent Messages)."""
+    if not force:
+        remember_message(text)
+    if speak_messages and not force:
+        if message_log is not None:
+            message_log.append((text, button))
+        speak_message(parent, text, urgent)
+        return
     if message_log is not None:
         message_log.append((text, button))
         return
@@ -696,6 +756,11 @@ class Settings(wx.Dialog):
                            "Once the screen reader has read a control, Wavelength says what it's for and its "
                            "shortcut, once, a moment later. On a Mac, VoiceOver reads the tip itself as a hint, "
                            "so Wavelength adds only the shortcut. Turn it off once you know your way around.")
+        self.speak_msgs = check(p, s, "Speak short messages instead of showing them",
+                                cfg.get("app_speak_messages", False),
+                                "A message with only one button, like Got It, is said instead of opening a window, "
+                                "and you stay where you were. Anything that asks you to choose still opens. View, "
+                                "Recent Messages (%s-Shift-J) lists what was said." % CMD)
         self.say_vals = [0, 10, 30, 60]
         self.say = choice(p, s, "Speak progress while downloading:",
                           ["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"],
@@ -1005,6 +1070,7 @@ class Settings(wx.Dialog):
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
             "app_greeting": self.greet.GetValue(),
             "app_focus_hints": self.hints.GetValue(),
+            "app_speak_messages": self.speak_msgs.GetValue(),
             "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
@@ -1715,6 +1781,7 @@ class Guide(wx.Dialog):
             ["browser", "permission", "services", "done"]
         # The tour starts on "Not now" for accounts, so its step count starts without them.
         self.skip_accounts = start == "welcome"
+        self.tour = start == "welcome"  # before the pages: the last one has a box only the tour shows
         self.book = wx.Simplebook(self)
         self.pages, self.texts = {}, {}
         for key in self.order:
@@ -1955,6 +2022,13 @@ class Guide(wx.Dialog):
     def _page_done(self, p):
         s = wx.BoxSizer(wx.VERTICAL)
         self._text(p, "done", s, "")
+        self.speak_msgs = None
+        if self.tour:
+            self.speak_msgs = wx.CheckBox(p, label="Speak short messages instead of showing them")
+            self.speak_msgs.SetValue(bool(self.cfg.get("app_speak_messages", False)))
+            self.speak_msgs.SetToolTip("A message with only one button is said instead of opening a window, and "
+                                       "you stay where you were. Settings, General changes it any time.")
+            s.Add(self.speak_msgs, 0, wx.ALL, 6)
         p.SetSizer(s)
 
     # ---- moving
@@ -2064,7 +2138,9 @@ class Guide(wx.Dialog):
                          % CMD) +
                         "Paste a link and press " + ENTER + " and I'll download it. To find something by words, "
                         "press Search (" + CMD + "-F) and I'll look in its own window. Help, "
-                        "Keyboard Shortcuts lists every key. Have fun!")
+                        "Keyboard Shortcuts lists every key.\n\nOne last choice: I can speak short messages "
+                        "instead of showing them in a window, so you stay where you were. Check the box below "
+                        "if you'd like that. Have fun!")
             elif b:
                 done = ("That's it. I'll use %s for every download, search and stream.%s"
                         % (self.acc.signin_words(b), "\n\nYour Accounts opens next, with your liked videos, Watch "
@@ -2186,6 +2262,10 @@ class Guide(wx.Dialog):
     def finish(self):
         """Finish, the first time or any time after: a bell to say it's done."""
         self.cfg["app_onboarded"] = True
+        if self.speak_msgs is not None:
+            self.cfg["app_speak_messages"] = self.speak_msgs.GetValue()
+            global speak_messages
+            speak_messages = bool(self.speak_msgs.GetValue())
         from . import engine
         from .system import cue
         engine.save_settings(self.cfg)

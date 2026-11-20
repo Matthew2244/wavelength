@@ -1852,3 +1852,73 @@ def test_check_row_state_reads_checked(frame):
 def test_check_lists_read_their_state_in_the_self_test(frame):
     from media_download import selftest
     assert selftest.check_list_reads_states() is None
+
+
+# ---------------------------------------------------------------- speak short messages
+
+def test_spoken_message_is_said_not_shown_and_kept(frame, monkeypatch):
+    """Settings, General: a one-button message is said after the focus is read, never shown."""
+    events, run_pending = _track_focus(monkeypatch, start=frame.link)
+    monkeypatch.setattr(gui.dialogs, "speak_messages", True)
+    monkeypatch.setattr(gui.dialogs, "recent_messages", [])
+    monkeypatch.setattr(gui.dialogs, "message_log", [])
+    frame.tell_in_window("Settings saved.", "Great")
+    assert [e[0] for e in events] == ["later"]  # not said alongside whatever is being read
+    assert not any(e[0] == "focus" for e in events)  # the focus stays where it was
+    run_pending()
+    assert events[-1] == ("said", "Settings saved.", True)
+    assert [m for _, m in gui.dialogs.recent_messages] == ["Settings saved."]
+    assert frame.GetStatusBar().GetStatusText() == "Settings saved."
+
+
+def test_spoken_failure_cuts_in(frame, monkeypatch):
+    events, run_pending = _track_focus(monkeypatch, start=frame.link)
+    monkeypatch.setattr(gui.dialogs, "speak_messages", True)
+    monkeypatch.setattr(gui.dialogs, "message_log", [])
+    gui.dialogs.message(frame, "The search didn't work. The site says too many requests.")
+    run_pending()
+    assert events[-1][2] is False  # urgent
+
+
+def test_recent_messages_always_shown(frame, monkeypatch):
+    monkeypatch.setattr(gui.dialogs, "speak_messages", True)
+    monkeypatch.setattr(gui.dialogs, "recent_messages", [])
+    log = []
+    monkeypatch.setattr(gui.dialogs, "message_log", log)
+    monkeypatch.setattr(gui.dialogs, "_later", lambda ms, fn: None)
+    gui.dialogs.message(frame, "First.")
+    gui.dialogs.message(frame, "Second.")
+    log.clear()
+    gui.dialogs.show_recent_messages(frame)
+    text, button = log[0]
+    assert button == "Done" and text.index("Second.") < text.index("First.")  # newest first
+    assert len(gui.dialogs.recent_messages) == 2  # the list itself isn't added to the list
+
+
+def test_speak_messages_setting_off_by_default_and_saved(frame):
+    cfg = dict(frame.cfg)
+    cfg.pop("app_speak_messages", None)
+    dlg = gui.dialogs.Settings(frame, cfg, section="general")
+    assert dlg.speak_msgs.GetValue() is False
+    dlg.speak_msgs.SetValue(True)
+    dlg.EndModal = lambda code: None
+    dlg.on_ok(None)
+    assert dlg.cfg["app_speak_messages"] is True
+    dlg.Destroy()
+
+
+def test_tour_last_step_offers_spoken_messages(frame, monkeypatch):
+    monkeypatch.setattr(gui.dialogs, "speak_messages", False)
+    cfg = dict(frame.cfg)
+    g = gui.dialogs.Guide(frame, cfg, frame, "welcome")
+    assert g.speak_msgs is not None and g.speak_msgs.GetValue() is False
+    g.speak_msgs.SetValue(True)
+    g.EndModal = lambda code: None
+    monkeypatch.setattr(gui.dialogs.engine, "save_settings", lambda c: None)
+    monkeypatch.setattr(gui.system, "cue", lambda k: None)
+    g.finish()
+    assert cfg["app_speak_messages"] is True and gui.dialogs.speak_messages is True
+    g.Destroy()
+    a = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "accounts")
+    assert a.speak_msgs is None  # only the welcome tour asks
+    a.Destroy()
