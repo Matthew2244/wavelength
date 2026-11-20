@@ -11,7 +11,7 @@ import wx
 from . import describe, engine, textsize, words
 from .options import SEARCH_SITES
 from . import menus
-from .system import mac_accessibility_label, mac_check_list_reads_once, mac_text_without_wrapper, windows_name
+from .system import check_list_states, mac_accessibility_label, mac_check_list_reads_once, mac_text_without_wrapper, windows_name
 
 def browser_choices(current: str = "", none_words: str = "Don't use a browser's sign-in") -> list:
     """The browsers (and profiles) on this computer, Safari first, after a "none" choice and
@@ -69,7 +69,7 @@ class SignInChoices:
             if c not in [k for k, _ in self.found]:
                 self.found.append((c, accounts.spec_words(c)))
         self.list = wx.CheckListBox(parent, choices=[w for _, w in self.found], size=(-1, 150))
-        mac_check_list_reads_once(self.list)
+        check_list_states(self.list)
         mac_accessibility_label(self.list, "Also use the sign-in from these browsers")
         windows_name(self.list, "Also use the sign-in from these browsers")
         self.list.SetToolTip("Check every browser you're signed in with, with Space; uncheck one to stop using it. "
@@ -243,6 +243,47 @@ def say(text: str, polite: bool = False) -> None:
     `polite` waits for the screen reader to finish (a window's intro after its focused row)."""
     from . import system
     system.announce(text, polite) if polite else system.announce(text)
+
+
+# How long a line waits after the focus moves, so the screen reader has started on the control
+# it landed on. NVDA, JAWS and Narrator stop all speech when the focus (or the focused list's
+# selection) moves, and VoiceOver often does: a line said just before, or with, the move was cut
+# off (Matthew, 2026-11-20: "some announcements are getting interrupted").
+FOCUS_FIRST_MS = 500
+
+
+def _later(ms, fn):
+    """wx.CallLater, kept apart so tests can see the order without waiting."""
+    return wx.CallLater(ms, fn)
+
+
+def _speak_after(ctrl, text, polite, speak):
+    speak = speak or say
+    _later(FOCUS_FIRST_MS, lambda: ctrl and speak(text, polite))
+
+
+def focus_then_say(ctrl, text: str, polite: bool = True, speak=None, changed: bool = False) -> None:
+    """Move the focus to `ctrl` first, then say `text` once the screen reader has started reading
+    ctrl. Polite lines queue behind the control's name; urgent ones (polite=False, for failures)
+    cut in once it has started, rather than being cut off by it. Already on ctrl: nothing will be
+    read for the move, so it's said at once, unless `changed` (a list just refilled is read
+    again where it is). `speak(text, polite)` defaults to say(). The same on the Mac and Windows."""
+    from . import hints
+    hints.quiet(ctrl)  # this line says what matters here; the control's tip would only crowd it
+    if wx.Window.FindFocus() is ctrl and not changed:
+        (speak or say)(text, polite)
+        return
+    ctrl.SetFocus()
+    _speak_after(ctrl, text, polite, speak)
+
+
+def say_after_change(ctrl, text: str, polite: bool = True, speak=None) -> None:
+    """`ctrl` just changed under the focus (a list's selection moved, a row went): if it has the
+    focus, the screen reader reads it again, so wait for that; if not, nothing is read, say it now."""
+    if wx.Window.FindFocus() is ctrl:
+        _speak_after(ctrl, text, polite, speak)
+    else:
+        (speak or say)(text, polite)
 
 
 def failure_words(exc) -> str:
@@ -651,6 +692,10 @@ class Settings(wx.Dialog):
         self.greet = check(p, s, "Greet me when Wavelength opens", cfg.get("app_greeting", True),
                            "A hello that fits the time of day, said once as the app opens, and a different one "
                            "most times. Turn it off for a quiet start.")
+        self.hints = check(p, s, "Read hints when a control gets focus", cfg.get("app_focus_hints", True),
+                           "Once the screen reader has read a control, Wavelength says what it's for and its "
+                           "shortcut, once, a moment later. On a Mac, VoiceOver reads the tip itself as a hint, "
+                           "so Wavelength adds only the shortcut. Turn it off once you know your way around.")
         self.say_vals = [0, 10, 30, 60]
         self.say = choice(p, s, "Speak progress while downloading:",
                           ["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"],
@@ -959,6 +1004,7 @@ class Settings(wx.Dialog):
             "app_announce_progress": self.say_vals[self.say.GetSelection()],
             "app_clipboard": self.clip.GetValue(), "auto_update": self.upd.GetValue(),
             "app_greeting": self.greet.GetValue(),
+            "app_focus_hints": self.hints.GetValue(),
             "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
@@ -1304,9 +1350,8 @@ class SoundPicker(wx.Dialog):
                 return
             src = fd.GetPath()
         name, said = import_sound(src)
-        announce(said)
         if not name:
-            message(self, said, "Import a Sound File")
+            message(self, said, "Import a Sound File")  # its own window says it: announcing first got cut off
             return
         self._fill_sounds()
         kind = self._kind()
@@ -1314,7 +1359,7 @@ class SoundPicker(wx.Dialog):
             self.map[kind] = "custom:" + name
             self._fill_actions()
             self.on_action()
-        self.sounds.SetFocus()
+        focus_then_say(self.sounds, said, changed=True)  # the refilled list first, then what happened
 
     def on_remove(self):
         from .system import announce, remove_sound
@@ -1351,6 +1396,7 @@ class SoundPicker(wx.Dialog):
 
 
 
+EMPTY_SEARCH = "The Search for field is empty. Type some words, then press Search again. You're back in the field."
 NOT_SIGNED_IN = "Sign in first: Sign In Here in Wavelength is the easy way, or check a browser you're signed in with."
 
 
@@ -1579,9 +1625,7 @@ class AccountsDialog(wx.Dialog):
     def act(self, how):
         if not self._browser():
             self.status.SetLabel(NOT_SIGNED_IN)
-            from .system import announce
-            announce(self.status.GetLabel())
-            (self.choices.here or self.choices.list).SetFocus()
+            focus_then_say(self.choices.here or self.choices.list, NOT_SIGNED_IN)
             return
         url = self._address()
         if url:
@@ -1609,8 +1653,7 @@ class AccountsDialog(wx.Dialog):
         from .system import announce
         if not self._browser():
             self.status.SetLabel(NOT_SIGNED_IN)
-            announce(self.status.GetLabel())
-            (self.choices.here or self.choices.list).SetFocus()
+            focus_then_say(self.choices.here or self.choices.list, NOT_SIGNED_IN)
             return
         if getattr(self, "_checking", False):
             return  # one check at a time: repeats ran side by side and chimed twice
@@ -2084,20 +2127,23 @@ class Guide(wx.Dialog):
                 from .system import cue
                 cue("signed_in")
                 self.Raise()
-                self._say(self.perm_status, "Full Disk Access is on, so I can read Safari's sign-in. Press Next.")
-                self.next.SetFocus()
+                self._say(self.perm_status, "Full Disk Access is on, so I can read Safari's sign-in. Press Next.",
+                          focus=self.next)
         self._access_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, lambda e: look(), self._access_timer)
         self._access_timer.Start(1500)
 
-    def _say(self, label, text):
+    def _say(self, label, text, focus=None):
         from .system import announce
         if not self:
             return
         label.SetLabel(text)
         label.Wrap(max(300, self.GetClientSize().width - 40))
         self.Layout()
-        announce(text)
+        if focus is not None:
+            focus_then_say(focus, text)  # the focus moves first, so it can't cut this off
+        else:
+            announce(text)
 
     def _check_readable(self):
         self._watch_access(False)  # asked by hand: one answer, not that one and the watcher's too
@@ -2161,7 +2207,7 @@ class CheckList(wx.Dialog):
         s = wx.BoxSizer(wx.VERTICAL)
         s.Add(WrapText(self, label=intro), 0, wx.ALL, 8)
         self.list = wx.CheckListBox(self, choices=[entry_words(i + 1, e) for i, e in enumerate(entries)])
-        mac_check_list_reads_once(self.list)
+        check_list_states(self.list)
         mac_accessibility_label(self.list, "Items")
         windows_name(self.list, "Items")  # else Windows names it with the whole paragraph above it
         self.list.SetToolTip("Space checks or unchecks the selected item; the count below says how many are "
@@ -2393,7 +2439,7 @@ class Search(wx.Frame):
                                         "to listen first." % ENTER)
         s.Add(self.status, 0, wx.ALL, 6)
         self.list = wx.CheckListBox(p, choices=[])
-        mac_check_list_reads_once(self.list)
+        check_list_states(self.list)
         mac_accessibility_label(self.list, "Results")
         windows_name(self.list, "Results")  # else Windows names it after the status line above it
         self.list.SetToolTip("Check the ones you want with Space, then Download Checked. %s-K lists more for "
@@ -2550,9 +2596,8 @@ class Search(wx.Frame):
     def on_search(self, _):
         q = self.query.GetValue().strip()
         if not q:
-            self.status.SetLabel("Type some words to search for first.")
-            say(self.status.GetLabel())
-            self.query.SetFocus()
+            self.status.SetLabel(EMPTY_SEARCH)
+            focus_then_say(self.query, EMPTY_SEARCH)
             return
         self.last_query = q
         site_key = self.site_key()
@@ -2648,9 +2693,10 @@ class Search(wx.Frame):
             self.has_more = bool(self.results)
             self.more_btn.Enable(self.has_more)
             self.status.SetLabel("The search didn't work. %s" % error)
-            announce(self.status.GetLabel())
             if not self.results:
-                self.query.SetFocus()
+                focus_then_say(self.query, self.status.GetLabel(), polite=False)  # a failure: still cuts in
+            else:
+                announce(self.status.GetLabel())
             return
         self.next_start = start + SEARCH_PAGE
         seen = {e["url"] for e in self.results}
@@ -2922,8 +2968,7 @@ class DescribeDialog(wx.Dialog):
         from .system import announce
         if opts:
             self.list.SetSelection(0)
-            self.list.SetFocus()
-            wx.CallLater(600, lambda: self and say(msg, polite=True))  # after the focused row is read, not over it
+            focus_then_say(self.list, msg, changed=True)  # after the focused row is read, not over it
         else:
             announce(msg)
         self._buttons()
@@ -3005,8 +3050,7 @@ class DescribeDialog(wx.Dialog):
         self.Layout()
         from .system import announce, cue
         cue("results" if fresh else "no_more")
-        announce(msg)
-        self.list.SetFocus()
+        focus_then_say(self.list, msg, changed=True)  # the refilled list is read first, then this
         self._buttons()
         self.Layout()
 

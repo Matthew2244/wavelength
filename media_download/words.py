@@ -22,6 +22,8 @@ def ordinal(n: int) -> str:
 
 
 SETTINGS_SAVED = "Settings saved."
+# Said after the focus is back in the field (gui.tell_at), so nothing cuts it off (Matthew, 2026-11-20).
+EMPTY_LINK = "The Link field is empty. Paste a link, then press %s again. You're back in the Link field."
 NOT_A_LINK = ("That isn't a link. To find things by words, press Search (%s-F); "
               "it takes the words with it." % ("Command" if sys.platform == "darwin" else "Control"))
 # Help, What Is Wavelength? and the README's section of the same name say the same thing.

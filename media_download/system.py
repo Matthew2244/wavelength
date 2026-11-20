@@ -16,6 +16,9 @@ def windows_name(ctrl, label: str) -> None:
     still come from Windows, which is what wx does for anything answered 'not implemented'."""
     if sys.platform != "win32":
         return
+    ctrl._name_words = label
+    if getattr(ctrl, "_check_states", None) is not None:
+        return  # a check list's own accessible object reads _name_words
     try:
         import wx
         if not hasattr(wx, "Accessible"):
@@ -257,6 +260,8 @@ def mac_text_without_wrapper(ctrl) -> None:
 _check_tables: dict = {}   # NSTableView pointer -> (checkbox column, text column)
 _check_classes: set = set()
 _check_imps: list = []     # kept alive, as _menu_imps
+_check_words: dict = {}    # "checked" / "unchecked" -> a retained NSString
+_check_cell_state: dict = {}  # text cell pointer -> its row's state, as last prepared
 
 
 def mac_check_list_reads_once(ctrl) -> None:
@@ -299,6 +304,15 @@ def mac_check_list_reads_once(ctrl) -> None:
             quiet = objc.objc_allocateClassPair(base, b"WavelengthQuietTextCell", 0)
             empty = send(objc.objc_getClass(b"NSString"), "string")
             send(empty, "retain")
+            for word in (b"checked", b"unchecked"):
+                w = send(objc.objc_getClass(b"NSString"), "stringWithUTF8String:", word, argtypes=(ctypes.c_char_p,))
+                send(w, "retain")
+                _check_words[word.decode()] = w
+
+            def value_of(cell):
+                # The row's state, set as AppKit prepared this cell for its row (will_imp below):
+                # VoiceOver reads a row's checkbox by its name alone, so the state is said here.
+                return _check_words.get(_check_cell_state.get(cell, ""), empty)
             VAL = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
             ATTR = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
             sup_attr = ATTR(objc.class_getMethodImplementation(base, sel(b"accessibilityAttributeValue:")))
@@ -309,9 +323,9 @@ def mac_check_list_reads_once(ctrl) -> None:
             def attr_imp(self_, _cmd, name):
                 if name and send(name, "isEqualToString:", ax_value, restype=ctypes.c_bool,
                                  argtypes=(ctypes.c_void_p,)):
-                    return empty
+                    return value_of(self_)
                 return sup_attr(self_, _cmd, name)
-            value = VAL(lambda self_, _cmd: empty)
+            value = VAL(lambda self_, _cmd: value_of(self_))
             attr = ATTR(attr_imp)
             _check_imps.extend([value, attr, sup_attr])
             objc.class_addMethod(quiet, sel(b"accessibilityValue"), ctypes.cast(value, ctypes.c_void_p), b"@@:")
@@ -340,9 +354,18 @@ def mac_check_list_reads_once(ctrl) -> None:
 
             def will_imp(self_, _cmd, tv, c, col, row):
                 pair = _check_tables.get(tv)
-                if not pair or col != pair[0]:
+                if not pair:
                     return
-                text = send(send(tv, "dataSource"), "tableView:objectValueForTableColumn:row:", tv, pair[1], row,
+                ds = send(tv, "dataSource")
+                if col == pair[1]:
+                    on = send(ds, "tableView:objectValueForTableColumn:row:", tv, pair[0], row,
+                              argtypes=(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long))
+                    on = bool(on) and send(on, "intValue", restype=ctypes.c_int) == 1
+                    _check_cell_state[c] = "checked" if on else "unchecked"
+                    return
+                if col != pair[0]:
+                    return
+                text = send(ds, "tableView:objectValueForTableColumn:row:", tv, pair[1], row,
                             argtypes=(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long))
                 if text:
                     send(c, "setAccessibilityLabel:", text, restype=None, argtypes=(ctypes.c_void_p,))
@@ -414,6 +437,65 @@ def _windows_value(ctrl, text: str) -> None:
         ctrl._windows_value = acc  # keep the Python object alive with the control
     except Exception:  # noqa: BLE001
         pass
+
+
+def windows_check_list_states(ctrl) -> None:
+    """Make NVDA, JAWS and Narrator read each wx.CheckListBox row as a checkbox with its state
+    (Matthew, 2026-11-20: the browser list read names only, never checked or unchecked).
+
+    Windows draws the list as a plain list box, so its rows are list items with no check state.
+    Each row now answers as a check box, checked or not; its name, place and the rest stay
+    Windows' own. UI Automation (Narrator) gets a Toggle state from this through its MSAA bridge."""
+    if sys.platform != "win32" or getattr(ctrl, "_check_states", None) is not None:
+        return
+    try:
+        import wx
+        if not hasattr(wx, "Accessible"):
+            return
+
+        class _Checks(wx.Accessible):
+            def GetName(self, child_id):
+                words = getattr(ctrl, "_name_words", "")
+                if child_id == 0 and words:
+                    return (wx.ACC_OK, words)
+                return (wx.ACC_NOT_IMPLEMENTED, "")
+
+            def GetRole(self, child_id):
+                if child_id > 0:
+                    return (wx.ACC_OK, wx.ROLE_SYSTEM_CHECKBUTTON)
+                return (wx.ACC_NOT_IMPLEMENTED, 0)
+
+            def GetState(self, child_id):
+                return (wx.ACC_OK, check_row_state(ctrl, child_id - 1)) if child_id > 0 \
+                    else (wx.ACC_NOT_IMPLEMENTED, 0)
+
+        acc = _Checks(ctrl)
+        ctrl.SetAccessible(acc)
+        ctrl._check_states = acc  # kept alive with the control
+    except Exception:  # noqa: BLE001 - the list still works, it just reads as before
+        pass
+
+
+def check_row_state(ctrl, i: int) -> int:
+    """The accessible state of a check list's row i: focusable and selectable, selected and
+    focused when it is, and checked when it is."""
+    import wx
+    state = wx.ACC_STATE_SYSTEM_FOCUSABLE | wx.ACC_STATE_SYSTEM_SELECTABLE
+    if not 0 <= i < ctrl.GetCount():
+        return state
+    if ctrl.IsSelected(i) if hasattr(ctrl, "IsSelected") else ctrl.GetSelection() == i:
+        state |= wx.ACC_STATE_SYSTEM_SELECTED
+        if wx.Window.FindFocus() is ctrl:
+            state |= wx.ACC_STATE_SYSTEM_FOCUSED
+    if ctrl.IsChecked(i):
+        state |= wx.ACC_STATE_SYSTEM_CHECKED
+    return state
+
+
+def check_list_states(ctrl) -> None:
+    """Every check list reads as checkboxes with their state, by ear, on both systems."""
+    mac_check_list_reads_once(ctrl)
+    windows_check_list_states(ctrl)
 
 
 _vo_seen = [0.0, False]

@@ -23,7 +23,7 @@ import zlib
 import wx
 import wx.adv
 
-from . import APP_NAME, __version__, accounts, describe, dialogs, engine, geometry, menus, sparkle, textsize, update, winsparkle, words
+from . import APP_NAME, __version__, accounts, describe, dialogs, engine, geometry, hints, menus, sparkle, textsize, update, winsparkle, words
 from . import system
 from .system import sound_map, sound_volume
 from .jobs import ACTIVE, Job
@@ -308,6 +308,9 @@ class MainFrame(wx.Frame):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.on_tick, self.timer)
         self.timer.Start(1000)
+        # Each control's tip, said once the focus settles on it (hints.py; Settings, General).
+        self.hints = hints.FocusHints(lambda: bool(self.cfg.get("app_focus_hints", True)), self.say_hint,
+                                      owner=self)
 
         unfinished = self.mgr.restore()
         self.structure_changed = True
@@ -625,6 +628,20 @@ class MainFrame(wx.Frame):
             polite = True  # a description is being read: wait for it rather than cut it off
         announce(text, polite) if polite else announce(text)
 
+    def say_hint(self, text: str):
+        """A control's hint: always polite, never on the status bar (it isn't news)."""
+        announce(text, True)
+
+    def tell_at(self, ctrl, text: str, polite: bool = True):
+        """Move the focus to ctrl, then tell: the move is read first, so it can't cut the line off."""
+        self.SetStatusText(text)
+        dialogs.focus_then_say(ctrl, text, polite, speak=self.tell)
+
+    def tell_after_change(self, ctrl, text: str, polite: bool = True):
+        """Tell, after ctrl (under the focus) has been read again: a list whose selection moved."""
+        self.SetStatusText(text)
+        dialogs.say_after_change(ctrl, text, polite, speak=self.tell)
+
     def tell_in_window(self, text: str, button: str = "Got It", parent=None):
         """A message that comes as a dialog closes: its own small window, so it's heard before the
         screen reader reads the window behind (Matthew, 2026-10-14). `button` answers it."""
@@ -711,8 +728,8 @@ class MainFrame(wx.Frame):
                 self.list.SetSelection(self.rows.index(first.id))
                 self.show_details()
                 self._update_buttons()  # now, not at the next timer tick
-            self.tell("Already in the list: %s." % words.job_name(first) if len(dupes) == 1
-                      else "All %d are already in the list." % len(dupes))
+            self.tell_after_change(self.list, "Already in the list: %s." % words.job_name(first) if len(dupes) == 1
+                                   else "All %d are already in the list." % len(dupes))
             return 0
         urls = added
         if self.next_opts:
@@ -760,8 +777,7 @@ class MainFrame(wx.Frame):
     def on_download(self, _):
         text = self.link.GetValue().strip()
         if not text:
-            self.tell("The Link field is empty. Paste a link first.")
-            self.link.SetFocus()
+            self.tell_at(self.link, words.EMPTY_LINK % "Download")
             return
         urls = words.links_in(text)
         if not urls and words.looks_like_link(text):
@@ -1519,8 +1535,7 @@ class MainFrame(wx.Frame):
             self.tell(words.NOT_A_LINK)
             return
         if not urls:
-            self.tell("Put a link in the Link field to play it.")
-            self.link.SetFocus()
+            self.tell_at(self.link, words.EMPTY_LINK % "Play Link")
             return
         self.play_links([{"url": u} for u in urls])
 
@@ -1845,13 +1860,13 @@ class MainFrame(wx.Frame):
             self.list.SetSelection(min(i, len(self.rows) - 1))
             self.show_details()
         self._update_buttons()  # now, not at the next timer tick
-        self.tell("Removed from the list: %s." % words.job_name(job))
+        self.tell_after_change(self.list, "Removed from the list: %s." % words.job_name(job))
 
     def on_clear(self, _):
         k = self.mgr.clear_finished()
         self.structure_changed = True
         self.refresh()
-        self.tell("Cleared %s." % words.n(k, "finished download") if k else "Nothing finished to clear.")
+        self.tell_after_change(self.list, "Cleared %s." % words.n(k, "finished download") if k else "Nothing finished to clear.")
 
     def on_move(self, delta):
         t = self._typing()
@@ -1872,7 +1887,7 @@ class MainFrame(wx.Frame):
             return
         self.structure_changed = True
         self.refresh()
-        self.tell("Moved %s." % ("up" if delta < 0 else "down"))
+        self.tell_after_change(self.list, "Moved %s." % ("up" if delta < 0 else "down"))
 
     def list_menu(self):
         """The downloads list's right-click menu, for the selected row."""
@@ -1921,7 +1936,7 @@ class MainFrame(wx.Frame):
         self.mgr.add(new)
         self.structure_changed = True
         self.refresh()
-        self.tell("Added %s again, as %s." % (job.title or "it", words.FORMAT_SHORT.get(kind, kind)))
+        self.tell_after_change(self.list, "Added %s again, as %s." % (job.title or "it", words.FORMAT_SHORT.get(kind, kind)))
         self._sound("added")
 
     def open_page(self, url: str):
@@ -2410,6 +2425,7 @@ class MainFrame(wx.Frame):
         geometry.save(self, self.ui, "window")
         self._closing_sound()
         self.timer.Stop()
+        self.hints.stop()
         keep_awake(False)
         self.mgr.shutdown()
         accounts.clear_cookie_files()  # the merged sign-ins only ever live while the app runs

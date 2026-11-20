@@ -22,6 +22,7 @@ def frame(tmp_path_factory):
     app = wx.App(False)
     f = gui.MainFrame()
     f.timer.Stop()
+    f.hints.stop()  # tests drive the focus hints by hand (tick)
     yield f
     f.Destroy()
     app.Destroy()
@@ -762,6 +763,7 @@ def test_a_failed_search_says_why_and_keeps_more_on_offer(frame, monkeypatch):
     from media_download import system
     monkeypatch.setattr(system, "announce", lambda t, *polite: said.append(t))
     monkeypatch.setattr(system, "cue", lambda k: None)
+    monkeypatch.setattr(gui.dialogs, "_later", lambda ms, fn: fn())  # said after the focus lands
     page = gui.dialogs.SearchPage()
     page.error = "The site says too many requests."
     dlg = gui.dialogs.Search(frame, "", "youtube", lambda *a: page)
@@ -1081,8 +1083,10 @@ def test_check_list_rows_read_once(frame):
                  for k in range(send(kids, "count", restype=ctypes.c_ulong))]
         seen.append([(text(ax(c, "AXRole")), text(ax(c, "AXDescription")), text(ax(c, "AXValue"))) for c in cells])
     lst.Destroy()
-    assert seen == [[("AXCheckBox", "1. Blue in Green", "0"), ("AXTextField", None, "")],
-                    [("AXCheckBox", "2. All Blues", "1"), ("AXTextField", None, "")]]
+    # The text beside the checkbox says only the row's state: VoiceOver reads a row's checkbox
+    # by its name alone, so without it "checked" was never heard until a row was toggled.
+    assert seen == [[("AXCheckBox", "1. Blue in Green", "0"), ("AXTextField", None, "unchecked")],
+                    [("AXCheckBox", "2. All Blues", "1"), ("AXTextField", None, "checked")]]
 
 
 def _press(code=0, uni=0, shift=False, alt=False, cmd=False, ctrl=False):
@@ -1664,3 +1668,187 @@ def test_sign_in_window_keeps_httponly_cookies(frame, monkeypatch):
             w.Destroy()
         srv.shutdown()
         gui.accounts.forget_own()
+
+
+# ---------------------------------------------------------------- focus first, then speech
+
+def _track_focus(monkeypatch, start=None):
+    """Focus and delayed speech, recorded in order. Nothing is shown or focused for real: a test
+    that focuses a window takes the keyboard (and VoiceOver) from whoever is using the Mac."""
+    events, focused, pending = [], [start], []
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: focused[0]))
+
+    def set_focus(self):
+        focused[0] = self
+        events.append(("focus", self))
+    monkeypatch.setattr(wx.Window, "SetFocus", set_focus)
+
+    def later(ms, fn):
+        events.append(("later", ms))
+        pending.append(fn)
+    monkeypatch.setattr(gui.dialogs, "_later", later)
+    monkeypatch.setattr(gui, "announce", lambda t, *polite: events.append(("said", t, bool(polite and polite[0]))))
+    monkeypatch.setattr(gui.dialogs, "say", lambda t, polite=False: events.append(("said", t, polite)))
+
+    def run_pending():
+        while pending:
+            pending.pop(0)()
+    return events, run_pending
+
+
+@pytest.mark.parametrize("handler,button", [("on_download", "Download"), ("on_play_link", "Play Link")])
+def test_empty_link_moves_focus_then_speaks(frame, monkeypatch, handler, button):
+    """Matthew, 2026-11-20: the empty-Link message was cut off by the focus landing in the field.
+    The focus goes first; the message follows, politely, and says where you are."""
+    events, run_pending = _track_focus(monkeypatch, start=frame.download_btn)
+    frame.link.SetValue("")
+    getattr(frame, handler)(None) if handler == "on_download" else frame.on_play_link()
+    assert events[0] == ("focus", frame.link)
+    assert events[1][0] == "later" and events[1][1] >= 300
+    assert not any(e[0] == "said" for e in events)  # nothing said alongside the move
+    run_pending()
+    text = "The Link field is empty. Paste a link, then press %s again. You're back in the Link field." % button
+    assert events[-1] == ("said", text, True)
+    assert frame.GetStatusBar().GetStatusText() == text
+
+
+def test_empty_link_already_in_the_field_speaks_at_once(frame, monkeypatch):
+    """Return pressed in the Link field: the focus doesn't move, so nothing would be read over it."""
+    events, _ = _track_focus(monkeypatch, start=frame.link)
+    frame.link.SetValue("")
+    frame.on_download(None)
+    assert [e[0] for e in events] == ["said"]
+
+
+def test_a_list_change_under_the_focus_waits_for_the_row(frame, monkeypatch):
+    """Removing a row moves the list's selection, which the screen reader reads: say it after."""
+    events, run_pending = _track_focus(monkeypatch, start=frame.list)
+    frame.tell_after_change(frame.list, "Removed from the list: Song.")
+    assert events[0][0] == "later"
+    run_pending()
+    assert events[-1] == ("said", "Removed from the list: Song.", True)
+    events.clear()
+    _track_focus(monkeypatch, start=frame.link)  # the list isn't focused: nothing reads it, say it now
+    frame.tell_after_change(frame.list, "Removed from the list: Song.")
+
+
+def test_an_urgent_line_stays_urgent_after_the_focus(frame, monkeypatch):
+    events, run_pending = _track_focus(monkeypatch, start=frame.download_btn)
+    frame.tell_at(frame.link, "The search didn't work.", polite=False)
+    run_pending()
+    assert events[0] == ("focus", frame.link)
+    assert events[-1] == ("said", "The search didn't work.", False)
+
+
+# ---------------------------------------------------------------- focus hints
+
+from media_download import hints  # noqa: E402
+
+
+def test_hint_words():
+    play = "Play the link in the Link field without downloading it. Several links play one after another (Command-Shift-Return)."
+    assert hints.hint_for(play, mac=True) == "Command-Shift-Return."
+    assert hints.hint_for(play, mac=False) == ("Play the link in the Link field without downloading it. "
+                                               "Command-Shift-Return.")
+    link = "Paste a link and press Return to download it. To find things by words, use Search (Command-F)."
+    assert hints.keys_in(link) == []  # Search's key, not the Link field's
+    assert hints.hint_for(link, mac=True) == ""
+    assert hints.keys_in("Closes Search without downloading (Escape, or Command-W).") == ["Escape", "Command-W"]
+    assert hints.keys_in("Stop this download (Command-period). Retry carries on.") == ["Command-period"]
+
+
+class _Later:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, ms, fn):
+        timer = type("T", (), {"stopped": False, "Stop": lambda self: setattr(self, "stopped", True)})()
+        self.calls.append((ms, fn, timer))
+        return timer
+
+
+def _hints(frame, enabled=True):
+    said, later = [], _Later()
+    on = [enabled]
+    fh = hints.FocusHints(lambda: on[0], said.append, later=later)
+    return fh, said, later, on
+
+
+def test_hint_said_after_the_focus_settles(frame):
+    fh, said, later, _ = _hints(frame)
+    fh.tick(frame.play_link_btn)
+    assert said == []  # never with the focus: the control's own name comes first
+    ms, fire, _t = later.calls[0]
+    assert ms >= 500
+    fire()
+    assert said == [hints.hint_for(frame.play_link_btn.GetToolTipText())]
+    assert said[0]
+
+
+def test_hint_dropped_when_the_focus_moves_on(frame):
+    fh, said, later, _ = _hints(frame)
+    fh.tick(frame.play_link_btn)
+    fh.tick(frame.download_btn)
+    first = later.calls[0]
+    assert first[2].stopped
+    first[1]()  # even if it fired anyway, it's about the wrong control now
+    assert said == []
+
+
+def test_hint_not_repeated_on_a_quick_return(frame):
+    fh, said, later, _ = _hints(frame)
+    fh.tick(frame.stop_btn)
+    later.calls[-1][1]()
+    fh.tick(frame.list)
+    before = len(later.calls)
+    fh.tick(frame.stop_btn)
+    assert len(later.calls) == before  # back within REPEAT_S: not scheduled again
+    assert len(said) == 1
+
+
+def test_hint_setting_off_says_nothing(frame):
+    fh, said, later, on = _hints(frame, enabled=False)
+    fh.tick(frame.stop_btn)
+    assert later.calls == []
+    on[0] = True
+    fh.tick(frame.play_link_btn)
+    on[0] = False
+    later.calls[-1][1]()  # turned off before it fired
+    assert said == []
+
+
+def test_focus_then_say_keeps_the_hint_quiet(frame, monkeypatch):
+    """The empty-Link message already says where you are; the field's tip would crowd it."""
+    _track_focus(monkeypatch, start=frame.download_btn)
+    fh, said, later, _ = _hints(frame)
+    frame.tell_at(frame.link, "The Link field is empty.")
+    fh.tick(frame.link)
+    assert later.calls == []
+
+
+def test_hint_setting_in_general_and_saved(frame):
+    dlg = gui.dialogs.Settings(frame, dict(frame.cfg, app_focus_hints=True), section="general")
+    assert dlg.hints.GetLabel() == "Read hints when a control gets focus"
+    assert dlg.hints.GetValue() is True
+    dlg.hints.SetValue(False)
+    dlg.EndModal = lambda code: None
+    dlg.on_ok(None)
+    assert dlg.cfg["app_focus_hints"] is False
+    dlg.Destroy()
+
+
+def test_check_row_state_reads_checked(frame):
+    """Windows: each check-list row answers as a checkbox with its state (system.check_row_state)."""
+    from media_download.system import check_row_state
+    lst = wx.CheckListBox(frame, choices=["Safari", "Chrome"])
+    lst.Check(1)
+    lst.SetSelection(0)
+    assert not check_row_state(lst, 0) & wx.ACC_STATE_SYSTEM_CHECKED
+    assert check_row_state(lst, 0) & wx.ACC_STATE_SYSTEM_SELECTED
+    assert check_row_state(lst, 1) & wx.ACC_STATE_SYSTEM_CHECKED
+    lst.Destroy()
+
+
+def test_check_lists_read_their_state_in_the_self_test(frame):
+    from media_download import selftest
+    assert selftest.check_list_reads_states() is None
