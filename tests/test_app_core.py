@@ -1120,7 +1120,8 @@ def test_windows_setup_runs_quietly_after_quit_and_reopens_only_when_asked(tmp_p
     work.mkdir()
     out = tmp_path / "args.txt"
     setup = work / "Wavelength-Setup.bat"
-    setup.write_text('@echo %%*> "%s"\r\n' % out, encoding="ascii")
+    # The redirect goes first: "echo ... /relaunch=1> file" would read the 1 as a handle number.
+    setup.write_text('@>"%s" echo %%*\r\n' % out, encoding="ascii")
     gone = subprocess.Popen([sys.executable, "-c", "pass"])
     gone.wait()
     (work / "relaunch").write_text("")

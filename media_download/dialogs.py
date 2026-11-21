@@ -871,6 +871,10 @@ class Settings(wx.Dialog):
                            ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"],
                            pick(self.skip_vals, int(cfg.get("app_skip", 10) or 10), 1),
                            "What Left and Right Arrow do in the player. Shift with them skips a minute.")
+        self.up_next_clip = check(p, s, "While something is playing, add copied links to Up Next",
+                                  cfg.get("app_clip_up_next", False),
+                                  "A link you copy while the player is playing goes to the end of Up Next, to play "
+                                  "later, instead of downloading. Each link once; a playlist asks first.")
         self.hide_for_player = check(p, s, "Hide other Wavelength windows while the player is open",
                                      cfg.get("app_hide_for_player", False),
                                      "While the player is open it's the only Wavelength window, so there's one place "
@@ -1094,6 +1098,7 @@ class Settings(wx.Dialog):
             "app_speak_messages": self.speak_msgs.GetValue(),
             "app_auto_install": self.auto_install.GetValue(),
             "app_hide_for_player": self.hide_for_player.GetValue(),
+            "app_clip_up_next": self.up_next_clip.GetValue(),
             "app_start_in_tray": self.tray.GetValue(), "app_clipboard_auto": self.clip_auto.GetValue(),
             "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
@@ -2295,6 +2300,47 @@ class Guide(wx.Dialog):
         engine.save_settings(self.cfg)
         cue("tour_done")
         self.EndModal(wx.ID_OK)
+
+
+class PlayerDownload(wx.Dialog):
+    """Download from the player (Matthew, 2026-11-20): this one, or everything in Up Next, and as
+    what. `choice` is "this" or "all", `kind` a FORMAT_LABELS key."""
+
+    def __init__(self, parent, title: str, others: int, kind: str):
+        super().__init__(parent, title="Download from the Player", style=wx.DEFAULT_DIALOG_STYLE)
+        s = wx.BoxSizer(wx.VERTICAL)
+        self.this = wx.RadioButton(parent=self, label="Download this one: %s" % (title or "what's playing"),
+                                   style=wx.RB_GROUP)
+        self.this.SetToolTip("Downloads what's playing now.")
+        self.this.SetValue(True)
+        s.Add(self.this, 0, wx.ALL, 8)
+        self.all = None
+        if others:
+            self.all = wx.RadioButton(self, label="Download everything in Up Next (%s)" % words.n(others, "item"))
+            self.all.SetToolTip("Downloads every item in the player's Up Next list that isn't a file already.")
+            s.Add(self.all, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        keys = [k for k, _ in words.FORMAT_LABELS]
+        self.keys = keys
+        lab = wx.StaticText(self, label="Save as:")
+        self.format = wx.Choice(self, choices=[w for _, w in words.FORMAT_LABELS])
+        self.format.SetSelection(keys.index(kind) if kind in keys else 0)
+        labelled(self, s, "Save as:", self.format, lab, "What the downloads are saved as. It starts on the "
+                 "main window's Format.", stacked=True)
+        fit_choices(self)
+        row, ok, cancel = buttons(self, "Download")
+        s.Add(row, 0, wx.EXPAND | wx.ALL, 4)
+        self.SetSizerAndFit(s)
+        textsize.apply(self)
+        self.CentreOnParent()
+        self.this.SetFocus()
+
+    @property
+    def choice(self) -> str:
+        return "all" if self.all is not None and self.all.GetValue() else "this"
+
+    @property
+    def kind(self) -> str:
+        return self.keys[self.format.GetSelection()]
 
 
 class UpdateOffer(wx.Dialog):

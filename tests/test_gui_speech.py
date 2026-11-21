@@ -2086,3 +2086,75 @@ def test_new_settings_are_saved(frame):
     assert all(dlg.cfg[k] is True for k in ("app_auto_install", "app_start_in_tray", "app_clipboard_auto",
                                             "app_hide_for_player"))
     dlg.Destroy()
+
+
+def test_player_download_offers_this_one_or_up_next_and_a_format(frame, monkeypatch):
+    dlg = gui.dialogs.PlayerDownload(frame, "Song", 4, "mp3")
+    assert dlg.this.GetValue() and dlg.choice == "this" and dlg.kind == "mp3"
+    assert dlg.all.GetLabel() == "Download everything in Up Next (4 items)"
+    dlg.all.SetValue(True)
+    dlg.format.SetSelection([k for k, _ in gui.words.FORMAT_LABELS].index("flac"))
+    assert dlg.choice == "all" and dlg.kind == "flac"
+    dlg.Destroy()
+    alone = gui.dialogs.PlayerDownload(frame, "Song", 0, "best")
+    assert alone.all is None and alone.choice == "this"
+    alone.Destroy()
+
+
+def test_downloading_up_next_says_how_many_and_as_what(frame, monkeypatch):
+    from media_download.player import PlayerFrame
+    said, added = [], []
+    p = type("P", (), {})()
+    p.main = frame
+    p.say = said.append
+    p._download = lambda it: added.append(("track", it["url"]))
+    monkeypatch.setattr(frame, "add_links", lambda urls, source="", say=True, kind=None, **k: added.append((tuple(urls), kind)))
+    items = [{"url": "https://x.com/%d" % i} for i in range(5)]
+    PlayerFrame.download_items(p, items, "mp3", everything=True)
+    assert added == [(tuple(it["url"] for it in items), "mp3")]
+    assert said == ["Downloading 5 from Up Next as MP3."]
+    said.clear()
+    PlayerFrame.download_items(p, items[:1], "flac")
+    assert said == ["Downloading this one as FLAC."]
+
+
+def test_a_copied_link_goes_to_up_next_while_playing_not_downloaded(frame, monkeypatch):
+    serial = [1]
+    monkeypatch.setattr(gui.system, "clipboard_serial", lambda: serial[0])
+    monkeypatch.setattr(frame, "_clipboard_text", lambda: "https://www.youtube.com/watch?v=next1")
+    monkeypatch.setattr(frame, "_playing_now", lambda: True)
+    targets = []
+
+    class T:
+        def __init__(self, target, daemon):
+            self.target = target
+
+        def start(self):
+            targets.append(self.target)
+    monkeypatch.setattr(gui.threading, "Thread", T)
+    calls = []
+    monkeypatch.setattr(gui, "run_task", lambda task, on, timeout=0: on({"ev": "recognised", "name": "youtube"}))
+    monkeypatch.setattr(gui.wx, "CallAfter", lambda fn, *a: calls.append((fn.__name__, a)))
+    frame.cfg.update(app_clip_up_next=True, app_clipboard_auto=True)  # both on: playing wins
+    try:
+        frame.clip_serial = None
+        frame._tick_clipboard_auto()
+        serial[0] = 2
+        frame._tick_clipboard_auto()
+        targets[0]()
+        assert calls == [("_clipboard_up_next", ("https://www.youtube.com/watch?v=next1",))]
+    finally:
+        frame.cfg.update(app_clip_up_next=False, app_clipboard_auto=False)
+
+
+def test_up_next_takes_each_link_once(frame):
+    from media_download.player import PlayerFrame
+    p = type("P", (), {})()
+    p.queue = [{"url": "https://x.com/a"}]
+    p.main = frame
+    p.qlist = type("L", (), {"GetSelection": lambda s: 0, "SetSelection": lambda s, i: None})()
+    p._fill_queue = lambda: None
+    p._update_buttons = lambda: None
+    assert PlayerFrame.add_up_next(p, {"url": "https://x.com/b"}) is True
+    assert PlayerFrame.add_up_next(p, {"url": "https://x.com/b"}) is False
+    assert [it["url"] for it in p.queue] == ["https://x.com/a", "https://x.com/b"]

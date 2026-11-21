@@ -1096,13 +1096,51 @@ class PlayerFrame(wx.Frame):
         self.say("Removed %s from the queue." % (gone.get("title") or "it"))
 
     def download_this(self):
+        """Download This: this one, or everything in Up Next, and as what (dialogs.PlayerDownload)."""
         if not self.item:
             return
         url = self.item.get("url")
         if not url or self.item.get("path"):
             self.say("This is already a downloaded file.")
             return
-        self._download(self.item)
+        others = [it for i, it in enumerate(self.queue) if i != self.index and it.get("url") and not it.get("path")]
+        from . import dialogs
+        dlg = dialogs.PlayerDownload(self, self.item.get("title") or "", len(others), self.main._picks()[0])
+        go = dlg.ShowModal() == wx.ID_OK
+        choice, kind = dlg.choice, dlg.kind
+        dlg.Destroy()
+        if not go:
+            return
+        self.download_items([self.item] if choice == "this" else [self.item] + others, kind,
+                            everything=choice == "all")
+
+    def download_items(self, items, kind, everything=False):
+        """Download these player items as `kind`, said as one sentence."""
+        links = [it.get("url") for it in items if it.get("url") and not it.get("format")]
+        for it in items:
+            if it.get("format"):  # a described track keeps its track
+                self._download(it)
+        if links:
+            self.main.add_links(links, "player", say=False, kind=kind)
+        what = words.FORMAT_SHORT.get(kind, kind)
+        if everything:
+            self.say("Downloading %d from Up Next as %s." % (len(items), what))
+        else:
+            self.say("Downloading this one as %s." % what)
+
+    def add_up_next(self, entry: dict) -> bool:
+        """A copied link, to the end of Up Next (Settings, Player). False if it's there already."""
+        url = entry.get("url")
+        if not url or any(it.get("url") == url for it in self.queue):
+            return False
+        self.queue.append({"url": url, "title": entry.get("title") or "", "uploader": "",
+                           "want": self.main._want(), "cookies": entry.get("cookies", "")})
+        keep = self.qlist.GetSelection()
+        self._fill_queue()
+        if keep != wx.NOT_FOUND:
+            self.qlist.SetSelection(keep)
+        self._update_buttons()
+        return True
 
     def _download(self, it):
         """A described track keeps its track: plain add_links would fetch the version without it."""
@@ -1219,6 +1257,21 @@ class PlayerFrame(wx.Frame):
     def say(self, text: str):
         self.status(text)
         announce(text)
+
+    def say_polite(self, text: str):
+        """News that can wait for what's being read (or what's playing's description)."""
+        self.status(text)
+        announce(text, True)
+
+    def retitle(self, url: str, title: str):
+        """Name a queued item once its title is known (a link copied to Up Next)."""
+        for it in self.queue:
+            if it.get("url") == url and not it.get("title"):
+                it["title"] = title
+        keep = self.qlist.GetSelection()
+        self._fill_queue()
+        if keep != wx.NOT_FOUND:
+            self.qlist.SetSelection(keep)
 
     def status(self, text: str):
         self.SetStatusText(text)

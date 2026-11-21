@@ -734,7 +734,8 @@ class MainFrame(wx.Frame):
         self.tell_in_window("Nothing added: the download folder isn't available.", "Okay")
         return False
 
-    def add_links(self, urls: list[str], source: str = "", whole_list: bool = False, say: bool = True) -> int:
+    def add_links(self, urls: list[str], source: str = "", whole_list: bool = False, say: bool = True,
+                  kind: str | None = None) -> int:
         if not urls:
             return 0
         self.seen_links.update(urls)  # never offered back from the clipboard once it's been added
@@ -748,8 +749,9 @@ class MainFrame(wx.Frame):
             pending = {(j.url, j.spec().get("kind"), j.start, j.end, j.format_id): j
                        for j in self.mgr.jobs if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
         added, dupes, new_ids = [], [], []
+        picks = (kind, self._picks()[1]) if kind else None  # the player's Save as, over the main window's
         for u in urls:
-            job = self._job_from_ui(u)
+            job = self._job_from_ui(u, picks=picks)
             key = (job.url, job.kind, job.start, job.end, job.format_id)
             if key in pending:
                 dupes.append(pending[key])
@@ -2171,8 +2173,13 @@ class MainFrame(wx.Frame):
     # ---- Settings, General: download supported links from the clipboard automatically
     UNDO_FOR = 15  # seconds Undo Clipboard Download can take one back
 
+    def _playing_now(self) -> bool:
+        return bool(self.player is not None and self.player.IsShown() and getattr(self.player, "loaded", False)
+                    and self.player.playing())
+
     def _tick_clipboard_auto(self):
-        if not self.cfg.get("app_clipboard_auto"):
+        up_next = self.cfg.get("app_clip_up_next") and self._playing_now()
+        if not self.cfg.get("app_clipboard_auto") and not up_next:
             self.clip_serial = None
             return
         serial = system.clipboard_serial()
@@ -2195,6 +2202,8 @@ class MainFrame(wx.Frame):
                 return
         if words.list_kind(url):
             return  # a whole list is never started by a copy: it's offered in the Link field as usual
+        # Both settings on and something playing: playing wins, Up Next only, never downloaded too.
+        then = self._clipboard_up_next if up_next else self._clipboard_auto_add
 
         def work():
             names = []
@@ -2202,8 +2211,35 @@ class MainFrame(wx.Frame):
                      lambda ev: names.append(ev.get("name")) if ev.get("ev") == "recognised" else None,
                      timeout=30)
             if names:
-                wx.CallAfter(self._clipboard_auto_add, url)
+                wx.CallAfter(then, url)
         threading.Thread(target=work, daemon=True).start()
+
+    def _clipboard_up_next(self, url):
+        """Settings, Player: a link copied while playing goes to the end of Up Next."""
+        if not self or self.player is None:
+            return
+        self.seen_links.add(url)
+        if not self.player.add_up_next({"url": url}):
+            return
+        job = self._job_from_ui(url)
+
+        def look():  # the title, so it's said and listed by name; the site's name if it can't be had
+            title = []
+            try:
+                run_task({"task": "probe", "spec": job.spec()},
+                         lambda ev: title.append(ev.get("title")) if ev.get("ev") == "info" and ev.get("title") else None,
+                         timeout=60)
+            except Exception:  # noqa: BLE001
+                pass
+            wx.CallAfter(self._said_up_next, url, title[0] if title else "")
+        threading.Thread(target=look, daemon=True).start()
+
+    def _said_up_next(self, url, title):
+        if not self or self.player is None:
+            return
+        if title:
+            self.player.retitle(url, title)
+        self.player.say_polite("Added to Up Next: %s." % (title or words.site_name(url) or words.short_link(url)))
 
     def _clipboard_auto_add(self, url):
         if not self:
