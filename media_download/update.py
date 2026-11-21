@@ -370,9 +370,10 @@ def windows_setup_run(work: str, pid: int, setup: str) -> tuple[str, str]:
             "@echo off\r\n"
             ":wait\r\n"
             f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
-            'set R=0\r\n'
-            'if exist "%~2\\relaunch" set R=1\r\n'
-            '"%~1" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=%R%\r\n'
+            # Two whole lines rather than a variable: simplest for cmd, and `call` waits for the
+            # installer (and works for a script standing in for it in the tests).
+            'if exist "%~2\\relaunch" call "%~1" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=1\r\n'
+            'if not exist "%~2\\relaunch" call "%~1" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=0\r\n'
             'cd /d "%TEMP%"\r\n'
             'rmdir /s /q "%~2"\r\n'
         )
