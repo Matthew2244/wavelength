@@ -1242,6 +1242,9 @@ class PlayerFrame(wx.Frame):
         self.Hide()
         if event.CanVeto():
             event.Veto()
+        restore = getattr(self.main, "player_closed", None)
+        if restore:
+            restore()  # windows hidden while it played (Settings, Playing) come back first
         # Back to Search if it's open (a preview started there), else the downloads window.
         back = getattr(self, "came_from", None)
         if back:  # back to the control it was opened from, in whichever window that was

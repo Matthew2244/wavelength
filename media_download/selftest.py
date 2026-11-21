@@ -101,6 +101,29 @@ def _msaa_rows(hwnd, count):
     return out
 
 
+def update_signature_check() -> str | None:
+    """Updates are installed only with a good EdDSA signature: the check must work inside the
+    app, and must refuse a file that was changed. A throwaway key, signed here."""
+    import base64
+    from Cryptodome.PublicKey import ECC
+    from Cryptodome.Signature import eddsa
+    from . import update
+    key = ECC.generate(curve="Ed25519")
+    pub = base64.b64encode(key.public_key().export_key(format="raw")).decode()
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "blob")
+        with open(path, "wb") as f:
+            f.write(b"wavelength update")
+        sig = base64.b64encode(eddsa.new(key, "rfc8032").sign(b"wavelength update")).decode()
+        if not update.signature_ok(path, sig, pub):
+            return "a good signature was refused"
+        with open(path, "ab") as f:
+            f.write(b"!")
+        if update.signature_ok(path, sig, pub):
+            return "a changed file was accepted"
+    return None
+
+
 def run() -> int:
     from . import APP_NAME, __version__
     with tempfile.TemporaryDirectory() as d:
@@ -153,6 +176,12 @@ def run() -> int:
                 md.version("yt-dlp")  # without it the app can't tell which engine it ships
             except Exception as exc:  # noqa: BLE001
                 problems.append("engine metadata: %s" % exc)
+        try:
+            said = update_signature_check()
+            if said:
+                problems.append("update signatures: %s" % said)
+        except Exception as exc:  # noqa: BLE001
+            problems.append("update signatures: %s" % exc)
         try:
             import yt_dlp_ejs  # noqa: F401  the YouTube challenge solver must be inside
         except Exception as exc:  # noqa: BLE001

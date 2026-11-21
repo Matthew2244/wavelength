@@ -761,6 +761,23 @@ class Settings(wx.Dialog):
                                 "A message with only one button, like Got It, is said instead of opening a window, "
                                 "and you stay where you were. Anything that asks you to choose still opens. View, "
                                 "Recent Messages (%s-Shift-J) lists what was said." % CMD)
+        self.auto_install = check(p, s, "Always update when a new version of Wavelength comes out",
+                                  cfg.get("app_auto_install", False),
+                                  "Downloads each new version in the background and checks it, then says it's about "
+                                  "to be installed and does it at a quiet moment: never while something downloads "
+                                  "or plays, and Wavelength opens again by itself. Off: you're told, and Help, Check "
+                                  "for App Updates shows what's new first.")
+        self.tray = check(p, s, "Start in the %s" % ("menu bar" if sys.platform == "darwin" else "notification area"),
+                          cfg.get("app_start_in_tray", False),
+                          "Wavelength opens as an icon in the %s instead of a window. Its menu has Show "
+                          "Wavelength, Download from the Clipboard and Quit Wavelength."
+                          % ("menu bar (VoiceOver: VO-M twice)" if sys.platform == "darwin"
+                             else "notification area (Windows-B, then arrow to it)"))
+        self.clip_auto = check(p, s, "Download supported links from the clipboard automatically",
+                               cfg.get("app_clipboard_auto", False),
+                               "Any link you copy that Wavelength can download starts downloading straight away, "
+                               "the way you've set things up, and it's said. Each link once. Playlists still ask. "
+                               "Undo Clipboard Download (%s-Shift-U, soon after) takes it back." % CMD)
         self.say_vals = [0, 10, 30, 60]
         self.say = choice(p, s, "Speak progress while downloading:",
                           ["Never", "Every 10 seconds", "Every 30 seconds", "Every minute"],
@@ -854,6 +871,10 @@ class Settings(wx.Dialog):
                            ["5 seconds", "10 seconds", "15 seconds", "30 seconds", "1 minute"],
                            pick(self.skip_vals, int(cfg.get("app_skip", 10) or 10), 1),
                            "What Left and Right Arrow do in the player. Shift with them skips a minute.")
+        self.hide_for_player = check(p, s, "Hide other Wavelength windows while the player is open",
+                                     cfg.get("app_hide_for_player", False),
+                                     "While the player is open it's the only Wavelength window, so there's one place "
+                                     "to be. Closing the player brings the others back.")
         self.play_next = check(p, s, "Play the next item when one finishes", cfg.get("app_play_next", True),
                                "With several things in the player's queue, carry on to the next by itself. "
                                "Unchecked, the player stops at the end of each.")
@@ -1071,6 +1092,9 @@ class Settings(wx.Dialog):
             "app_greeting": self.greet.GetValue(),
             "app_focus_hints": self.hints.GetValue(),
             "app_speak_messages": self.speak_msgs.GetValue(),
+            "app_auto_install": self.auto_install.GetValue(),
+            "app_hide_for_player": self.hide_for_player.GetValue(),
+            "app_start_in_tray": self.tray.GetValue(), "app_clipboard_auto": self.clip_auto.GetValue(),
             "app_keep_awake": self.awake.GetValue(),
             "app_skip": self.skip_vals[self.skip.GetSelection()], "app_play_next": self.play_next.GetValue(),
             "app_resume": self.resume.GetValue(), "app_captions": self.captions.GetValue(),
@@ -2271,6 +2295,59 @@ class Guide(wx.Dialog):
         engine.save_settings(self.cfg)
         cue("tour_done")
         self.EndModal(wx.ID_OK)
+
+
+class UpdateOffer(wx.Dialog):
+    """A new Wavelength, offered with what's new as a list, one change per row (Matthew,
+    2026-11-20), the same kind of list as Settings' sections: arrow through, then Install Now,
+    Later or Skip This Version. `choice` is "install", "later" or "skip"."""
+
+    def __init__(self, parent, version: str, have: str, rows: list[str], busy: bool = False):
+        super().__init__(parent, title="Wavelength %s is out" % version, size=(680, 460),
+                         style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.choice = "later"
+        s = wx.BoxSizer(wx.VERTICAL)
+        self.intro = ("Wavelength %s is out. You have %s. What's new is listed one change per line; arrow "
+                      "through it, then choose Install Now, Later or Skip This Version." % (version, have))
+        if busy:
+            self.intro += " Downloads in progress stop and can be resumed after."
+        s.Add(WrapText(self, label=self.intro), 0, wx.ALL, 8)
+        rows = rows or ["No notes came with this version."]
+        lab = wx.StaticText(self, label="What's new in %s:" % version)
+        s.Add(lab, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+        self.list = wx.ListBox(self, choices=rows, style=wx.LB_SINGLE)
+        mac_accessibility_label(self.list, "What's new in %s" % version)
+        windows_name(self.list, "What's new in %s" % version)
+        self.list.SetSelection(0)
+        s.Add(self.list, 1, wx.EXPAND | wx.ALL, 8)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        self.skip = wx.Button(self, label="Skip This Version")
+        self.skip.SetToolTip("Don't offer %s again. Help, Check for App Updates still finds it." % version)
+        self.later = wx.Button(self, wx.ID_CANCEL, "Later")
+        self.later.SetToolTip("Closes this (Escape). It's offered again next time, and Help, Check for App "
+                              "Updates has it any time.")
+        self.install = wx.Button(self, wx.ID_OK, "Install Now")
+        self.install.SetToolTip("Downloads %s, checks it, then closes Wavelength and opens the new version."
+                                % version)
+        row.Add(self.skip, 0, wx.ALL, 6)
+        row.AddStretchSpacer()
+        row.Add(self.later, 0, wx.ALL, 6)
+        row.Add(self.install, 0, wx.ALL, 6)
+        s.Add(row, 0, wx.EXPAND)
+        self.SetSizer(s)
+        self.SetEscapeId(wx.ID_CANCEL)
+        self.install.SetDefault()
+        self.install.Bind(wx.EVT_BUTTON, lambda e: self._done("install", wx.ID_OK))
+        self.skip.Bind(wx.EVT_BUTTON, lambda e: self._done("skip", wx.ID_CANCEL))
+        textsize.apply(self)
+        self.CentreOnParent()
+        self.list.SetFocus()
+        if sys.platform == "darwin":  # VoiceOver doesn't read a dialog's text on its own; NVDA does
+            focus_then_say(self.list, self.intro, changed=True)
+
+    def _done(self, choice, code):
+        self.choice = choice
+        self.EndModal(code)
 
 
 class CheckList(wx.Dialog):

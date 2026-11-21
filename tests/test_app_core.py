@@ -7,7 +7,8 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-os.environ.setdefault("MEDIA_DOWNLOAD_TEST_DIR", os.path.join(ROOT, ".test-state"))
+# A fresh folder each run: settings a test saves must never carry into the next run.
+os.environ.setdefault("MEDIA_DOWNLOAD_TEST_DIR", __import__("tempfile").mkdtemp(prefix="wavelength-test-"))
 
 from media_download import manager, options, words  # noqa: E402
 from media_download.jobs import Job  # noqa: E402
@@ -128,6 +129,14 @@ def test_wav_gets_no_cover_art():
 
 
 # ---------------------------------------------------------------- the scheduler
+
+@pytest.fixture(autouse=True)
+def _own_history(monkeypatch, tmp_path):
+    """Each test keeps its own record of what's been downloaded (history.py): a download in one
+    test must never read as "already in your folder" in the next."""
+    from media_download import history
+    monkeypatch.setattr(history, "PATH", str(tmp_path / "downloaded.json"))
+
 
 @pytest.fixture
 def fake(monkeypatch, tmp_path):
@@ -1011,7 +1020,7 @@ class _FakeConfig:
 
 def _update_frame(modal=False):
     import types
-    f = types.SimpleNamespace(update_info=None, notices=[], ui=_FakeConfig(), said=[], sounds=[])
+    f = types.SimpleNamespace(update_info=None, notices=[], ui=_FakeConfig(), said=[], sounds=[], cfg={})
     f._update_title = lambda: None
     f._modal_open = lambda: modal
     f._sound = f.sounds.append
@@ -1029,6 +1038,96 @@ def test_a_new_version_is_told_once_with_the_update_sound(monkeypatch):
     assert len(f.notices) == 1 and f.update_info["version"] == "9.9.9"
     gui.MainFrame._deliver_notice(f)
     assert f.sounds == ["update"] and "9.9.9 is out" in f.said[0]
+
+
+def test_a_skipped_version_is_not_told(monkeypatch):
+    pytest.importorskip("wx")
+    from media_download import gui
+    f = _update_frame()
+    f.ui.Write("skipped_version", "9.9.9")
+    gui.MainFrame._found_update(f, {"version": "9.9.9"})
+    assert f.notices == []
+    gui.MainFrame._found_update(f, {"version": "9.9.10"})  # a later one is told again
+    assert len(f.notices) == 1
+
+
+def test_always_update_fetches_quietly_instead_of_telling(monkeypatch):
+    pytest.importorskip("wx")
+    from media_download import gui, update
+    f = _update_frame()
+    f.cfg["app_auto_install"] = True
+    staged = []
+    f._stage_update = staged.append
+    monkeypatch.setattr(update, "installed_app", lambda: "/Applications/Wavelength.app")
+    monkeypatch.setattr(update, "staged", lambda: False)
+    gui.MainFrame._found_update(f, {"version": "9.9.9"})
+    assert staged == [{"version": "9.9.9"}] and f.notices == []
+
+
+def test_release_notes_become_one_row_per_change():
+    from media_download import update
+    md = ("The tour ends with a **celesta** flourish.\n\n- **Messages don't get cut off.** Said after the focus.\n"
+          "- An empty Link field\n  says what to do.\n- See `Settings`, [General](https://x.y).")
+    assert update.notes_rows(md) == [
+        "The tour ends with a celesta flourish.", "Messages don't get cut off. Said after the focus.",
+        "An empty Link field says what to do.", "See Settings, General."]
+    assert update.notes_rows("") == []
+
+
+def test_an_update_signature_must_match(tmp_path):
+    import base64
+    pytest.importorskip("Cryptodome")
+    from Cryptodome.PublicKey import ECC
+    from Cryptodome.Signature import eddsa
+    from media_download import update
+    key = ECC.generate(curve="Ed25519")
+    pub = base64.b64encode(key.public_key().export_key(format="raw")).decode()
+    f = tmp_path / "Wavelength-mac.zip"
+    f.write_bytes(b"new version")
+    sig = base64.b64encode(eddsa.new(key, "rfc8032").sign(b"new version")).decode()
+    assert update.signature_ok(str(f), sig, pub)
+    f.write_bytes(b"new version, changed")
+    assert not update.signature_ok(str(f), sig, pub)
+    assert not update.signature_ok(str(f), sig)  # someone else's key
+
+
+def test_the_appcast_entry_is_read_and_must_be_this_version(monkeypatch):
+    import io
+    from media_download import update
+    xml = ('<rss><channel><item><sparkle:shortVersionString>9.9.9</sparkle:shortVersionString>'
+           '<enclosure url="https://example.com/a.zip?x=1&amp;y=2" sparkle:edSignature="SIG==" length="5" '
+           'type="application/octet-stream"/></item></channel></rss>')
+
+    class R(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(update, "_get", lambda url, timeout=15: R(xml.encode()))
+    monkeypatch.setattr(update, "windows_installed", lambda: False)
+    info = {"version": "9.9.9", "assets": {"appcast.xml": "https://example.com/appcast.xml"}}
+    assert update.appcast_entry(info) == {"url": "https://example.com/a.zip?x=1&y=2", "signature": "SIG=="}
+    assert update.appcast_entry(dict(info, version="9.9.8")) is None  # an old list: not yet published
+    assert update.appcast_entry({"version": "9.9.9", "assets": {}}) is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the installer script is Windows's")
+def test_windows_setup_runs_quietly_after_quit_and_reopens_only_when_asked(tmp_path):
+    import subprocess
+    from media_download import update
+    work = tmp_path / "work José"
+    work.mkdir()
+    out = tmp_path / "args.txt"
+    setup = work / "Wavelength-Setup.bat"
+    setup.write_text('@echo %%*> "%s"\r\n' % out, encoding="ascii")
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    (work / "relaunch").write_text("")
+    script, command = update.windows_setup_run(str(work), gone.pid, str(setup))
+    subprocess.run(command, timeout=120)
+    assert "/VERYSILENT" in out.read_text() and "/relaunch=1" in out.read_text()
+    assert not work.exists()
 
 
 def test_a_notice_waits_for_a_dialog_to_close_and_for_the_app_to_be_in_front(monkeypatch):
@@ -1216,3 +1315,61 @@ def test_several_sign_ins_merge_into_one_private_file(monkeypatch):
     accounts.clear_cookie_files()
     assert not [n for n in os.listdir(engine.TEMP) if n.startswith("signin-")]
     accounts.forget_own()
+
+
+# ---------------------------------------------------------------- 3.13.0
+
+def test_whole_list_links_name_themselves():
+    assert words.list_kind("https://www.youtube.com/playlist?list=PL1") == "YouTube Playlist"
+    assert words.list_kind("https://www.youtube.com/@crashcourse/videos") == "YouTube Channel"
+    assert words.list_kind("https://music.youtube.com/playlist?list=OLAK5") == "YouTube Music Playlist"
+    assert words.list_kind("https://soundcloud.com/someone/sets/live") == "SoundCloud Playlist"
+    assert words.list_kind("https://band.bandcamp.com/album/first") == "Bandcamp Album"
+    # One item, or one item inside a list (that still asks which you meant): no list named.
+    assert words.list_kind("https://www.youtube.com/watch?v=abc&list=PL1") == ""
+    assert words.list_kind("https://www.youtube.com/watch?v=abc") == ""
+    assert words.list_kind("https://soundcloud.com/someone/a-track") == ""
+    assert words.list_kind("not a link") == ""
+
+
+def test_the_same_source_however_it_is_written():
+    from media_download import history
+    k = history.source_key
+    assert k("https://www.youtube.com/watch?v=abc123&t=4") == k("https://youtu.be/abc123?si=x") == "youtube:abc123"
+    assert k("https://youtube.com/shorts/abc123") == "youtube:abc123"
+    assert k("https://x.com/a/?utm_source=y") == k("https://x.com/a")
+
+
+def test_already_in_the_folder_is_known_and_a_moved_file_is_not(tmp_path):
+    from media_download import history
+    f = tmp_path / "Song.m4a"
+    f.write_text("x")
+    job = Job(url="https://www.youtube.com/watch?v=abc", dest=str(tmp_path))
+    job.state = "done"
+    history.remember(job, [str(f)])
+    again = Job(url="https://youtu.be/abc", dest=str(tmp_path))
+    assert history.already(again) == [str(f)]
+    assert history.already(Job(url="https://youtu.be/abc", dest=str(tmp_path), kind="mp3")) == []  # another format
+    assert history.already(Job(url="https://youtu.be/abc", dest=str(tmp_path / "other"))) == []  # another folder
+    anyway = Job(url="https://youtu.be/abc", dest=str(tmp_path))
+    anyway.force = True
+    assert history.already(anyway) == []
+    f.unlink()
+    assert history.already(again) == []  # moved or deleted: download it again
+
+
+def test_a_second_download_of_the_same_thing_is_already_there(fake, monkeypatch, tmp_path):
+    m, _ = fake
+    monkeypatch.setenv("FAKE_STATE", str(tmp_path))
+    a = m.add(Job(url="https://ex.com/song", dest=str(tmp_path)))
+    assert wait(lambda: a.state == "done")
+    b = m.add(Job(url="https://ex.com/song", dest=str(tmp_path)))
+    assert wait(lambda: b.state == "skipped")
+    assert b.files == a.files and b.note == words.ALREADY_NOTE
+    m.retry(b)  # asked for by hand: downloaded again
+    assert wait(lambda: b.state == "done")
+
+
+def test_download_again_anyway_overwrites_with_a_fresh_copy():
+    assert "--force-overwrites" in options.download_args(dict(spec(), force=True))
+    assert "--force-overwrites" not in options.download_args(spec())

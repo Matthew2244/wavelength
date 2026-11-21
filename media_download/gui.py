@@ -106,6 +106,9 @@ class MainFrame(wx.Frame):
         self.seen_links = set()  # links already added or offered: the clipboard offer skips them
         self.offered = ""  # the link the offer put in the Link field, while it's still there untouched
         self.pending_playlists: list = []
+        self.whole_lists: set = set()
+        self.clip_named: set = set()  # clipboard downloads whose title is said once it's known  # added with "Download YouTube Playlist": all of it, no question
+        self.list_kind = ""  # what the Download button names now ("YouTube Playlist"), or ""
         self.asking = False
         self.update_info = None
         self.greeting = ""
@@ -278,6 +281,7 @@ class MainFrame(wx.Frame):
         self.play_btn.Bind(wx.EVT_BUTTON, lambda e: self.on_play())
         self.link.Bind(wx.EVT_TEXT_ENTER, self.on_download)
         self.link.Bind(wx.EVT_TEXT_PASTE, self.on_paste_into_link)
+        self.link.Bind(wx.EVT_TEXT, self._on_link_text)
         self.kind.Bind(wx.EVT_CHOICE, self.on_kind)
         self.height.Bind(wx.EVT_CHOICE, self.on_height)
         self.folder_btn.Bind(wx.EVT_BUTTON, self.on_folder)
@@ -378,6 +382,7 @@ class MainFrame(wx.Frame):
         # Command-Shift-Delete, beside Remove's Command-Delete: Command-K is the row's menu, and a
         # second K that clears the list was one key meaning two unrelated things.
         self._m(d, "&Clear Finished\tCtrl+Shift+Back", self.on_clear)
+        self._m(d, "Undo Clipboard Download\tCtrl+Shift+U", self.on_undo_clipboard)
         d.AppendSeparator()
         self._m(d, "Actions for the Selected Download...\tCtrl+K", lambda e: self.list._context_menu())
 
@@ -605,7 +610,37 @@ class MainFrame(wx.Frame):
         if do:
             do()
 
+    # ---- the menu bar / notification area (Settings, General, Start in the menu bar)
+    def set_tray(self, on: bool):
+        tray = getattr(self, "tray", None)
+        if on and tray is None:
+            try:
+                from .tray import Tray
+                self.tray = Tray(self)
+            except Exception:  # noqa: BLE001 - no tray on this system: the window is enough
+                self.tray = None
+        elif not on and tray is not None:
+            tray.RemoveIcon()
+            tray.Destroy()
+            self.tray = None
+
+    def show_from_tray(self):
+        self.on_to_main()
+        self.Raise()
+        if sys.platform == "darwin":
+            wx.GetApp().SetActive(True, self) if hasattr(wx.GetApp(), "SetActive") else None
+        self.link.SetFocus()
+
+    def download_from_tray(self):
+        self.on_paste_links(None)
+
+    def quit_from_tray(self):
+        self.Close()
+
     def on_to_main(self, _=None):
+        if not self.IsShown():  # hidden while the player is open, or started in the menu bar
+            self.Show()
+            self.hidden_for_player = [w for w in getattr(self, "hidden_for_player", []) if w is not self]
         self.Raise()
         self.list.SetFocus()
 
@@ -699,7 +734,7 @@ class MainFrame(wx.Frame):
         self.tell_in_window("Nothing added: the download folder isn't available.", "Okay")
         return False
 
-    def add_links(self, urls: list[str], source: str = "") -> int:
+    def add_links(self, urls: list[str], source: str = "", whole_list: bool = False, say: bool = True) -> int:
         if not urls:
             return 0
         self.seen_links.update(urls)  # never offered back from the clipboard once it's been added
@@ -712,7 +747,7 @@ class MainFrame(wx.Frame):
         with self.mgr.lock:
             pending = {(j.url, j.spec().get("kind"), j.start, j.end, j.format_id): j
                        for j in self.mgr.jobs if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")}
-        added, dupes = [], []
+        added, dupes, new_ids = [], [], []
         for u in urls:
             job = self._job_from_ui(u)
             key = (job.url, job.kind, job.start, job.end, job.format_id)
@@ -721,7 +756,10 @@ class MainFrame(wx.Frame):
                 continue
             pending[key] = job
             added.append(u)
+            if whole_list:
+                self.whole_lists.add(job.id)
             self.mgr.add(job)
+            new_ids.append(job.id)
         if dupes and not added:
             first = dupes[0]
             self.structure_changed = True
@@ -739,16 +777,35 @@ class MainFrame(wx.Frame):
             self._show_opts()
         self.structure_changed = True
         self.refresh()
-        if len(urls) == 1:
+        place = self.queue_place(new_ids)
+        if whole_list and len(urls) == 1:
+            text = "Added the whole %s. Looking it up." % words.list_kind(urls[0])
+        elif place:
+            text = "Added%s. %s" % (" from the " + source if source else "", place)
+        elif len(urls) == 1:
             text = "Added%s: %s. Looking it up." % (" from the " + source if source else "",
                                                     words.site_name(urls[0]) or words.short_link(urls[0]))
         else:
             text = "Added %s%s." % (words.n(len(urls), "link"), " from the " + source if source else "")
         if dupes:  # one sentence, not two in a row cutting each other off
             text += " %d %s already in the list." % (len(dupes), "was" if len(dupes) == 1 else "were")
-        self.tell(text)
+        if say:
+            self.tell(text)
         self._sound("added")
         return len(urls)
+
+    def queue_place(self, ids) -> str:
+        """Where new downloads stand when others are already going: "Download 4 of 6." (Matthew,
+        2026-11-20). Empty when nothing else is on the go."""
+        with self.mgr.lock:
+            queue = [j.id for j in self.mgr.jobs
+                     if j.state in ACTIVE or j.state in ("waiting", "waiting_choice")]
+        places = [queue.index(i) + 1 for i in ids if i in queue]
+        if not places or len(queue) <= len(places):
+            return ""
+        if len(places) == 1:
+            return "Download %d of %d." % (places[0], len(queue))
+        return "Downloads %d to %d of %d." % (min(places), max(places), len(queue))
 
     def add_from_text(self, text: str, source: str = ""):
         urls = words.links_in(text)
@@ -776,6 +833,36 @@ class MainFrame(wx.Frame):
         else:
             self.tell("No links found in that.")
 
+    def _on_link_text(self, event):
+        event.Skip()
+        t = getattr(self, "_label_call", None)
+        if t:
+            t.Stop()
+        self._label_call = wx.CallLater(300, self._sync_download_label)  # once typing pauses
+
+    def _sync_download_label(self):
+        """The Download button names a whole list when the Link field holds one: "Download YouTube
+        Playlist", "Download YouTube Channel" (Matthew, 2026-11-20). Said politely when it changes,
+        never when the field is simply emptied."""
+        if not self:
+            return
+        urls = words.links_in(self.link.GetValue())
+        kind = words.list_kind(urls[0]) if len(urls) == 1 else ""
+        if kind == self.list_kind:
+            return
+        self.list_kind = kind
+        label = "Download " + kind if kind else "Download"
+        base = "Dow&nload"  # the same Alt letter as the button was made with
+        self.download_btn.SetLabel(M(base + (" " + kind if kind else "")))
+        mac_accessibility_label(self.download_btn, label)
+        self.download_btn.SetToolTip(
+            ("Downloads every item in this %s, no questions asked. To choose items, paste a link to one of "
+             "them instead, or use Download Links from the Clipboard." % kind) if kind else
+            "Download the link in the Link field. %s in the field does the same." % ENTER)
+        self.download_btn.GetParent().Layout()
+        if kind or self.link.GetValue().strip():
+            self.tell("The button now says %s." % label, polite=True)
+
     def on_download(self, _):
         text = self.link.GetValue().strip()
         if not text:
@@ -787,8 +874,9 @@ class MainFrame(wx.Frame):
         if not urls:
             self.tell(words.NOT_A_LINK)  # the main window takes links; searching is Search's job
             return
+        whole = len(urls) == 1 and bool(words.list_kind(urls[0]))
         self.link.SetValue("")
-        self.add_links(urls)
+        self.add_links(urls, whole_list=whole)
 
     def on_paste_into_link(self, event):
         """Pasting several links into the field adds them all at once."""
@@ -1056,6 +1144,7 @@ class MainFrame(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             engine.save_settings(self.cfg)
             dialogs.speak_messages = bool(self.cfg.get("app_speak_messages", False))
+            self.set_tray(bool(self.cfg.get("app_start_in_tray")))
             now = accounts.join(b for b in accounts.chosen_browsers(self.cfg) if b not in before)
             if now:  # test each newly checked browser's sign-in once, off the main thread
                 threading.Thread(target=lambda: wx.CallAfter(self._signin_result, now, self.signin_readable(now)),
@@ -1081,6 +1170,8 @@ class MainFrame(wx.Frame):
             self.structure_changed = True
         elif job is not None:
             self.dirty.add(job.id)
+            if job.id in self.clip_named:
+                self._say_clipboard_title(job)
         if what == "finished":
             if job.task == "describe" and job.state == "done" and self.player is not None:
                 self.player.description_ready(job)
@@ -1088,8 +1179,12 @@ class MainFrame(wx.Frame):
             self.finished_buffer.append(job)
             wx.CallLater(1500, self._speak_finished)
         elif what == "playlist":
-            self.pending_playlists.append((job, data))
-            self._ask_next_playlist()
+            if job.id in self.whole_lists:
+                self.whole_lists.discard(job.id)
+                self._take_whole_list(job, data)
+            else:
+                self.pending_playlists.append((job, data))
+                self._ask_next_playlist()
         elif what == "all_done":
             self._all_done(data)
         elif what == "engine":
@@ -1155,7 +1250,7 @@ class MainFrame(wx.Frame):
         if done and not big:
             if len(done) == 1:
                 j = done[0]
-                bits.append(("Already here: %s." if j.state == "skipped" else "Done: %s.") % words.job_name(j))
+                bits.append(("Already in your folder: %s." if j.state == "skipped" else "Done: %s.") % words.job_name(j))
                 if j.note:
                     bits.append(j.note)
             else:
@@ -1277,6 +1372,17 @@ class MainFrame(wx.Frame):
             self.asking = False
             if self.pending_playlists:
                 wx.CallAfter(self._ask_next_playlist)
+
+    def _take_whole_list(self, job, data):
+        """Added with the button that named the list: every item, no question."""
+        entries = data.get("entries") or []
+        title = data.get("title") or "the list"
+        if not entries:
+            self.mgr.fail(job, "That playlist is empty, or its items couldn't be listed.")
+            return
+        self.mgr.expand(job, entries, title)
+        self.structure_changed = True
+        self.tell("Adding all %s from %s." % (words.n(len(entries), "item"), title), polite=True)
 
     def _ask_playlist(self, job, data):
         entries = data.get("entries") or []
@@ -1473,6 +1579,7 @@ class MainFrame(wx.Frame):
 
     def on_tick(self, _):
         self.refresh()
+        self._tick_clipboard_auto()
         if self.started:
             self._tick_updates()
             self._deliver_notice()
@@ -1520,6 +1627,29 @@ class MainFrame(wx.Frame):
         if focus:
             self.player.Raise()
             self.player.play_btn.SetFocus()
+            self.hide_for_player()
+
+    def hide_for_player(self):
+        """Settings, Playing: hide Wavelength's other windows while the player is open, so the
+        player is the only one to move through (Matthew, 2026-11-20). player_closed brings them back."""
+        if not self.cfg.get("app_hide_for_player") or self.player is None or not self.player.IsShown():
+            return
+        hidden = []
+        for w in (self, self.search_win):
+            if w and w.IsShown():
+                w.Hide()
+                hidden.append(w)
+        self.hidden_for_player = hidden + [w for w in getattr(self, "hidden_for_player", []) if w not in hidden]
+
+    def player_closed(self):
+        """The player closed: show whatever was hidden for it again. Returns the window to go back to."""
+        back = None
+        for w in getattr(self, "hidden_for_player", []):
+            if w:
+                w.Show()
+                back = back or w
+        self.hidden_for_player = []
+        return back
 
     def _want(self) -> str:
         return "video" if self._picks()[0] in ("video", "video_only") else "audio"
@@ -1916,6 +2046,8 @@ class MainFrame(wx.Frame):
             menus.item("Retry Using a Browser's Sign-in...", lambda: self.on_retry_signin(None),
                        job.state in ("failed", "stopped")),
             menus.item("Download Again As", again, job.url.startswith("http")),
+            menus.item("Download Again Anyway", lambda: self.download_anyway(job),
+                       job.state == "skipped" and job.url.startswith("http")),
             menus.SEP,
             menus.item("Open the Web Page", lambda: self.open_page(job.url), job.url.startswith("http")),
             menus.item("Copy Link", lambda: self.on_copy_link(None), True, "Ctrl+Shift+C"),
@@ -1933,6 +2065,7 @@ class MainFrame(wx.Frame):
             return
         new = self._job_from_ui(job.url)
         new.kind = kind
+        new.force = True  # asked for again on purpose: even if that format is in the folder already
         new.title, new.uploader, new.length = job.title, job.uploader, job.length
         new.upload_date, new.upload_ts, new.upload_approx, new.views = (job.upload_date, job.upload_ts,
                                                                       job.upload_approx, job.views)
@@ -1940,6 +2073,22 @@ class MainFrame(wx.Frame):
         self.structure_changed = True
         self.refresh()
         self.tell_after_change(self.list, "Added %s again, as %s." % (job.title or "it", words.FORMAT_SHORT.get(kind, kind)))
+        self._sound("added")
+
+    def download_anyway(self, job):
+        """Already in your folder, and wanted again all the same: the same download, fresh."""
+        if not self.folder_ready():
+            return
+        new = Job.from_dict(job.to_dict())
+        for k in ("state", "stage", "percent", "eta", "speed", "bytes_done", "files", "reason", "note",
+                  "log_tail", "finished", "info_file", "tmp", "run", "not_before", "wait_reason"):
+            setattr(new, k, getattr(Job(url="", dest=""), k))
+        new.state = "waiting" if job.probed else "looking"
+        new.force = True
+        self.mgr.add(new)
+        self.structure_changed = True
+        self.refresh()
+        self.tell_after_change(self.list, "Downloading %s again." % (job.title or "it"))
         self._sound("added")
 
     def open_page(self, url: str):
@@ -1965,7 +2114,7 @@ class MainFrame(wx.Frame):
         c = self.mgr.counts()
         order = [("downloading", "downloading"), ("converting", "finishing"), ("looking", "being looked up"),
                  ("waiting", "waiting"), ("waiting_choice", "waiting for your choice"), ("done", "done"),
-                 ("skipped", "already here"), ("failed", "failed"), ("stopped", "stopped")]
+                 ("skipped", "already in your folder"), ("failed", "failed"), ("stopped", "stopped")]
         with self.mgr.lock:
             active = [j for j in self.mgr.jobs if j.state in ("downloading", "converting")]
         named = []
@@ -2003,6 +2152,8 @@ class MainFrame(wx.Frame):
         if len(urls) != 1 or urls[0] == self.last_clip or text != urls[0] or urls[0] in self.seen_links:
             return
         url = urls[0]
+        if self.cfg.get("app_clipboard_auto") and not words.list_kind(url):
+            return  # downloaded by itself (_tick_clipboard_auto), not offered
         self.last_clip = url
         with self.mgr.lock:
             if any(j.url == url for j in self.mgr.jobs):
@@ -2016,6 +2167,79 @@ class MainFrame(wx.Frame):
             if names:
                 wx.CallAfter(self._offer, url)
         threading.Thread(target=work, daemon=True).start()
+
+    # ---- Settings, General: download supported links from the clipboard automatically
+    UNDO_FOR = 15  # seconds Undo Clipboard Download can take one back
+
+    def _tick_clipboard_auto(self):
+        if not self.cfg.get("app_clipboard_auto"):
+            self.clip_serial = None
+            return
+        serial = system.clipboard_serial()
+        if serial is None or serial == getattr(self, "clip_serial", None):
+            return
+        first = getattr(self, "clip_serial", None) is None
+        self.clip_serial = serial
+        if first:
+            return  # what was on the clipboard before the setting was on (or at launch) isn't new
+        text = self._clipboard_text().strip()
+        urls = words.links_in(text)
+        if len(urls) != 1 or text != urls[0]:
+            return
+        url = urls[0]
+        if url in self.seen_links or url in getattr(self, "clip_auto_seen", set()):
+            return  # never the same link twice
+        self.clip_auto_seen = getattr(self, "clip_auto_seen", set()) | {url}
+        with self.mgr.lock:
+            if any(j.url == url for j in self.mgr.jobs):
+                return
+        if words.list_kind(url):
+            return  # a whole list is never started by a copy: it's offered in the Link field as usual
+
+        def work():
+            names = []
+            run_task({"task": "recognise", "url": url},
+                     lambda ev: names.append(ev.get("name")) if ev.get("ev") == "recognised" else None,
+                     timeout=30)
+            if names:
+                wx.CallAfter(self._clipboard_auto_add, url)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _clipboard_auto_add(self, url):
+        if not self:
+            return
+        before = {j.id for j in self.mgr.jobs}
+        if not self.add_links([url], "clipboard", say=False):
+            return
+        new = [j for j in self.mgr.jobs if j.id not in before]
+        if not new:
+            return
+        job = new[0]
+        self.clip_undo = (job.id, time.time())
+        self.clip_named.add(job.id)  # said by title once it's looked up (_say_clipboard_title)
+        self._sound("added")
+
+    def _say_clipboard_title(self, job):
+        if job.id not in self.clip_named or not job.title or job.state not in ("waiting", "downloading", "converting"):
+            return
+        self.clip_named.discard(job.id)
+        self.clip_undo = (job.id, time.time())  # the Undo window runs from when it's heard
+        self.tell("Downloading from the clipboard: %s. %s takes it back." % (job.title, key_words("Ctrl+Shift+U")),
+                  polite=True)
+
+    def on_undo_clipboard(self, _=None):
+        jid, when = getattr(self, "clip_undo", (None, 0.0))
+        job = self.mgr.find(jid) if jid else None
+        if not job or time.time() - when > self.UNDO_FOR:
+            self.tell("Nothing to undo: Undo Clipboard Download works for %d seconds after one starts."
+                      % self.UNDO_FOR)
+            return
+        self.clip_undo = (None, 0.0)
+        self.mgr.stop(job)
+        self.mgr.remove(job)
+        self.structure_changed = True
+        self.refresh()
+        self.tell_after_change(self.list, "Taken back: %s." % words.job_name(job))
 
     def _link_free(self) -> bool:
         """The Link field is empty, or still holds an earlier offer nobody touched."""
@@ -2248,9 +2472,10 @@ class MainFrame(wx.Frame):
 
             def look():
                 info = update.latest()
-                if update.newer(info):
+                if update.ready(info):  # newer, and its signed download is published
                     wx.CallAfter(self._found_update, info)
             threading.Thread(target=look, daemon=True).start()
+        self._tick_auto_install()
         if now >= self.next_engine_check:
             self.next_engine_check = now + self.ENGINE_CHECK_EVERY
             if self.cfg.get("auto_update", True) and engine.engine_check_due():
@@ -2266,8 +2491,13 @@ class MainFrame(wx.Frame):
         brings Sparkle's (or the installer's) window with what's new."""
         self.update_info = info
         self._update_title()
+        if self.cfg.get("app_auto_install") and update.installed_app() and not update.staged():
+            self._stage_update(info)  # said when it's about to install, not now
+            return
         if self.ui.Read("told_update_version", "") == info["version"]:
             return
+        if self.ui.Read("skipped_version", "") == info["version"]:
+            return  # Skip This Version: only Check for App Updates offers it now
         self.ui.Write("told_update_version", info["version"])
         self.ui.Flush()
         self.notices.append(("update", "Wavelength %s is out. Help, Check for App Updates shows what's new "
@@ -2321,15 +2551,7 @@ class MainFrame(wx.Frame):
             self.tell(text)
 
     def on_check_updates(self, _):
-        if sparkle.check() or winsparkle.check():
-            # Their window says what it found; the update sound says it by ear as it opens.
-            def look():
-                info = update.latest()
-                if update.newer(info):
-                    wx.CallAfter(self._sound, "update")
-                    wx.CallAfter(self._mark_told, info)
-            threading.Thread(target=look, daemon=True).start()
-            return
+        """Help, Check for App Updates: what's new as a list, then Install Now, Later or Skip."""
         self.tell("Checking for a newer version. You have %s." % update.current_version())
         wx.Yield()
         info = update.latest()
@@ -2343,32 +2565,104 @@ class MainFrame(wx.Frame):
             self.tell("Version %s is available. This copy runs from Python: %s"
                       % (info["version"], update.how_to_update_source()))
             return
+        if update.staged():
+            self.tell("Version %s is downloaded and checked already. It installs when Wavelength quits."
+                      % info["version"])
+            return
+        if not update.ready(info):
+            self.tell("Version %s is still being published. Try again in a few minutes." % info["version"])
+            return
+        self.offer_update(info)
+
+    def offer_update(self, info):
         self._sound("update")
         self._mark_told(info)
-        busy = self.mgr.busy()
-        dlg = wx.MessageDialog(
-            self, "Version %s is available. You have %s.\n\nInstall it now? The app downloads it, checks it, "
-            "then closes and opens the new version.%s" % (
-                info["version"], update.current_version(),
-                " Downloads in progress stop and can be resumed after." if busy else ""),
-            "Update available", wx.OK | wx.CANCEL | wx.OK_DEFAULT | wx.ICON_INFORMATION)
-        # Exactly "Cancel": macOS gives Escape only to a button with that title.
-        dlg.SetOKCancelLabels("&Install", "Cancel")
-        go = dlg.ShowModal() == wx.ID_OK
+        dlg = dialogs.UpdateOffer(self, info["version"], update.current_version(),
+                                  update.notes_rows(info.get("notes", "")), busy=self.mgr.busy())
+        dlg.ShowModal()
+        choice = dlg.choice
         dlg.Destroy()
-        if not go:
+        if choice == "skip":
+            self.ui.Write("skipped_version", info["version"])
+            self.ui.Flush()
+            self.tell_in_window("Skipped %s. Help, Check for App Updates still has it." % info["version"], "Okay")
+            return
+        if choice != "install":
             self.tell_in_window("Not installed. It stays available in Help, Check for App Updates.", "Okay")
             return
         self.tell("Downloading version %s." % info["version"])
         wx.Yield()
         try:
-            said = update.install(info)
+            said = update.install(info, relaunch=True)
         except update.UpdateError as e:
-            self.tell("The update didn't install: %s." % e)
+            # Sparkle or WinSparkle can still do it their way (an app folder this account can't write).
+            if sparkle.check() or winsparkle.check():
+                self.tell("The update couldn't install here: %s. Opening the updater instead." % e)
+            else:
+                self.tell("The update didn't install: %s." % e)
             return
         self.tell(said + " Closing now.")
         self.force_close = True
         wx.CallLater(1500, self.Close)
+
+    # ---- Always update (Settings, General): fetched in the background, installed at a quiet moment
+    QUIET_FOR = 120  # seconds with no key or mouse before an update may close the app
+
+    def _stage_update(self, info):
+        if getattr(self, "_staging", False):
+            return
+        self._staging = True
+
+        def work():
+            try:
+                update.install(info, relaunch=False)  # waits for the app to quit; no reopening yet
+                wx.CallAfter(self._staged_update, info, None)
+            except update.UpdateError as e:
+                wx.CallAfter(self._staged_update, info, str(e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _staged_update(self, info, error):
+        self._staging = False
+        if error:
+            # Couldn't fetch it quietly: say it's out, the usual way, so it's never lost.
+            self.notices.append(("update", "Wavelength %s is out, but it couldn't download by itself: %s. "
+                                           "Help, Check for App Updates tries again." % (info["version"], error)))
+            return
+        self.staged_info = info
+
+    def update_moment(self) -> bool:
+        """A quiet moment to close and install: nothing downloading or playing, no window open but
+        this one, and nobody using the computer (or Wavelength isn't in front)."""
+        if self.mgr.busy() or self._modal_open():
+            return False
+        if self.player is not None and self.player.IsShown():
+            return False
+        if any(w is not self and w.IsShown() for w in wx.GetTopLevelWindows()):
+            return False
+        if wx.GetApp() and not wx.GetApp().IsActive():
+            return True
+        idle = system.idle_seconds()
+        return idle is not None and idle >= self.QUIET_FOR
+
+    def _tick_auto_install(self):
+        info = getattr(self, "staged_info", None)
+        if not info or getattr(self, "installing_now", False) or not update.staged():
+            return
+        if not self.cfg.get("app_auto_install") or not self.update_moment():
+            return
+        self.installing_now = True
+        self._sound("update")
+        self.tell("Wavelength %s is about to be installed. It opens again by itself in a moment." % info["version"],
+                  polite=True)
+
+        def go():
+            if self.mgr.busy() or self._modal_open() or (self.player is not None and self.player.IsShown()):
+                self.installing_now = False  # something started meanwhile: try again later
+                return
+            update.relaunch_after()
+            self.force_close = True
+            self.Close()
+        wx.CallLater(5000, go)
 
     def tally(self) -> str:
         st = self.cfg.get("app_stats") or {}
@@ -2429,6 +2723,7 @@ class MainFrame(wx.Frame):
         self._closing_sound()
         self.timer.Stop()
         self.hints.stop()
+        self.set_tray(False)
         keep_awake(False)
         self.mgr.shutdown()
         accounts.clear_cookie_files()  # the merged sign-ins only ever live while the app runs
@@ -2483,11 +2778,23 @@ class App(wx.App):
             except Exception:  # noqa: BLE001 - older Windows: stay light
                 pass
         self.frame = MainFrame()
-        self.frame.Show()
+        # Settings, General, Start in the menu bar: the window waits there until asked for. Never
+        # on a first run (the tour needs the window), and never when opened with a link.
+        quiet = (self.frame.cfg.get("app_start_in_tray") and self.frame.cfg.get("app_onboarded")
+                 and not any(a.startswith("http") for a in sys.argv[1:]))
+        if self.frame.cfg.get("app_start_in_tray"):
+            self.frame.set_tray(True)
+        if not quiet or getattr(self.frame, "tray", None) is None:
+            self.frame.Show()
         urls = [a for a in sys.argv[1:] if a.startswith("http")]
         if urls:
             self.frame.add_links(urls)
         return True
+
+    def MacReopenApp(self):
+        """The Dock icon clicked while the window waits in the menu bar: show it."""
+        if not self.frame.IsShown():
+            self.frame.show_from_tray()
 
     def MacOpenURL(self, url):
         self.frame.add_links([url])

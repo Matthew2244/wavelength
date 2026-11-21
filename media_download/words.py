@@ -22,6 +22,10 @@ def ordinal(n: int) -> str:
 
 
 SETTINGS_SAVED = "Settings saved."
+# A download that's already in the folder (history.py, or the engine finding the file): kept, not
+# downloaded again, and how to get a fresh copy anyway (Matthew, 2026-11-20).
+ALREADY_NOTE = ("It's already in your folder, so it wasn't downloaded again. Download Again Anyway, in this "
+                "row's actions, gets a fresh copy.")
 # Said after the focus is back in the field (gui.tell_at), so nothing cuts it off (Matthew, 2026-11-20).
 EMPTY_LINK = "The Link field is empty. Paste a link, then press %s again. You're back in the Link field."
 NOT_A_LINK = ("That isn't a link. To find things by words, press Search (%s-F); "
@@ -269,6 +273,49 @@ def site_name(url: str) -> str:
     if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in ("co", "com", "org", "net", "ac", "gov"):
         return ".".join(parts[-3:])
     return ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+
+def list_kind(url: str) -> str:
+    """What a whole-list link is, for the Download button: "YouTube Playlist", "YouTube Channel",
+    "SoundCloud Playlist", "Bandcamp Album"... or "" for a single item, or a video that's in a
+    playlist (that one still asks which you meant). Read from the link alone, at once, offline."""
+    try:
+        u = urllib.parse.urlparse((url or "").strip())
+    except ValueError:
+        return ""
+    host = (u.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = u.path.rstrip("/")
+    q = urllib.parse.parse_qs(u.query)
+    segs = [p for p in path.split("/") if p]
+    if host in ("youtube.com", "m.youtube.com", "music.youtube.com"):
+        name = "YouTube Music" if host == "music.youtube.com" else "YouTube"
+        if "list" in q and "v" not in q:
+            return name + " Playlist"
+        if host == "music.youtube.com" and path.startswith("/browse/MPREb"):
+            return name + " Album"
+        if segs and (segs[0].startswith("@") or segs[0] in ("channel", "c", "user")):
+            return name + " Channel"
+        return ""
+    if host in ("soundcloud.com", "m.soundcloud.com"):
+        if len(segs) >= 3 and segs[1] == "sets":
+            return "SoundCloud Playlist"
+        if len(segs) == 1 and segs[0] not in ("discover", "search", "stream", "upload", "you", "charts",
+                                               "signin", "pages", "terms-of-use"):
+            return "SoundCloud Profile"
+        if len(segs) == 2 and segs[1] in ("tracks", "albums", "sets", "popular-tracks", "reposts"):
+            return "SoundCloud Profile"
+        return ""
+    if host.endswith("bandcamp.com"):
+        if segs and segs[0] == "album":
+            return "Bandcamp Album"
+        if not segs or segs == ["music"]:
+            return "Bandcamp Discography" if host != "bandcamp.com" else ""
+        return ""
+    if host == "vimeo.com" and segs and segs[0] in ("showcase", "channels", "album"):
+        return "Vimeo Showcase" if segs[0] != "channels" else "Vimeo Channel"
+    return ""
 
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
@@ -533,7 +580,7 @@ STATE_WORDS = {
     "done": "Done",
     "failed": "Failed",
     "stopped": "Stopped",
-    "skipped": "Already here",
+    "skipped": "Already in your folder",
     "waiting_choice": "Needs your choice",
 }
 
@@ -584,7 +631,7 @@ def row_text(job) -> str:
             extra.append(size(job.bytes_done))
         return "Done: " + title + (", " + ", ".join(extra) if extra else "")
     if st == "skipped":
-        return "Already here: " + title
+        return "Already in your folder: " + title
     if st == "failed":
         return "Failed: %s. %s" % (title, job.reason or "")
     if st in ("waiting", "looking") and job.not_before:

@@ -498,6 +498,51 @@ def check_list_states(ctrl) -> None:
     windows_check_list_states(ctrl)
 
 
+def clipboard_serial() -> int | None:
+    """A number that changes whenever anything is copied, read without opening the clipboard
+    (opening it every second would get in other apps' way on Windows). None when unknown."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            return int(ctypes.windll.user32.GetClipboardSequenceNumber())
+        if sys.platform == "darwin":
+            ctypes, send = _objc_send()
+            import ctypes.util
+            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            objc.objc_getClass.restype = ctypes.c_void_p
+            objc.objc_getClass.argtypes = [ctypes.c_char_p]
+            ctypes.cdll.LoadLibrary("/System/Library/Frameworks/AppKit.framework/AppKit")
+            pb = send(objc.objc_getClass(b"NSPasteboard"), "generalPasteboard")
+            return int(send(pb, "changeCount", restype=ctypes.c_long))
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def idle_seconds() -> float | None:
+    """Seconds since the last key press or mouse move anywhere on this computer, or None when it
+    can't be told. Used to install an update only at a quiet moment."""
+    try:
+        import ctypes
+        if sys.platform == "darwin":
+            cg = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+            f = cg.CGEventSourceSecondsSinceLastEventType
+            f.restype = ctypes.c_double
+            f.argtypes = [ctypes.c_int, ctypes.c_uint32]
+            return float(f(1, 0xFFFFFFFF))  # combined session state, any input event
+        if sys.platform == "win32":
+            class LASTINPUTINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+            info = LASTINPUTINFO()
+            info.cbSize = ctypes.sizeof(info)
+            if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+                return None
+            return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 _vo_seen = [0.0, False]
 
 

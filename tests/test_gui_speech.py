@@ -6,10 +6,19 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+# Before anything from the app is imported: run on its own, this file would otherwise read and
+# write the real settings, list and sign-in (it did, 2026-11-20). A fresh folder each run.
+os.environ.setdefault("MEDIA_DOWNLOAD_TEST_DIR", __import__("tempfile").mkdtemp(prefix="wavelength-test-"))
 wx = pytest.importorskip("wx")
 
 from media_download import gui  # noqa: E402
 from media_download.jobs import Job  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _own_history(monkeypatch, tmp_path):
+    from media_download import history
+    monkeypatch.setattr(history, "PATH", str(tmp_path / "downloaded.json"))
 
 
 @pytest.fixture(scope="module")
@@ -1922,3 +1931,158 @@ def test_tour_last_step_offers_spoken_messages(frame, monkeypatch):
     a = gui.dialogs.Guide(frame, dict(frame.cfg), frame, "accounts")
     assert a.speak_msgs is None  # only the welcome tour asks
     a.Destroy()
+
+
+# ---------------------------------------------------------------- 3.13.0
+
+def test_update_offer_lists_each_change_and_answers(frame, monkeypatch):
+    monkeypatch.setattr(gui.dialogs, "_later", lambda ms, fn: None)
+    rows = ["Messages don't get cut off.", "Checklists say checked or unchecked."]
+    dlg = gui.dialogs.UpdateOffer(frame, "9.9.9", "3.13.0", rows)
+    assert [dlg.list.GetString(i) for i in range(dlg.list.GetCount())] == rows
+    assert dlg.list.GetSelection() == 0
+    assert [b.GetLabel() for b in (dlg.install, dlg.later, dlg.skip)] == ["Install Now", "Later", "Skip This Version"]
+    assert dlg.later.GetId() == wx.ID_CANCEL  # Escape is Later
+    ended = []
+    dlg.EndModal = ended.append
+    dlg._done("skip", wx.ID_CANCEL)
+    assert dlg.choice == "skip"
+    dlg.Destroy()
+
+
+def test_check_for_updates_offers_the_list_and_skip_is_kept(frame, monkeypatch):
+    from media_download import update
+    info = {"version": "99.0.0", "assets": {}, "notes": "- One.\n- Two."}
+    monkeypatch.setattr(update, "latest", lambda: info)
+    monkeypatch.setattr(update, "installed_app", lambda: "/Applications/Wavelength.app")
+    monkeypatch.setattr(update, "ready", lambda i: True)
+    monkeypatch.setattr(update, "staged", lambda: False)
+    monkeypatch.setattr(gui, "announce", lambda *a: None)
+    monkeypatch.setattr(frame, "_sound", lambda k: None)
+    seen = {}
+
+    class Fake:
+        def __init__(self, parent, version, have, rows, busy=False):
+            seen["rows"] = rows
+            self.choice = "skip"
+
+        def ShowModal(self):
+            return wx.ID_CANCEL
+
+        def Destroy(self):
+            pass
+    monkeypatch.setattr(gui.dialogs, "UpdateOffer", Fake)
+    frame.on_check_updates(None)
+    assert seen["rows"] == ["One.", "Two."]
+    assert frame.ui.Read("skipped_version", "") == "99.0.0"
+    frame.ui.Write("skipped_version", "")
+
+
+def test_download_button_names_a_whole_list(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t, *p: said.append(t))
+    frame.link.SetValue("https://www.youtube.com/playlist?list=PL123")
+    frame._sync_download_label()
+    assert frame.download_btn.GetLabel().replace("&", "") == "Download YouTube Playlist"
+    assert said == ["The button now says Download YouTube Playlist."]
+    frame._sync_download_label()  # nothing changed: nothing said
+    assert len(said) == 1
+    frame.link.SetValue("https://www.youtube.com/watch?v=abc")
+    frame._sync_download_label()
+    assert frame.download_btn.GetLabel().replace("&", "") == "Download"
+    frame.link.SetValue("")
+    frame._sync_download_label()
+    assert len(said) == 2  # emptied: back to Download, without a word
+    frame.list_kind = ""
+
+
+def test_a_named_list_is_added_whole_without_the_question(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t, *p: said.append(t))
+    expanded = []
+    monkeypatch.setattr(frame.mgr, "expand", lambda job, entries, title: expanded.append((job, len(entries), title)))
+    job = Job(url="https://www.youtube.com/playlist?list=PL1", dest="/tmp")
+    frame.whole_lists.add(job.id)
+    frame._on_manager(job, "playlist", {"entries": [{"url": "a"}, {"url": "b"}], "title": "Jazz"})
+    assert expanded == [(job, 2, "Jazz")] and not frame.pending_playlists
+    assert said[-1] == "Adding all 2 items from Jazz."
+
+
+def test_queue_place_is_said_when_others_are_going(frame, monkeypatch):
+    jobs = [Job(url="https://x.com/%d" % i, dest="/tmp") for i in range(6)]
+    for j, st in zip(jobs, ["downloading", "downloading", "waiting", "looking", "done", "waiting"]):
+        j.state = st
+    monkeypatch.setattr(frame.mgr, "jobs", jobs)
+    assert frame.queue_place([jobs[3].id]) == "Download 4 of 5."
+    assert frame.queue_place([jobs[3].id, jobs[5].id]) == "Downloads 4 to 5 of 5."
+    alone = [jobs[0]]
+    monkeypatch.setattr(frame.mgr, "jobs", alone)
+    assert frame.queue_place([jobs[0].id]) == ""  # nothing else going: no place to say
+
+
+def test_other_windows_hide_while_the_player_is_open(frame, monkeypatch):
+    shown = {frame: True}
+    monkeypatch.setattr(frame, "IsShown", lambda: shown[frame])
+    monkeypatch.setattr(frame, "Hide", lambda: shown.__setitem__(frame, False))
+    monkeypatch.setattr(frame, "Show", lambda show=True: shown.__setitem__(frame, show))
+    player = type("P", (), {"IsShown": lambda self: True})()
+    monkeypatch.setattr(frame, "player", player)
+    frame.cfg["app_hide_for_player"] = False
+    frame.hide_for_player()
+    assert shown[frame] is True  # off: nothing hides
+    frame.cfg["app_hide_for_player"] = True
+    try:
+        frame.hide_for_player()
+        assert shown[frame] is False
+        frame.player_closed()
+        assert shown[frame] is True
+    finally:
+        frame.cfg["app_hide_for_player"] = False
+
+
+def test_clipboard_downloads_once_by_itself_and_can_be_taken_back(frame, monkeypatch):
+    serial = [1]
+    monkeypatch.setattr(gui.system, "clipboard_serial", lambda: serial[0])
+    monkeypatch.setattr(frame, "_clipboard_text", lambda: "https://www.youtube.com/watch?v=clip1")
+    started = []
+    monkeypatch.setattr(gui.threading, "Thread", lambda target, daemon: type("T", (), {"start": lambda s: started.append(target)})())
+    frame.cfg["app_clipboard_auto"] = True
+    try:
+        frame.clip_serial = None
+        frame._tick_clipboard_auto()  # what was there already isn't new
+        assert started == []
+        serial[0] = 2
+        frame._tick_clipboard_auto()
+        assert len(started) == 1
+        frame._tick_clipboard_auto()  # nothing new copied
+        serial[0] = 3
+        frame._tick_clipboard_auto()  # the same link again: never twice
+        assert len(started) == 1
+        monkeypatch.setattr(frame, "_clipboard_text", lambda: "https://www.youtube.com/playlist?list=PL9")
+        serial[0] = 4
+        frame._tick_clipboard_auto()  # a whole list is never started by a copy
+        assert len(started) == 1
+    finally:
+        frame.cfg["app_clipboard_auto"] = False
+
+
+def test_undo_clipboard_download_only_soon_after(frame, monkeypatch):
+    said = []
+    monkeypatch.setattr(gui, "announce", lambda t, *p: said.append(t))
+    monkeypatch.setattr(gui.dialogs, "_later", lambda ms, fn: fn())
+    frame.clip_undo = (None, 0.0)
+    frame.on_undo_clipboard()
+    assert said[-1].startswith("Nothing to undo")
+
+
+def test_new_settings_are_saved(frame):
+    cfg = dict(frame.cfg)
+    dlg = gui.dialogs.Settings(frame, cfg, section="general")
+    for box in (dlg.auto_install, dlg.tray, dlg.clip_auto, dlg.hide_for_player):
+        assert box.GetValue() is False  # all off at first
+        box.SetValue(True)
+    dlg.EndModal = lambda code: None
+    dlg.on_ok(None)
+    assert all(dlg.cfg[k] is True for k in ("app_auto_install", "app_start_in_tray", "app_clipboard_auto",
+                                            "app_hide_for_player"))
+    dlg.Destroy()

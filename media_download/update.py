@@ -11,8 +11,10 @@ is told the command that updates it instead.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -28,7 +30,11 @@ API = f"https://api.github.com/repos/{REPO}/releases/latest"
 PAGE = f"https://github.com/{REPO}/releases/latest"
 MAC_ASSET = "Wavelength-mac.zip"
 WIN_ASSET = "Wavelength-windows.zip"
+WIN_SETUP = "Wavelength-Setup.exe"
 APP_NAME = "Wavelength"
+# The public half of the EdDSA key that signs every release (Sparkle's SUPublicEDKey and
+# WinSparkle's key are this same one): a download is installed only if its signature checks out.
+PUBLIC_KEY = "TJlHNK3idLU77+cj97Pwh4xeuvFhhIVm32CLFwN5Dz0="
 
 
 class UpdateError(Exception):
@@ -70,6 +76,92 @@ def latest() -> dict | None:
         "assets": {a["name"]: a["browser_download_url"] for a in data.get("assets", [])},
         "notes": data.get("body") or "",
     }
+
+
+def notes_rows(md: str) -> list[str]:
+    """The release notes as one row per change, for the update window's list: each "- " item is a
+    row, each paragraph is a row, Markdown's ** and ` are dropped (they'd be read aloud)."""
+    rows = []
+    for block in re.split(r"\n\s*\n", (md or "").strip()):
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        if any(ln.startswith(("- ", "* ")) for ln in lines):
+            item = []
+            for ln in lines:
+                if ln.startswith(("- ", "* ")):
+                    if item:
+                        rows.append(" ".join(item))
+                    item = [ln[2:]]
+                else:
+                    item.append(ln)  # a wrapped line of the same item
+            if item:
+                rows.append(" ".join(item))
+        else:
+            rows.append(" ".join(lines))
+    clean = []
+    for r in rows:
+        r = re.sub(r"\*\*([^*]+)\*\*", r"\1", r)
+        r = re.sub(r"`([^`]+)`", r"\1", r)
+        r = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", r)
+        if r.strip():
+            clean.append(r.strip())
+    return clean
+
+
+def windows_installed() -> bool:
+    """Installed with Wavelength-Setup.exe (so updated with the next one), not unzipped."""
+    if sys.platform != "win32":
+        return False
+    from . import winsparkle
+    return winsparkle.installed()
+
+
+def appcast_entry(info: dict, timeout: float = 15) -> dict | None:
+    """The signed entry for this system's download in the release's appcast: {"url", "signature"}.
+    None when the release has no appcast yet: CI attaches the builds first and the signed list
+    comes minutes later, and a build without its signature is never installed."""
+    name = "appcast-windows.xml" if windows_installed() else "appcast.xml"
+    url = info.get("assets", {}).get(name)
+    if not url:
+        return None
+    try:
+        with _get(url, timeout=timeout) as r:
+            xml = r.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    m = re.search(r"<enclosure\b[^>]*>", xml)
+    if not m:
+        return None
+    tag = m.group(0)
+    u = re.search(r'url="([^"]+)"', tag)
+    sig = re.search(r'sparkle:edSignature="([^"]+)"', tag)
+    v = re.search(r"<sparkle:shortVersionString>([^<]+)<", xml)
+    if not (u and sig) or (v and v.group(1).strip() != info.get("version")):
+        return None
+    return {"url": u.group(1).replace("&amp;", "&"), "signature": sig.group(1)}
+
+
+def signature_ok(path: str, signature_b64: str, key_b64: str = PUBLIC_KEY) -> bool:
+    """Ed25519 over the whole file, as Sparkle's sign_update makes it."""
+    try:
+        from Cryptodome.Signature import eddsa
+        key = eddsa.import_public_key(base64.b64decode(key_b64))
+        with open(path, "rb") as f:
+            data = f.read()
+        eddsa.new(key, "rfc8032").verify(data, base64.b64decode(signature_b64))
+        return True
+    except Exception:  # noqa: BLE001 - a bad signature, or no way to check one: not installed
+        return False
+
+
+def ready(info: dict | None) -> bool:
+    """Newer, and its signed download is published: worth offering."""
+    if not newer(info) or not installed_app():
+        return newer(info)
+    if sys.platform == "win32" and not windows_installed():
+        return True  # a zip copy: no signed list for the zip, the self-test is its check
+    return appcast_entry(info) is not None
 
 
 def newer(info: dict | None) -> bool:
@@ -133,7 +225,7 @@ def windows_swap(work: str, pid: int, new_app: str, target: str, relaunch: bool)
             ":wait\r\n"
             f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
             'robocopy "%~1" "%~2" /MIR /IS /IT /R:3 /W:1 /NFL /NDL /NJH /NJS >nul\r\n'
-            'if "%~3"=="1" start "" "%~2\\%~4"\r\n'
+            'if exist "%~5\\relaunch" start "" "%~2\\%~4"\r\n'
             'cd /d "%TEMP%"\r\n'
             'rmdir /s /q "%~5"\r\n'
         )
@@ -151,11 +243,8 @@ def install(info: dict, relaunch: bool = True) -> str:
     target = installed_app()
     if not target:
         raise UpdateError(f"this copy runs from Python, so update it with: {how_to_update_source()}")
-    from . import winsparkle
-    if winsparkle.installed():
-        # Copying a zip over an installed copy would leave Windows' uninstaller and updates behind.
-        raise UpdateError("this copy came from the installer, so get the new Wavelength-Setup.exe "
-                          "from the release page and run it")
+    if windows_installed():
+        return _install_setup(info, target, relaunch)
     parent = os.path.dirname(target)
     if not os.access(parent, os.W_OK) or not os.access(target, os.W_OK):
         raise UpdateError(f"there is no permission to replace the app in {parent}. Download it from {PAGE}")
@@ -164,11 +253,16 @@ def install(info: dict, relaunch: bool = True) -> str:
     if not url:
         raise UpdateError(f"the new release has no {asset}. Download it from {PAGE}")
 
+    entry = appcast_entry(info) if sys.platform == "darwin" else None
+    if sys.platform == "darwin" and not entry:
+        raise UpdateError("the new version's signed download isn't published yet. Try again in a few minutes")
     work = tempfile.mkdtemp(prefix="wavelength-update-")
     zpath = os.path.join(work, asset)
     try:
         with _get(url, timeout=120) as r, open(zpath, "wb") as f:
             shutil.copyfileobj(r, f)
+        if entry and not signature_ok(zpath, entry["signature"]):
+            raise UpdateError("the download's signature didn't match, so nothing was changed")
         new_dir = os.path.join(work, "new")
         if sys.platform == "darwin":
             # ditto keeps the bundle's symlinks and permissions; zipfile would not
@@ -206,8 +300,10 @@ def install(info: dict, relaunch: bool = True) -> str:
                 f'old="{target}.old-$$"\n'
                 f'mv "{target}" "$old" && mv "{new_app}" "{target}" && rm -rf "$old" || '
                 f'{{ [ -d "$old" ] && [ ! -d "{target}" ] && mv "$old" "{target}"; }}\n'
-                + (f'open "{target}"\n' if relaunch else "")
-                + f'rm -rf "{work}"\n'
+                # Opened again only when the app asked for that as it closed (relaunch_after):
+                # an update waiting for an ordinary quit must not bring the app back by itself.
+                f'[ -f "{work}/relaunch" ] && open "{target}"\n'
+                f'rm -rf "{work}"\n'
             )
         os.chmod(script, 0o755)
         subprocess.Popen(["/bin/sh", script], start_new_session=True,
@@ -216,4 +312,69 @@ def install(info: dict, relaunch: bool = True) -> str:
         script, command = windows_swap(work, pid, new_app, target, relaunch)
         subprocess.Popen(command, creationflags=0x00000008 | 0x00000200,  # detached, new group
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _staged["work"] = work
+    if relaunch:
+        relaunch_after()
     return f"Version {info['version']} is downloaded and checked. It replaces this one as soon as the app quits."
+
+
+_staged: dict = {"work": None}
+
+
+def staged() -> bool:
+    """A new version is downloaded, checked and waiting for this app to quit."""
+    return bool(_staged["work"]) and os.path.isdir(_staged["work"])
+
+
+def relaunch_after() -> None:
+    """Open the new version once the swap is done: said just before the app closes itself to
+    update. Without it an update waiting for an ordinary quit installs and stays closed."""
+    if staged():
+        open(os.path.join(_staged["work"], "relaunch"), "w").close()
+
+
+def _install_setup(info: dict, target: str, relaunch: bool) -> str:
+    """An installed Windows copy: fetch Wavelength-Setup.exe, check its signature, and run it
+    quietly once this app has quit (per-user, so no administrator prompt)."""
+    entry = appcast_entry(info)
+    if not entry:
+        raise UpdateError("the new version's signed installer isn't published yet. Try again in a few minutes")
+    work = tempfile.mkdtemp(prefix="wavelength-update-")
+    setup = os.path.join(work, WIN_SETUP)
+    try:
+        with _get(entry["url"], timeout=300) as r, open(setup, "wb") as f:
+            shutil.copyfileobj(r, f)
+        if not signature_ok(setup, entry["signature"]):
+            raise UpdateError("the installer's signature didn't match, so nothing was changed")
+    except UpdateError:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    except Exception as e:
+        shutil.rmtree(work, ignore_errors=True)
+        raise UpdateError(f"the download did not complete ({e}). Nothing was changed") from e
+    script, command = windows_setup_run(work, os.getpid(), setup)
+    subprocess.Popen(command, creationflags=0x00000008 | 0x00000200,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _staged["work"] = work
+    if relaunch:
+        relaunch_after()
+    return f"Version {info['version']} is downloaded and checked. It installs as soon as the app quits."
+
+
+def windows_setup_run(work: str, pid: int, setup: str) -> tuple[str, str]:
+    """The script that waits for this app to quit, then runs the installer quietly. The
+    installer opens the app again only when the relaunch marker is there (/relaunch=1)."""
+    script = os.path.join(work, "install.bat")
+    with open(script, "w", encoding="ascii", newline="") as f:
+        f.write(
+            "@echo off\r\n"
+            ":wait\r\n"
+            f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
+            'set R=0\r\n'
+            'if exist "%~2\\relaunch" set R=1\r\n'
+            '"%~1" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /relaunch=%R%\r\n'
+            'cd /d "%TEMP%"\r\n'
+            'rmdir /s /q "%~2"\r\n'
+        )
+    command = 'cmd /s /c ""%s" "%s" "%s""' % (script, setup, work)
+    return script, command

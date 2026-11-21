@@ -128,6 +128,9 @@ def download_args(spec: dict, fragments: int = 4) -> list[str]:
             "--no-playlist", "--no-mtime",  # the file's date is the day you got it, so it sorts to the top
             "--retries", "10", "--fragment-retries", "10"]
     args += selector(spec)
+    if spec.get("force"):
+        # Download Again Anyway: a fresh copy even where the engine finds the file already there.
+        args += ["--force-overwrites"]
     kind = spec.get("kind", "best")
     fid = spec.get("format_id")
     if fid:

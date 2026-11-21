@@ -26,9 +26,13 @@ args = [
     "--collect-all", "curl_cffi",
     # The app's own finish and fail sounds (system.sound_file).
     "--add-data", os.path.join("assets", "sounds") + os.pathsep + os.path.join("assets", "sounds"),
+    # The menu bar / notification area icon (tray.py).
+    "--add-data", os.path.join("assets", "icon.png") + os.pathsep + "assets",
     "--hidden-import", "media_download.gui", "--hidden-import", "media_download.worker",
     "--hidden-import", "media_download.selftest",
     "--hidden-import", "media_download.signin", "--hidden-import", "wx.html2",
+    # Checking each update's EdDSA signature before installing it (update.signature_ok).
+    "--hidden-import", "Cryptodome.Signature.eddsa", "--hidden-import", "Cryptodome.PublicKey.ECC",
 ]
 if sys.platform == "win32":
     from build_app_support import winsparkle_dll

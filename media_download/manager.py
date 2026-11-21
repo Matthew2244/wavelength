@@ -318,6 +318,7 @@ class Manager:
             self.site_pause.pop(job.site, None)  # asked for by hand: don't keep making them wait
             job.state = "waiting" if job.probed else "looking"
             job.finished = 0.0
+            job.retried = True  # asked for by hand: done again even if it's in the folder already
             if self.batch_started is None:
                 self.batch_started = time.time()
                 self.batch_counts = {"done": 0, "failed": 0}
@@ -581,6 +582,7 @@ class Manager:
                         job.info_time = time.time()
                         job.bytes_total = ev.get("size") or 0
                         job.formats = ev.get("formats") or []
+                        job.source_id = ev.get("source_id") or job.source_id
                 elif e == "playlist":
                     playlist = ev
                 elif e == "log":
@@ -623,8 +625,34 @@ class Manager:
             self.listener(job, "changed" if stopped or ok else "finished")
         self.pump()
 
+    def _already_there(self, job: Job, run: int) -> bool:
+        """Already in the folder from an earlier download (history.py): finish as "skipped" with
+        its files, without downloading. Download Again Anyway (job.force) gets past this."""
+        from . import history
+        there = history.already(job) if job.task == "download" and not getattr(job, "retried", False) else []
+        if not there:
+            return False
+        with self.lock:
+            if job.run != run or job.state not in ACTIVE:
+                return True
+            self._release(job, run)
+            job.state = "skipped"
+            job.files = there
+            job.finished = time.time()
+            job.percent = 100.0
+            job.stage = ""
+            job.note = words.ALREADY_NOTE
+            self.batch_counts["done"] += 1
+            self.dirty = True
+        self.listener(job, "finished")
+        self.pump()
+        return True
+
     def _run_download(self, job: Job, run: int) -> None:
+        if self._already_there(job, run):
+            return
         log, files, ok, already = [], [], False, False
+        done_files = []
         spec = job.spec()
         spec["rate_limit"] = self.settings.get("app_rate_limit") or ""
         task = {"task": job.task or "download", "spec": spec,
@@ -696,6 +724,8 @@ class Manager:
                             job.note = "It has no captions, so there's no transcript."
                         self._drop_temp(job)
                         job.state = "skipped" if already and not files else "done"
+                        if job.state == "skipped":
+                            job.note = words.ALREADY_NOTE
                         job.stage = ""
                         job.percent = 100.0
                         if files:
@@ -704,6 +734,7 @@ class Manager:
                             except OSError:
                                 pass
                         self.batch_counts["done"] += 1
+                        done_files = list(job.files)
                     elif self._without_signin(job, "\n".join(log)) or self._try_later(job, "\n".join(log)):
                         job.state = "waiting"
                         job.stage = ""
@@ -728,6 +759,9 @@ class Manager:
         if retry_engine:
             self._update_engine_then_retry(job)
             return
+        if ok and mine and job.state == "done":
+            from . import history
+            history.remember(job, done_files or job.files)
         if mine:
             self.listener(job, "finished")
         self.pump()

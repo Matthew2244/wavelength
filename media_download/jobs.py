@@ -35,6 +35,8 @@ class Job:
     item_title: str = ""
     extra: str = ""
     cover_art: bool = True
+    force: bool = False          # Download Again Anyway: even if it's already in the folder
+    source_id: str = ""          # the site's own id ("youtube:abc123"), once looked up
     task: str = "download"       # or "describe": make audio description
     source_path: str = ""        # describe: a downloaded video to read, instead of fetching one
 
@@ -145,5 +147,5 @@ class Job:
         """What a worker needs to run this download."""
         keys = ("url", "dest", "kind", "max_height", "format_id", "format_audio_only", "start", "end",
                 "chapters", "subtitles", "transcript", "cookies", "subfolder", "index", "name", "item_title", "extra", "cover_art", "tmp", "task", "source_path", "title",
-                "info_file", "info_time")
+                "info_file", "info_time", "force")
         return {k: getattr(self, k) for k in keys}

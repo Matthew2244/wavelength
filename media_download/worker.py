@@ -323,6 +323,7 @@ def do_probe(yt_dlp, task):
     emit("info", title=info.get("title") or "", duration=info.get("duration") or 0,
          uploader=info.get("uploader") or info.get("channel") or info.get("artist") or "",
          site=info.get("extractor_key") or "", info_file=path, size=est, **when(info),
+         source_id=("%s:%s" % (info.get("extractor_key"), info.get("id"))).lower() if info.get("id") else "",
          formats=[{"id": str(f.get("format_id")), "words": words.describe_format(f),
                    "audio_only": not (f.get("vcodec") and f.get("vcodec") != "none")}
                   for f in words.choosable(info)])
